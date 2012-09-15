@@ -1,0 +1,36 @@
+{
+  "require_client": true, 
+  "require_attributes": true, 
+  "listusers_permit": [], 
+  "listattributes_permit": [], 
+  "manageusers_permit": [], 
+  "manageattributes_permit": [], 
+
+  "session_expiration_minutes": 30, 
+  "def_passwd_len": 10, 
+  "hash_passwd_reps": 1000,
+
+  "sessionids_provider": "webcookie", 
+  "sessionstates_provider": null, 
+  "clients_provider": null, 
+  "attributes_provider": null, 
+
+  "handler_uri_usersession": null, 
+
+  "web_cookie_name": "webauthn2", 
+  "web_cookie_path": "/", 
+  "web_cookie_secure": true, 
+  "setheader": false, 
+
+  "database_schema": "webauthn2", 
+  "database_type": "postgres", 
+  "database_name": "", 
+  "database_max_retries": 5, 
+
+  "crowd_home_uri": null, 
+  "crowd_app_name": null, 
+  "crowd_app_passwd": null, 
+  "crowd_max_retries": 5, 
+  "crowd_listusers_scope": [],
+  "crowd_listgroups_scope": []
+}

@@ -1,0 +1,9 @@
+
+# Recipes for Fedora 15+
+
+$(PREINSTALL):
+	yum -y --skip-broken install postgresql{,-devel,-server} || true
+	yum -y --skip-broken install python{,-psycopg2,-webpy,-dateutil,-json,-simplejson,-httplib2} pytz || true
+	mkdir -p $(VARLIBDIR)
+	touch $(PREINSTALL)
+
