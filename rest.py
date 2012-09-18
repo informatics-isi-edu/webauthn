@@ -155,7 +155,7 @@ class RestHandlerFactory (object):
                     self.context = Context(self.manager, False, db)
 
                     if self.context.session or self.context.client:
-                        raise web.Conflict('login conflicts with current client authentication state')
+                        raise web.Conflict('Login request conflicts with current client authentication state.')
 
                     self.context.session = Session()
 
@@ -238,6 +238,10 @@ class RestHandlerFactory (object):
                     self._db_wrapper(db_body)
 
                 # just report on current session status
+
+                # do not include sessionids since we don't want to enable
+                # any XSS attack where a hidden cookie can be turned into an 
+                # explicit session token by an untrusted AJAX client lib...?
                 now = datetime.datetime.now(pytz.timezone('UTC'))
                 response = dict(
                     client=self.context.client,
