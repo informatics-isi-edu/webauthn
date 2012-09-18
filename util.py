@@ -9,6 +9,7 @@ import math
 import random
 import time
 import itertools
+import os
 
 try:
     import simplejson
@@ -41,6 +42,54 @@ def jsonWriter(o):
             return o
 
     return jsonWriterRaw( munge(o) )
+
+def merge_config(overrides=None, defaults=None, jsonFileName='webauthn2_config.json', built_ins={}):
+    """
+    Construct web.storage config result from inputs.
+
+    The configuration parameters are obtained in descending order
+    of preference from these sources:
+
+    1. overrides[key]               only if overrides != None
+    2. defaults[key]                only if defaults != None
+    3. webauthn2_config.json[key]   only if defaults == None and jsonFileName is a readable file
+    4. built_ins[key]
+
+    The built-in defaults (4) are safe and harmless, using the
+    'null' providers and requiring authentication context that
+    these providers will never receive.  Thus, the properly
+    written application service will not function until a better
+    configuration is chosen.
+
+    The application can suppress any built-in defaults (4) by
+    including all relevant settings in (1)-(3).
+
+    The application can suppress use of the JSON config file (3)
+    in the service home directory by passing a dictionary as
+    defaults (even if the dictionary is empty).
+    
+    """
+    if defaults == None:
+        try:
+            homedir = os.environ.get('HOME', './')
+            fname = '%s/%s' % (homedir, jsonFileName)
+            f = open(fname)
+            s = f.read()
+            f.close()
+            defaults = jsonReader(s)
+            if type(defaults) != dict:
+                raise TypeError('%r' % defaults)
+        except:
+            defaults = {}
+
+    config = web.storage()
+    config.update(built_ins)
+    if defaults:
+        config.update(defaults)
+    if overrides:
+        config.update(overrides)
+    return config
+    
 
 def string_wrap(s, escape='\\', protect=[]):
     s = s.replace(escape, escape + escape)

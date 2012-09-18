@@ -27,6 +27,7 @@ import manager
 from rest import RestHandlerFactory
 
 from manager import *
+from util import *
 
 __doc__ += manager.__doc__ + rest.__doc__
 
@@ -35,5 +36,16 @@ __all__ = [
     'Manager',
     'Context',
     'nullmanager',
-    'config_built_ins'
+    'config_built_ins',
+    'jsonReader',
+    'jsonWriter',
+    'jsonFileReader',
+    'merge_config',
+    'sql_literal',
+    'sql_identifier',
+    'urlquote',
+    'urlunquote',
+    'BadRequest',
+    'PooledConnection',
+    'DatabaseConnection'
     ]

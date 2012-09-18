@@ -199,25 +199,7 @@ class Manager (util.DatabaseConnection):
         defaults (even if the dictionary is empty).
 
         """
-        if defaults == None:
-            try:
-                homedir = os.environ.get('HOME', './')
-                fname = '%s/webauthn2_config.json' % homedir
-                f = open(fname)
-                s = f.read()
-                f.close()
-                defaults = jsonReader(s)
-                if type(defaults) != dict:
-                    raise TypeError('%r' % defaults)
-            except:
-                defaults = {}
-
-        config = web.storage()
-        config.update(config_built_ins)
-        if defaults:
-            config.update(defaults)
-        if overrides:
-            config.update(overrides)
+        config = util.merge_config(overrides, defaults, built_ins=config_built_ins)
 
         util.DatabaseConnection.__init__(self, config)
 
@@ -268,14 +250,4 @@ class Manager (util.DatabaseConnection):
         return c
        
 nullmanager = Manager()
-
-test_crowd_manager = Manager(dict(    
-        sessionids_provider='webcookie',
-        sessionstates_provider='database',
-        clients_provider='crowd2',
-        attributes_provider='crowd2',
-        crowd_home_uri= 'https://crowd.misd.isi.edu:8445/crowd/',
-        crowd_app_name= 'tagfiler-dev',
-        crowd_app_passwd= 'zoIF9gD7'
-        ))
 
