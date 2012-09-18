@@ -101,7 +101,7 @@ class Context (object):
 
     """
 
-    def __init__(self, manager, setheader, db):
+    def __init__(self, manager=None, setheader=False, db=None):
         """
         Construct one Context instance using the manager and setheader policy as needed.
 
@@ -113,30 +113,31 @@ class Context (object):
         self.client = None
         self.attributes = set()
 
-        # look for existing session ID context in message
-        if manager.sessionids:
-            sessionids = manager.sessionids.get_request_sessionids(manager, self, db)
-        else:
-            sessionids = set()
+        if manager:
+            # look for existing session ID context in message
+            if manager.sessionids:
+                sessionids = manager.sessionids.get_request_sessionids(manager, self, db)
+            else:
+                sessionids = set()
 
-        if sessionids:
-            # look up existing session data for discovered IDs
-            if manager.sessions:
-                manager.sessions.set_msg_context(manager, self, sessionids, db)
+            if sessionids:
+                # look up existing session data for discovered IDs
+                if manager.sessions:
+                    manager.sessions.set_msg_context(manager, self, sessionids, db)
 
-        if manager.clients.msgauthn:
-            # look for embedded client identity
-            oldclient = self.client
-            manager.clients.msgauthn.set_msg_context(manager, self, db)
+            if manager.clients.msgauthn:
+                # look for embedded client identity
+                oldclient = self.client
+                manager.clients.msgauthn.set_msg_context(manager, self, db)
 
-            if oldclient != self.client and manager.attributes.client:
-                # update attributes for newly modified client ID
-                self.attributes = set()
-                manager.attributes.client.set_msg_context(manager, self, db)
+                if oldclient != self.client and manager.attributes.client:
+                    # update attributes for newly modified client ID
+                    self.attributes = set()
+                    manager.attributes.client.set_msg_context(manager, self, db)
 
-        if manager.attributes.msgauthn:
-            # look for embedded client attributes
-            manager.attributes.msgauthn.set_msg_context(manager, self, db)
+            if manager.attributes.msgauthn:
+                # look for embedded client attributes
+                manager.attributes.msgauthn.set_msg_context(manager, self, db)
 
 
     def __repr__(self):
