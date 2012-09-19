@@ -305,7 +305,7 @@ class ClientSearch (ProviderInterface):
         database connection as needed.
 
         """
-        if self.provider._is_authorized(context, self.provider.listusers_permit):
+        if is_authorized(context, self.provider.listusers_permit):
             # allowed
             return self.get_all_clients_noauthz(manager, context, db)
         else:
@@ -327,14 +327,14 @@ class ClientManage (ProviderInterface):
         raise NotImplementedError()
 
     def create(self, manager, context, clientname, db=None):
-        if self.provider._is_authorized(context, self.provider.manageusers_permit):
-            return self.create_noauthz(self, manager, context, clientname, db)
+        if is_authorized(context, self.provider.manageusers_permit):
+            return self.create_noauthz(manager, context, clientname, db)
         else:
             raise ValueError('unauthorized')
 
     def delete(self, manager, context, clientname, db=None):
-        if self.provider._is_authorized(context, self.provider.manageusers_permit):
-            return self.delete_noauthz(self, manager, context, clientname, db)
+        if is_authorized(context, self.provider.manageusers_permit):
+            return self.delete_noauthz(manager, context, clientname, db)
         else:
             raise ValueError('unauthorized')
 
@@ -353,18 +353,18 @@ class ClientPasswd (ProviderInterface):
         raise NotImplementedError()
     
     def create(self, manager, context, clientname, password=None, oldpasswd=None, db=None):
-        if self.provider._is_authorized(context, self.provider.manageusers_permit):
-            return self.create_noauthz(self, manager, context, clientname, password, oldpasswd, db)
+        if is_authorized(context, self.provider.manageusers_permit):
+            return self.create_noauthz(manager, context, clientname, password, oldpasswd, db)
         elif context.client == clientname and oldpasswd:
-            return self.create_noauthz(self, manager, context, clientname, password, oldpasswd, db)
+            return self.create_noauthz(manager, context, clientname, password, oldpasswd, db)
         else:
             raise ValueError('unauthorized')
 
     def delete(self, manager, context, clientname, oldpasswd=None, db=None):
-        if self.provider._is_authorized(context, self.provider.manageusers_permit):
-            return self.delete_noauthz(self, manager, context, clientname, oldpasswd, db)
+        if is_authorized(context, self.provider.manageusers_permit):
+            return self.delete_noauthz(manager, context, clientname, oldpasswd, db)
         elif context.client == clientname:
-            return self.delete_noauthz(self, manager, context, clientname, oldpasswd, db)
+            return self.delete_noauthz(manager, context, clientname, oldpasswd, db)
         else:
             raise ValueError('unauthorized')
     
@@ -451,9 +451,9 @@ class AttributeSearch (ProviderInterface):
         Return set of all available attributes or None if not allowed.
 
         """
-        if self.provider._is_authorized(context, self.provider.listattributes_permit):
+        if is_authorized(context, self.provider.listattributes_permit):
             # allowed
-            if uncludeclients and manager.clients.search:
+            if includeclients and manager.clients.search:
                 clientnames = manager.clients.get_all_clients(manager, context, db)
             else:
                 clientnames = None
@@ -481,14 +481,14 @@ class AttributeManage (ProviderInterface):
         raise NotImplementedError()
 
     def create(self, manager, context, attributename, db=None):
-        if self.provider._is_authorized(context, self.provider.manageattributes_permit):
-            return self.create_noauthz(self, manager, context, attributename, db)
+        if is_authorized(context, self.provider.manageattributes_permit):
+            return self.create_noauthz(manager, context, attributename, db)
         else:
             raise ValueError('unauthorized')
 
     def delete(self, manager, context, attributename, db=None):
-        if self.provider._is_authorized(context, self.provider.manageattributes_permit):
-            return self.delete_noauthz(self, manager, context, attributename, db)
+        if is_authorized(context, self.provider.manageattributes_permit):
+            return self.delete_noauthz(manager, context, attributename, db)
         else:
             raise ValueError('unauthorized')
 
@@ -510,20 +510,20 @@ class AttributeAssign (ProviderInterface):
         raise NotImplementedError()
 
     def list(self, manager, context, clientname, db=None):
-        if self.provider._is_authorized(context, self.provider.manageattributes_permit):
-            return self.list_noauthz(self, manager, context, clientname, db)
+        if is_authorized(context, self.provider.manageattributes_permit):
+            return self.list_noauthz(manager, context, clientname, db)
         else:
             raise ValueError('unauthorized')
 
     def create(self, manager, context, attributename, clientname, db=None):
-        if self.provider._is_authorized(context, self.provider.manageattributes_permit):
-            return self.create_noauthz(self, manager, context, attributename, clientname, db)
+        if is_authorized(context, self.provider.manageattributes_permit):
+            return self.create_noauthz(manager, context, attributename, clientname, db)
         else:
             raise ValueError('unauthorized')
 
     def delete(self, manager, context, attributename, clientname, db=None):
-        if self.provider._is_authorized(context, self.provider.manageattributes_permit):
-            return self.delete_noauthz(self, manager, context, attributename, clientname, db)
+        if is_authorized(context, self.provider.manageattributes_permit):
+            return self.delete_noauthz(manager, context, attributename, clientname, db)
         else:
             raise ValueError('unauthorized')
 
@@ -553,20 +553,20 @@ class AttributeNest (ProviderInterface):
         raise NotImplementedError()
 
     def list(self, manager, context, childname, db=None):
-        if self.provider._is_authorized(context, self.provider.manageattributes_permit):
-            return self.list_noauthz(self, manager, context, childname, db)
+        if is_authorized(context, self.provider.manageattributes_permit):
+            return self.list_noauthz(manager, context, childname, db)
         else:
             raise ValueError('unauthorized')
 
     def create(self, manager, context, parentname, childname, db=None):
-        if self.provider._is_authorized(context, self.provider.manageattributes_permit):
-            return self.create_noauthz(self, manager, context, parentname, childname, db)
+        if is_authorized(context, self.provider.manageattributes_permit):
+            return self.create_noauthz(manager, context, parentname, childname, db)
         else:
             raise ValueError('unauthorized')
 
     def delete(self, manager, context, parentname, childname, db=None):
-        if self.provider._is_authorized(context, self.provider.manageattributes_permit):
-            return self.delete_noauthz(self, manager, context, parentname, childname, db)
+        if is_authorized(context, self.provider.manageattributes_permit):
+            return self.delete_noauthz(manager, context, parentname, childname, db)
         else:
             raise ValueError('unauthorized')
 

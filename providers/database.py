@@ -395,7 +395,7 @@ class DatabaseClientSearch (ClientSearch):
     def __init__(self, provider):
         ClientSearch.__init__(self, provider)
 
-    def get_all_clients_noauthz(self, manager, context):
+    def get_all_clients_noauthz(self, manager, context, db=None):
         """
         Return set of all available client identifiers.
 
@@ -445,18 +445,6 @@ class DatabaseLogin (ClientLogin):
         else:
             return self.provider._db_wrapper(db_body)
         
-class DatabaseClientSearch (ClientSearch):
-
-    def __init__(self, provider):
-        ClientSearch.__init__(self, provider)
-
-    def get_all_clients_noauthz(self, manager, context):
-        """
-        Return set of all available client identifiers.
-
-        """
-        raise NotImplementedError()
-
 class DatabaseClientManage (ClientManage):
 
     def __init__(self, provider):
