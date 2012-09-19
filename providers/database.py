@@ -132,7 +132,6 @@ WHERE u.username = %(uname)s
         if len(results) > 0:
             return results[0]
         else:
-            web.debug('no password entry for %s' % clientname)
             return None
 
     def _session(self, db, sessionids):
@@ -185,13 +184,11 @@ SELECT * FROM %(atable)s WHERE attribute = %(aname)s ;
 SELECT * 
 FROM %(uatable)s ua
 JOIN %(atable)s a USING (aid)
-JOIN %(utable)s u USING (uid)
 WHERE a.attribute = %(aname)s 
-  AND u.username = %(uname)s ;
+  AND ua.username = %(uname)s ;
 """
                            % dict(uatable=self._table('userattribute'),
                                   atable=self._table('attribute'),
-                                  utable=self._table('user'),
                                   aname=sql_literal(attributename),
                                   uname=sql_literal(clientname))
                            )
@@ -626,6 +623,21 @@ CREATE TABLE %(ptable)s (
                                 ptable=self._table('password'))
                          )
 
+            if self._table_exists(db, 'usersummary'):
+                db.query('DROP VIEW %s' % self._table('usersummary'))
+
+            db.query("""
+CREATE VIEW %(summary)s AS
+  SELECT *
+  FROM %(utable)s u
+  LEFT OUTER JOIN %(ptable)s p USING (uid) ;
+;
+"""
+                         % dict(utable=self._table('user'),
+                                ptable=self._table('password'),
+                                summary=self._table('usersummary'))
+                         )
+
         if db:
             return db_body(db)
         else:
@@ -653,11 +665,9 @@ class DatabaseAttributeClient (AttributeClient):
 SELECT a.attribute AS attribute
 FROM %(uatable)s ua 
 JOIN %(atable)s a USING (aid)
-JOIN %(utable)s u USING (uid)
-WHERE u.username = %(uname)s ;
+WHERE ua.username = %(uname)s ;
 """
                                    % dict(uatable=self.provider._table('userattribute'),
-                                          utable=self.provider._table('user'),
                                           atable=self.provider._table('attribute'),
                                           uname=sql_literal(context.client))
                                 ):
@@ -674,7 +684,6 @@ WHERE c.attribute IN ( %(attrs)s )
   AND p.attribute NOT IN ( %(attrs)s ) ;
 """
                                    % dict(natable=self.provider._table('nestedattribute'),
-                                          utable=self.provider._table('user'),
                                           atable=self.provider._table('attribute'),
                                           attrs=','.join([ sql_literal(a) for a in context.attributes ]))
                                    )
@@ -756,6 +765,26 @@ class DatabaseAttributeAssign (AttributeAssign):
     def __init__(self, provider):
         AttributeAssign.__init__(self, provider)
 
+    def list_noauthz(self, manager, context, clientname, db=None):
+        def db_body(db):
+            results = db.query("""
+SELECT a.attribute AS attribute
+FROM %(uatable)s ua
+JOIN %(atable)s a USING (aid)
+WHERE ua.username = %(uname)s ;
+"""
+                               % dict(uatable=self.provider._table('userattribute'),
+                                      atable=self.provider._table('attribute'),
+                                      uname=sql_literal(clientname))
+                               )
+
+            return [ r.attribute for r in results ]
+
+        if db:
+            return db_body(db)
+        else:
+            return self.provider._db_wrapper(db_body)
+
     def create_noauthz(self, manager, context, attributename, clientname, db=None):
         def db_body(db):
             if self.provider._attribute_assigned(db, attributename, clientname):
@@ -764,17 +793,12 @@ class DatabaseAttributeAssign (AttributeAssign):
             if not self.provider._attribute_exists(db, attributename):
                 raise KeyError('attribute %s' % attributename)
 
-            if not self.provider._client_exists(db, clientname):
-                raise KeyError('user %s' % clientname)
-
             results = db.query("""
-INSERT INTO %(uatable)s (aid, uid)
-  SELECT (SELECT aid FROM %(atable)s WHERE attribute = %(aname)s),
-         (SELECT uid FROM %(utable)s WHERE username = %(uname)s) ;
+INSERT INTO %(uatable)s (aid, username)
+  SELECT (SELECT aid FROM %(atable)s WHERE attribute = %(aname)s), %(uname)s ;
 """
                                % dict(uatable=self.provider._table('userattribute'),
                                       atable=self.provider._table('attribute'),
-                                      utable=self.provider._table('user'),
                                       aname=sql_literal(attributename),
                                       uname=sql_literal(clientname))
                                )
@@ -789,23 +813,18 @@ INSERT INTO %(uatable)s (aid, uid)
             if not self.provider._attribute_exists(db, attributename):
                 raise KeyError('attribute %s' % attributename)
 
-            if not self.provider._client_exists(db, clientname):
-                raise KeyError('user %s' % clientname)
-
             if not self.provider._attribute_assigned(db, attributename, clientname):
-                raise KeyError(attributename)
+                raise KeyError('attribute %s on client %s' % (attributename, clientname))
 
             results = db.query("""
 DELETE FROM %(uatable)s ua
-USING %(atable)s a, %(utable)s u
+USING %(atable)s a
 WHERE a.attribute = %(aname)s 
-  AND u.username = %(uname)s
-  AND ua.aid = a.aid
-  AND ua.uid = u.uid ;
+  AND ua.username = %(uname)s
+  AND ua.aid = a.aid ;
 """
                                % dict(uatable=self.provider._table('userattribute'),
                                       atable=self.provider._table('attribute'),
-                                      utable=self.provider._table('user'),
                                       aname=sql_literal(attributename),
                                       uname=sql_literal(clientname))
                                )
@@ -820,6 +839,31 @@ class DatabaseAttributeNest (AttributeNest):
 
     def __init__(self, provider):
         AttributeNest.__init__(self, provider)
+
+    def list_noauthz(self, manager, context, childname, db=None):
+        def db_body(db):
+            if not self.provider._attribute_exists(db, childname):
+                raise KeyError('attribute %s' % childname)
+
+            results = db.query("""
+SELECT p.attribute AS attribute
+FROM %(aatable)s na
+JOIN %(atable)s p ON (na.parent = p.aid)
+JOIN %(atable)s c ON (na.child = c.aid)
+WHERE c.attribute = %(cname)s;
+"""
+                               % dict(aatable=self.provider._table('nestedattribute'),
+                                      atable=self.provider._table('attribute'),
+                                      cname=sql_literal(childname))
+                               )
+
+
+            return [ r.attribute for r in results ]
+
+        if db:
+            return db_body(db)
+        else:
+            return self.provider._db_wrapper(db_body)
 
     def create_noauthz(self, manager, context, parentname, childname, db=None):
         def db_body(db):
@@ -864,8 +908,8 @@ DELETE FROM %(aatable)s na
 USING %(atable)s p, %(atable)s c
 WHERE p.attribute = %(pname)s 
   AND c.attribute = %(cname)s
-  AND aa.parent = p.aid
-  AND aa.child = c.aid ;
+  AND na.parent = p.aid
+  AND na.child = c.aid ;
 """
                                % dict(aatable=self.provider._table('nestedattribute'),
                                       atable=self.provider._table('attribute'),
@@ -912,13 +956,12 @@ CREATE TABLE %(atable)s (
             if not self._table_exists(db, 'userattribute'):
                 db.query("""
 CREATE TABLE %(uatable)s (
-  uid int REFERENCES %(utable)s (uid),
+  username text,
   aid int REFERENCES %(atable)s (aid),
-  UNIQUE (uid, aid)
+  UNIQUE (username, aid)
 );
 """
-                         % dict(utable=self._table('user'),
-                                atable=self._table('attribute'),
+                         % dict(atable=self._table('attribute'),
                                 uatable=self._table('userattribute'))
                          )
 
@@ -948,11 +991,11 @@ CREATE VIEW %(summary)s AS
   ), 
 
   tua2 AS (
-    SELECT ua.uid AS uid, array_agg(DISTINCT a.attribute) AS attributes
+    SELECT ua.username AS username, array_agg(DISTINCT a.attribute) AS attributes
     FROM %(uatable)s AS ua 
     JOIN taa ON (ua.aid = taa.aid)
     JOIN %(atable)s AS a ON (taa.taid = a.aid)
-    GROUP BY ua.uid
+    GROUP BY ua.username
   ), 
 
   taa2 AS (
@@ -970,20 +1013,19 @@ CREATE VIEW %(summary)s AS
   ), 
 
   ua2 AS (
-    SELECT ua.uid, array_agg(DISTINCT a.attribute) AS attributes 
+    SELECT ua.username, array_agg(DISTINCT a.attribute) AS attributes 
     FROM %(uatable)s AS ua
     JOIN %(atable)s AS a ON (ua.aid = a.aid)
-    GROUP BY ua.uid
+    GROUP BY ua.username
   )
 
   SELECT 
-    u.username AS name,
+    ua2.username AS name,
     'client' AS type,
     ua2.attributes AS direct_attributes,
     tua2.attributes AS all_attributes
-  FROM %(utable)s u
-  LEFT OUTER JOIN ua2 ON (u.uid = ua2.uid)
-  LEFT OUTER JOIN tua2 ON (u.uid = tua2.uid)
+  FROM ua2
+  LEFT OUTER JOIN tua2 ON (ua2.username = tua2.username)
 
 UNION
 
@@ -998,36 +1040,12 @@ UNION
 
 ;
 """
-                         % dict(utable=self._table('user'),
-                                atable=self._table('attribute'),
+                         % dict(atable=self._table('attribute'),
                                 uatable=self._table('userattribute'),
                                 aatable=self._table('nestedattribute'),
                                 summary=self._table('attributesummary'))
                          )
 
-            if self._view_exists(db, 'usersummary'):
-                db.query("DROP VIEW %s" % self._table('usersummary'))
-
-            db.query("""
-CREATE VIEW %(usummary)s AS
-  SELECT
-    u.username AS username,
-    CASE WHEN p.pwhash IS NOT NULL THEN p.pwhash || ' ' || p.salthex || ' ' || CAST(p.reps AS text)
-         ELSE NULL::text
-    END AS passwd,
-    asum.all_attributes AS all_attributes
-  FROM %(utable)s AS u
-  LEFT OUTER JOIN %(ptable)s AS p ON (u.uid = p.uid)
-  LEFT OUTER JOIN %(asummary)s AS asum ON (u.username = asum.name AND asum.type = 'client') ;
-"""
-                     % dict(usummary=self._table('usersummary'),
-                            asummary=self._table('attributesummary'),
-                            utable=self._table('user'),
-                            ptable=self._table('password')
-                            )
-                     )
-
-            
 
         if db:
             return db_body(db)
