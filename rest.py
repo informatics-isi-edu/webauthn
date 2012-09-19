@@ -859,12 +859,15 @@ class RestHandlerFactory (object):
                 else:
                     attrs = set()
 
+                if not self.manager.attributes.assign:
+                    raise web.NoMethod()
+
                 def db_body(db):
                     self.context = Context(self.manager, False, db)
 
                     for attr in attrs:
                         try:
-                            self.manager.attributes.manage.delete(self.manager,
+                            self.manager.attributes.assign.delete(self.manager,
                                                                   self.context,
                                                                   attr,
                                                                   userid,
