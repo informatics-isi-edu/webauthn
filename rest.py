@@ -630,7 +630,7 @@ class RestHandlerFactory (object):
                     if not attrs:
                         # request without attrs means list all attrs
                         response = list(self.manager.attributes.search.get_all_attributes(self.manager, self.context, db, False))
-                    elif attrs.difference( self.context.attributes and self.context.attributes or set() ):
+                    elif self.manager.attributes.search:
                         # request with attrs means list only specific attrs
                         allattrs = set(self.manager.attributes.search.get_all_attributes(self.manager, self.context, db, False))
                         if attrs.difference( allattrs ):
@@ -638,6 +638,7 @@ class RestHandlerFactory (object):
                         response = list(attrs)
                     else:
                         # request with attrs subsetting self.context.attributes can be answered without search API
+                        # we would have already raised Conflict above if it wasn't a proper subset
                         response = list(attrs)
 
                     return response
@@ -769,12 +770,13 @@ class RestHandlerFactory (object):
                 def db_body(db):
                     self.context = Context(self.manager, False, db)
 
-                    if userid != self.context.client:
-                        if not self.manager.attributes.assign:
+                    if not self.manager.attributes.assign:
+                        if userid != self.context.client:
                             raise web.Conflict('Server does not support listing of other user attributes.')
-                        allattrs = self.manager.attributes.assign.list(self.manager, self.context, userid, db)
-                    else:
+                        # fall back behavior only if provider API isn't available
                         allattrs = self.context.attributes
+                    else:
+                        allattrs = self.manager.attributes.assign.list(self.manager, self.context, userid, db)
     
                     if not attrs:
                         # request without attrs means list all of user's attrs
