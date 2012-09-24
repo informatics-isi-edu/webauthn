@@ -113,6 +113,10 @@ def hash_password(password, salthex=None, reps=1000):
 
 class DatabaseConnection2 (DatabaseConnection):
 
+    # this is the storage format version, not the software version
+    major = 1
+    minor = 0
+
     def __init__(self, config):
         DatabaseConnection.__init__(self, config)
 
@@ -226,6 +230,64 @@ WHERE c.attribute = %(cname)s
                            )
         return len(results) > 0
 
+    def deploy_upgrade(self, db, versioninfo):
+        """
+        Upgrade database storage format to current version with tri-state response.
+
+        Results:
+           True:  database was upgraded
+           None:  no upgrade was necessary
+           False: upgrade not possible, data incompatible
+
+        """
+        if versioninfo.major != self.major or versioninfo.minor != self.minor:
+            return False
+        else:
+            return None
+
+    def deploy_guard(self, db, suffix=''):
+        """
+        Atomic test and set deployed version info with optional suffix for version storage.
+
+        Override this method if the derived class can do something
+        better than an exact version equality test, such as in-place
+        upgrades.
+
+        """
+        if not self._table_exists(db, 'webauthn2_version' + suffix):
+            db.query("""
+CREATE VIEW %(version)s AS
+  SELECT %(major)s::int AS major, %(minor)s::int AS minor;
+"""
+                     % dict(version=self._table('webauthn2_version' + suffix),
+                            major=sql_literal(self.major),
+                            minor=sql_literal(self.minor))
+                     )
+
+        else:
+            results = db.query("SELECT * FROM %s" % self._table('webauthn2_version' + suffix))
+
+            if len(results) != 1:
+                raise TypeError('Unexpected version info format in %s' % self._table('webauthn2_version' + suffix))
+
+            versioninfo = results[0]
+
+            test_result = self.deploy_upgrade(db, versioninfo)
+
+            if test_result == False:
+                raise ValueError('Incompatible %s == %s.' % (self._table('webauthn2_version' + suffix), versioninfo))
+
+            elif test_result == True:
+                db.query("""
+DROP VIEW %(version)s;
+CREATE VIEW %(version)s AS
+  SELECT 2 AS major, 0 AS minor;
+"""
+                         % dict(version=self._table('webauthn2_version' + suffix),
+                                major=sql_literal(self.major),
+                                minor=sql_literal(self.minor))
+                         )
+    
     def deploy(self, db=None):
         """
         Deploy custom schema if necessary.
@@ -247,6 +309,10 @@ CREATE SCHEMA %(schema)s ;
 class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
 
     key = 'database'
+
+    # data storage format version
+    major = 1
+    minor = 0
 
     def __init__(self, config):
         SessionStateProvider(config)
@@ -400,6 +466,8 @@ CREATE TABLE %(stable)s (
 """
                          % dict(stable=self._table('session'))
                          )
+
+            self.deploy_guard(db, '_session')
 
         if db:
             return db_body(db)
@@ -585,6 +653,10 @@ WHERE u.username = %(uname)s
 class DatabaseClientProvider (ClientProvider, DatabaseConnection2):
 
     key = 'database'
+    
+    # data storage format version
+    major = 1
+    minor = 0
 
     def __init__(self, config):
         ClientProvider.__init__(self, config)
@@ -596,6 +668,37 @@ class DatabaseClientProvider (ClientProvider, DatabaseConnection2):
         self.manage = DatabaseClientManage(self)
         self.passwd = DatabaseClientPasswd(self)
 
+    def deploy_views(self, db):
+        if self._table_exists(db, 'usersummary'):
+            db.query('DROP VIEW %s' % self._table('usersummary'))
+
+        db.query("""
+CREATE VIEW %(summary)s AS
+  SELECT *
+  FROM %(utable)s u
+  LEFT OUTER JOIN %(ptable)s p USING (uid) ;
+;
+"""
+                 % dict(utable=self._table('user'),
+                        ptable=self._table('password'),
+                        summary=self._table('usersummary'))
+                 )
+
+    def deploy_upgrade(self, db, versioninfo):
+        """
+        Conditionally upgrade provider state.
+
+        """
+        if versioninfo.major == self.major and versioninfo.minor == self.minor:
+            # nothing to do
+            return None
+        elif versioninfo.major == self.major and versioninfo.minor < self.minor:
+            # minor updates only change the helper view definitions but not the tables?
+            self.deploy_views(db)
+            return True
+        else:
+            return False
+
     def deploy(self, db=None):
         """
         Deploy initial provider state.
@@ -603,8 +706,10 @@ class DatabaseClientProvider (ClientProvider, DatabaseConnection2):
         """
         def db_body(db):
             DatabaseConnection2.deploy(self)
-            
+            tables_added = False
+
             if not self._table_exists(db, 'user'):
+                tables_added = True
                 db.query("""
 CREATE TABLE %(utable)s (
   uid serial PRIMARY KEY,
@@ -615,6 +720,7 @@ CREATE TABLE %(utable)s (
                          )
 
             if not self._table_exists(db, 'password'):
+                tables_added = True
                 db.query("""
 CREATE TABLE %(ptable)s (
   uid int PRIMARY KEY REFERENCES %(utable)s (uid),
@@ -627,20 +733,10 @@ CREATE TABLE %(ptable)s (
                                 ptable=self._table('password'))
                          )
 
-            if self._table_exists(db, 'usersummary'):
-                db.query('DROP VIEW %s' % self._table('usersummary'))
+            self.deploy_guard(db, '_client')
 
-            db.query("""
-CREATE VIEW %(summary)s AS
-  SELECT *
-  FROM %(utable)s u
-  LEFT OUTER JOIN %(ptable)s p USING (uid) ;
-;
-"""
-                         % dict(utable=self._table('user'),
-                                ptable=self._table('password'),
-                                summary=self._table('usersummary'))
-                         )
+            if tables_added:
+                self.deploy_views(db)
 
         if db:
             return db_body(db)
@@ -930,6 +1026,10 @@ class DatabaseAttributeProvider (AttributeProvider, DatabaseConnection2):
 
     key = 'database'
 
+    # data storage format version
+    major = 1
+    minor = 0
+
     def __init__(self, config):
         AttributeProvider.__init__(self, config)
         DatabaseConnection2.__init__(self, config)
@@ -939,52 +1039,11 @@ class DatabaseAttributeProvider (AttributeProvider, DatabaseConnection2):
         self.assign = DatabaseAttributeAssign(self)
         self.nest   = DatabaseAttributeNest(self)
     
-    def deploy(self, db=None):
-        """
-        Deploy initial provider state.
+    def deploy_views(self, db):
+        if self._table_exists(db, 'attributesummary'):
+            db.query("DROP VIEW %s" % self._table('attributesummary'))
 
-        """
-        def db_body(db):
-            DatabaseConnection2.deploy(self)
-
-            if not self._table_exists(db, 'attribute'):
-                db.query("""
-CREATE TABLE %(atable)s (
-  aid serial PRIMARY KEY,
-  attribute text UNIQUE
-);
-"""
-                         % dict(atable=self._table('attribute'))
-                         )
-
-            if not self._table_exists(db, 'userattribute'):
-                db.query("""
-CREATE TABLE %(uatable)s (
-  username text,
-  aid int REFERENCES %(atable)s (aid),
-  UNIQUE (username, aid)
-);
-"""
-                         % dict(atable=self._table('attribute'),
-                                uatable=self._table('userattribute'))
-                         )
-
-            if not self._table_exists(db, 'nestedattribute'):
-                db.query("""
-CREATE TABLE %(aatable)s (
-  child int REFERENCES %(atable)s (aid),
-  parent int REFERENCES %(atable)s (aid),
-  UNIQUE (child, parent)
-);
-"""
-                         % dict(atable=self._table('attribute'),
-                                aatable=self._table('nestedattribute'))
-                         )
-
-            if self._table_exists(db, 'attributesummary'):
-                db.query("DROP VIEW %s" % self._table('attributesummary'))
-
-            db.query("""
+        db.query("""
 CREATE VIEW %(summary)s AS
   WITH RECURSIVE taa(aid, taid) AS (
       SELECT aid, aid FROM %(atable)s
@@ -1044,13 +1103,78 @@ UNION
 
 ;
 """
-                         % dict(atable=self._table('attribute'),
-                                uatable=self._table('userattribute'),
-                                aatable=self._table('nestedattribute'),
-                                summary=self._table('attributesummary'))
+                 % dict(atable=self._table('attribute'),
+                        uatable=self._table('userattribute'),
+                        aatable=self._table('nestedattribute'),
+                        summary=self._table('attributesummary'))
+                 )
+
+    def deploy_upgrade(self, db, versioninfo):
+        """
+        Conditionally upgrade provider state.
+
+        """
+        if versioninfo.major == self.major and versioninfo.minor == self.minor:
+            # nothing to do
+            return None
+        elif versioninfo.major == self.major and versioninfo.minor < self.minor:
+            # minor updates only change the helper view definitions but not the tables?
+            self.deploy_views(db)
+            return True
+        else:
+            return False
+
+    def deploy(self, db=None):
+        """
+        Deploy initial provider state.
+
+        """
+        def db_body(db):
+            DatabaseConnection2.deploy(self)
+            tables_added = False
+
+            if not self._table_exists(db, 'attribute'):
+                tables_added = True
+                db.query("""
+CREATE TABLE %(atable)s (
+  aid serial PRIMARY KEY,
+  attribute text UNIQUE
+);
+"""
+                         % dict(atable=self._table('attribute'))
                          )
 
+            if not self._table_exists(db, 'userattribute'):
+                tables_added = True
+                db.query("""
+CREATE TABLE %(uatable)s (
+  username text,
+  aid int REFERENCES %(atable)s (aid),
+  UNIQUE (username, aid)
+);
+"""
+                         % dict(atable=self._table('attribute'),
+                                uatable=self._table('userattribute'))
+                         )
 
+            if not self._table_exists(db, 'nestedattribute'):
+                tables_added = True
+                db.query("""
+CREATE TABLE %(aatable)s (
+  child int REFERENCES %(atable)s (aid),
+  parent int REFERENCES %(atable)s (aid),
+  UNIQUE (child, parent)
+);
+"""
+                         % dict(atable=self._table('attribute'),
+                                aatable=self._table('nestedattribute'))
+                         )
+
+            self.deploy_guard(db, '_attribute')
+
+            if tables_added:
+                self.deploy_views(db)
+            
         if db:
             return db_body(db)
         else:
