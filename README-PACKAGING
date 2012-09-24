@@ -1,0 +1,67 @@
+
+Overview
+---------------------------
+
+Our approach to software installation and packaging is to assume a
+native packaged version is the preferrable means of getting software
+onto an end-user system.  The experience should be roughly:
+
+  1. install dependencies via native package tool
+
+  2. install webauthn2 package
+
+  3. install/deploy some application that uses webauthn2
+
+The first two steps might be merged with a smarter native
+package/repository tool.
+
+Because webauthn2 is just a library used by other applications and
+services, there is no "deployment" step for the library itself.
+Instead, the dependent software must import webauthn2, provide a set
+of configuration values, instantiate a Manager object, and run the
+Manager.deploy() method if using any database providers.
+
+
+Makefile driven installation
+----------------------------
+
+The Makefile is a developer or packager tool to help create the proper
+file layout on disk as a prerequisite to packaging, testing, etc.
+
+
+Logical Installation Layout
+----------------------------
+
+${PYTHONLIBDIR}/site-packages/webauthn2/
+  -- Python module
+
+${SHARE}/webauthn2/webauthn2_config.json
+  -- Example configuration input
+
+${VARLIB}/webauthn2/...
+  -- predeploy.rXYZ marker used only by Makefile installations
+
+
+RHEL/CentOS Layout and Issues
+----------------------------
+
+-- distribute our own web.py package?
+   -- web.py prerequisite not available in standard repos for CentOS 6.x
+   -- web.py 0.32 exists on Fedora <=16 and CentOS 5.x as python-webpy RPM
+   -- web.py 0.36 exists on Fedora >=17
+   -- upstream web.py 0.36 has a bug that needs patching
+
+-- SELinux needs some booleans set to allow our functions in a web service
+   -- database access from WSGI app
+   -- access to daemon home directory for default JSON config input
+   -- the exact booleans vary between releases
+
+
+CentOS 6.x:
+
+  PYTHONLIBDIR=/usr/lib/python2.6
+  SHARE=/usr/share
+  VARLIB=/var/lib
+
+
+

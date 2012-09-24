@@ -1,3 +1,4 @@
+
 # 
 # Copyright 2012 University of Southern California
 # 
@@ -18,7 +19,7 @@ Webauthn2 web app security context management system.
 
 """
 
-__version__ = "0.32"
+__version__ = "2.0"
 __license__ = "Apache License, Version 2.0"
 
 import rest
