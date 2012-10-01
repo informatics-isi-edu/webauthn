@@ -181,7 +181,7 @@ ORDER BY expires DESC ;
     def _client_passwd_matches(self, db, clientname, passwd):
         row = self._client_passwd(db, clientname)
         if row == None:
-            raise KeyError(username)
+            raise KeyError(clientname)
 
         inhash, salthex, reps = hash_password(passwd, row.salthex, row.reps)
 
