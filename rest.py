@@ -188,7 +188,7 @@ class RestHandlerFactory (object):
                         self.context.client = self.manager.clients.login.login(self.manager, self.context, db, **storage)
                     except (KeyError, ValueError), ev:
                         # we don't reveal detailed reason for failed login
-                        raise web.Forbidden('session establishment for given parameters (%s)'
+                        raise web.Forbidden('session establishment for given parameters (%s) forbidden'
                                             % ', '.join(self.manager.clients.login.login_keywords(True)))
 
                     if self.manager.attributes.client:
@@ -223,7 +223,7 @@ class RestHandlerFactory (object):
                     raise web.NoMethod()
 
                 if not self.context.session:
-                    raise web.Forbidden('unauthenticated session access')
+                    raise web.Forbidden('unauthenticated session access forbidden')
 
                 if sessionids:
                     # format is /key,... so unpack
@@ -231,7 +231,7 @@ class RestHandlerFactory (object):
 
                     for uri_key in sessionids:
                         if uri_key not in self.context.session.keys:
-                            raise web.Forbidden('third-party session access for key "%s"' % uri_key)
+                            raise web.Forbidden('third-party session access for key "%s" forbidden' % uri_key)
                         
             def GET(self, sessionids, db=None):
                 """
@@ -397,7 +397,7 @@ class RestHandlerFactory (object):
                             # this is only raised by password provider if authorized
                             raise web.NotFound('user "%s"' % userid)
                         except ValueError, ev:
-                            raise web.Forbidden('update of password for user "%s"' % userid)
+                            raise web.Forbidden('update of password for user "%s" forbidden' % userid)
                     return new_passwords
         
                 response = jsonWriter(self._db_wrapper(db_body))
@@ -444,7 +444,7 @@ class RestHandlerFactory (object):
                             # this is only raised by password provider if authorized
                             raise web.NotFound('user "%s"' % uri_key)
                         except ValueError, ev:
-                            raise web.Forbidden('delete of password for user "%s"' % uri_key)
+                            raise web.Forbidden('delete of password for user "%s" forbidden' % uri_key)
     
                 self._db_wrapper(db_body)
                 if 'env' in web.ctx:
@@ -558,7 +558,7 @@ class RestHandlerFactory (object):
                                                                userid,
                                                                db)
                         except ValueError, ev:
-                            raise web.Forbidden('creation of client identity')
+                            raise web.Forbidden('creation of client identity forbidden')
 
                     return list(userids)
         
@@ -597,7 +597,7 @@ class RestHandlerFactory (object):
                             # this is only raised by password provider if authorized
                             raise web.NotFound('user "%s"' % userid)
                         except ValueError, ev:
-                            raise web.Forbidden('delete of client identity')
+                            raise web.Forbidden('delete of client identity forbidden')
     
                 self._db_wrapper(db_body)
                 if 'env' in web.ctx:
@@ -666,7 +666,7 @@ class RestHandlerFactory (object):
                 try:
                     response = jsonWriter( self._db_wrapper(db_body) )
                 except ValueError:
-                    raise web.Forbidden('listing of other attributes')
+                    raise web.Forbidden('listing of other attributes forbidden')
 
                 if 'env' in web.ctx:
                     web.ctx.status = '200 OK'
@@ -706,7 +706,7 @@ class RestHandlerFactory (object):
                                                                   attr,
                                                                   db)
                         except ValueError, ev:
-                            raise web.Forbidden('creation of attribute')
+                            raise web.Forbidden('creation of attribute forbidden')
 
                     return list(attrs)
         
@@ -745,7 +745,7 @@ class RestHandlerFactory (object):
                             # this is only raised by password provider if authorized
                             raise web.NotFound('attribute "%s"' % attr)
                         except ValueError, ev:
-                            raise web.Forbidden('delete of attribute')
+                            raise web.Forbidden('delete of attribute forbidden')
     
                 self._db_wrapper(db_body)
                 if 'env' in web.ctx:
@@ -812,7 +812,7 @@ class RestHandlerFactory (object):
                 try:
                     response = jsonWriter( self._db_wrapper(db_body) )
                 except ValueError:
-                    raise web.Forbidden('listing of user attributes')
+                    raise web.Forbidden('listing of user attributes forbidden')
 
                 if 'env' in web.ctx:
                     web.ctx.status = '200 OK'
@@ -853,7 +853,7 @@ class RestHandlerFactory (object):
                                                                   userid,
                                                                   db)
                         except ValueError, ev:
-                            raise web.Forbidden('creation of attribute assignment')
+                            raise web.Forbidden('creation of attribute assignment forbidden')
 
                     return list(attrs)
         
@@ -896,7 +896,7 @@ class RestHandlerFactory (object):
                             # this is only raised by password provider if authorized
                             raise web.NotFound(str(ev))
                         except ValueError, ev:
-                            raise web.Forbidden('delete of attribute assignment')
+                            raise web.Forbidden('delete of attribute assignment forbidden')
     
                 self._db_wrapper(db_body)
                 if 'env' in web.ctx:
@@ -960,8 +960,10 @@ class RestHandlerFactory (object):
 
                 try:
                     response = jsonWriter( self._db_wrapper(db_body) )
+                except KeyError:
+                    raise web.NotFound('attribute not found')
                 except ValueError:
-                    raise web.Forbidden('listing of nested/implied attributes')
+                    raise web.Forbidden('listing of nested/implied attributes forbidden')
 
                 if 'env' in web.ctx:
                     web.ctx.status = '200 OK'
@@ -1003,7 +1005,7 @@ class RestHandlerFactory (object):
                                                                 child,
                                                                 db)
                         except ValueError, ev:
-                            raise web.Forbidden('creation of attribute nesting')
+                            raise web.Forbidden('creation of attribute nesting forbidden')
 
                     return list(parents)
         
@@ -1046,7 +1048,7 @@ class RestHandlerFactory (object):
                         except KeyError, ev:
                             raise web.NotFound(str(ev))
                         except ValueError, ev:
-                            raise web.Forbidden('delete of attribute nesting')
+                            raise web.Forbidden('delete of attribute nesting forbidden')
     
                 self._db_wrapper(db_body)
                 if 'env' in web.ctx:
