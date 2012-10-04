@@ -526,7 +526,7 @@ class AttributeAssign (ProviderInterface):
         raise NotImplementedError()
 
     def list(self, manager, context, clientname, db=None):
-        if is_authorized(context, self.provider.manageattributes_permit):
+        if is_authorized(context, self.provider.manageattributes_permit) or clientname == context.client:
             return self.list_noauthz(manager, context, clientname, db)
         else:
             raise ValueError('unauthorized')
@@ -569,7 +569,7 @@ class AttributeNest (ProviderInterface):
         raise NotImplementedError()
 
     def list(self, manager, context, childname, db=None):
-        if is_authorized(context, self.provider.manageattributes_permit):
+        if is_authorized(context, self.provider.manageattributes_permit) or childname in context.attributes:
             return self.list_noauthz(manager, context, childname, db)
         else:
             raise ValueError('unauthorized')
