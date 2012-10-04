@@ -245,7 +245,7 @@ class Manager (util.DatabaseConnection):
         else:
             self._db_wrapper( db_body )
 
-    def get_request_context(self, require_client=None, require_attributes=None, setheader=None, db=None):
+    def get_request_context(self, require_client=None, require_attributes=None, setheader=None, db=None, extend_session=True):
         """
         Obtain a Context instance summarizing all service request authentication context.
 
@@ -278,6 +278,9 @@ class Manager (util.DatabaseConnection):
             raise ValueError()
         if require_attributes and len(c.attributes) == 0:
             raise IndexError()
+
+        if extend_session:
+            self.sessions.extend(self, c, db)
 
         return c
        
