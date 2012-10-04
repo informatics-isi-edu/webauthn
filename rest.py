@@ -496,25 +496,29 @@ class RestHandlerFactory (object):
 
                     if not userids:
                         # request without userids means list all users
-                        response = list(self.manager.clients.search.get_all_clients(self.manager, self.context))
+                        clients = self.manager.clients.search.get_all_clients(self.manager, self.context)
+                        response = clients and list(clients)
                     elif userids.difference( set([ c for c in [self.context.client] if c ]) ):
                         # request with userids means list only specific users other than self
-                        clients = set(self.manager.clients.search.get_all_clients(self.manager, self.context))
-                        if userids.difference( clients ):
+                        clients = self.manager.clients.search.get_all_clients(self.manager, self.context)
+                        if clients and userids.difference( clients ):
                             raise web.NotFound('Some client identities not found: %s.' % ', '.join(userids.difference( clients )))
-                        response = list(clients)
+                        response = clients and list(clients)
                     else:
                         # request with userid equal to self.context.client can be answered without search API
                         assert len(userids) == 1
                         assert userids[0] == self.context.client
                         response = [ self.context.client ]
 
+                    if response == None:
+                        raise ValueError()
+
                     return response
 
                 try:
                     response = jsonWriter( self._db_wrapper(db_body) )
                 except ValueError:
-                    raise web.Forbidden('listing of other clients')
+                    raise web.Forbidden('listing of other client identities forbidden')
 
                 if 'env' in web.ctx:
                     web.ctx.status = '200 OK'
