@@ -382,7 +382,11 @@ class RestHandlerFactory (object):
                 old_password = storage.get('old_password', None)
 
                 def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                    try:
+                        self.context = self.manager.get_request_context(db=db)
+                    except (ValueError, IndexError):
+                        raise Unauthorized()
+                        
                     userids = self._password_prep(userids)
                     new_passwords = dict()
                     for userid in userids:
@@ -430,7 +434,11 @@ class RestHandlerFactory (object):
                 old_password = storage.get('old_password', None)
 
                 def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                    try:
+                        self.context = self.manager.get_request_context(db=db)
+                    except (ValueError, IndexError):
+                        raise Unauthorized()
+
                     userids = self._password_prep(userids)
 
                     for userid in userids:
@@ -487,7 +495,10 @@ class RestHandlerFactory (object):
                     userids = set()
 
                 def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                    try:
+                        self.context = self.manager.get_request_context(db=db)
+                    except (ValueError, IndexError):
+                        raise Unauthorized()
 
                     if not self.manager.clients.search:
                         if not userids \
@@ -549,7 +560,10 @@ class RestHandlerFactory (object):
                     raise NoMethod()
 
                 def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                    try:
+                        self.context = self.manager.get_request_context(db=db)
+                    except (ValueError, IndexError):
+                        raise Unauthorized()
 
                     for userid in userids:
                         try:
@@ -585,7 +599,10 @@ class RestHandlerFactory (object):
                     userids = set()
 
                 def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                    try:
+                        self.context = self.manager.get_request_context(db=db)
+                    except (ValueError, IndexError):
+                        raise Unauthorized()
 
                     for userid in userids:
                         try:
@@ -640,7 +657,10 @@ class RestHandlerFactory (object):
                     attrs = set()
 
                 def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                    try:
+                        self.context = self.manager.get_request_context(db=db)
+                    except (ValueError, IndexError):
+                        raise Unauthorized()
 
                     if not self.manager.attributes.search:
                         if not attrs \
@@ -697,7 +717,10 @@ class RestHandlerFactory (object):
                     raise NoMethod()
 
                 def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                    try:
+                        self.context = self.manager.get_request_context(db=db)
+                    except (ValueError, IndexError):
+                        raise Unauthorized()
 
                     for attr in attrs:
                         try:
@@ -733,7 +756,10 @@ class RestHandlerFactory (object):
                     attrs = set()
 
                 def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                    try:
+                        self.context = self.manager.get_request_context(db=db)
+                    except (ValueError, IndexError):
+                        raise Unauthorized()
 
                     for attr in attrs:
                         try:
@@ -788,7 +814,10 @@ class RestHandlerFactory (object):
                     attrs = set()
 
                 def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                    try:
+                        self.context = self.manager.get_request_context(db=db)
+                    except (ValueError, IndexError):
+                        raise Unauthorized()
 
                     if not self.manager.attributes.assign:
                         if userid != self.context.client:
@@ -843,7 +872,10 @@ class RestHandlerFactory (object):
                     raise NoMethod()
 
                 def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                    try:
+                        self.context = self.manager.get_request_context(db=db)
+                    except (ValueError, IndexError):
+                        raise Unauthorized()
 
                     for attr in attrs:
                         try:
@@ -883,7 +915,10 @@ class RestHandlerFactory (object):
                     raise NoMethod()
 
                 def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                    try:
+                        self.context = self.manager.get_request_context(db=db)
+                    except (ValueError, IndexError):
+                        raise Unauthorized()
 
                     for attr in attrs:
                         try:
@@ -940,7 +975,10 @@ class RestHandlerFactory (object):
                     parents = set()
 
                 def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                    try:
+                        self.context = self.manager.get_request_context(db=db)
+                    except (ValueError, IndexError):
+                        raise Unauthorized()
 
                     if not self.manager.attributes.nest:
                         raise Conflict('Server does not support listing of attribute nesting.')
@@ -995,7 +1033,10 @@ class RestHandlerFactory (object):
                     raise NoMethod()
 
                 def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                    try:
+                        self.context = self.manager.get_request_context(db=db)
+                    except (ValueError, IndexError):
+                        raise Unauthorized()
 
                     for parent in parents:
                         try:
@@ -1036,7 +1077,10 @@ class RestHandlerFactory (object):
                     raise NoMethod()
 
                 def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                    try:
+                        self.context = self.manager.get_request_context(db=db)
+                    except (ValueError, IndexError):
+                        raise Unauthorized()
 
                     for parent in parents:
                         try:

@@ -206,6 +206,14 @@ class Forbidden(web.HTTPError):
         headers = {'Content-Type': 'text/html'}
         web.HTTPError.__init__(self, status, headers, message or self.message)
 
+class Unauthorized(web.HTTPError):
+    """`401 Unauthorized` error."""
+    message = "unauthorized"
+    def __init__(self, message=None):
+        status = '401 Unauthorized'
+        headers = {'Content-Type': 'text/html'}
+        web.HTTPError.__init__(self, status, headers, message or self.message)
+
 class NotFound(web.HTTPError):
     """`404 Not Found` error."""
     message = "not found"
