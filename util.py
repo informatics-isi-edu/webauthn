@@ -182,6 +182,38 @@ def generate_random_string(length=24, alpha=True, numeric=True, symbols=False, s
     return ''.join([ source[random.randrange(0, len(source))]
                      for i in range(0, length) ])
 
+class NoMethod(web.HTTPError):
+    """`405 Method Not Allowed` error."""
+    message = "method not allowed"
+    def __init__(self, message=None):
+        status = '405 Method Not Allowed'
+        headers = {'Content-Type': 'text/html'}
+        web.HTTPError.__init__(self, status, headers, message or self.message)
+
+class Conflict(web.HTTPError):
+    """`409 Conflict` error."""
+    message = "conflict"
+    def __init__(self, message=None):
+        status = '409 Conflict'
+        headers = {'Content-Type': 'text/html'}
+        web.HTTPError.__init__(self, status, headers, message or self.message)
+
+class Forbidden(web.HTTPError):
+    """`403 Forbidden` error."""
+    message = "forbidden"
+    def __init__(self, message=None):
+        status = '403 Forbidden'
+        headers = {'Content-Type': 'text/html'}
+        web.HTTPError.__init__(self, status, headers, message or self.message)
+
+class NotFound(web.HTTPError):
+    """`404 Not Found` error."""
+    message = "not found"
+    def __init__(self, message=None):
+        status = '404 Not Found'
+        headers = {'Content-Type': 'text/html'}
+        web.HTTPError.__init__(self, status, headers, message or self.message)
+
 class BadRequest(web.HTTPError):
     """`400 Bad Request` error."""
     message = "bad request"
