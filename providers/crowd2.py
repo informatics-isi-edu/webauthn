@@ -274,7 +274,7 @@ class Crowd2AttributeClient (AttributeClient):
     def __init__(self, provider):
         AttributeClient.__init__(self, provider)
 
-    def set_msg_context(self, manager, context):
+    def set_msg_context(self, manager, context, db=None):
         """Update context.attributes for the contex.client"""
         if context.client != None:
             context.attributes.add( context.client )
