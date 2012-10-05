@@ -271,7 +271,7 @@ class RestHandlerFactory (object):
                     expires=self.context.session.expires,
                     seconds_remaining=self.context.session.expires and (self.context.session.expires - now).seconds
                     )
-                response = jsonWriter(response)
+                response = jsonWriter(response) + '\n'
                 if 'env' in web.ctx:
                     web.ctx.status = '200 OK'
                     web.header('Content-Type', 'application/json')
@@ -404,7 +404,7 @@ class RestHandlerFactory (object):
                             raise Forbidden('update of password for user "%s" forbidden' % userid)
                     return new_passwords
         
-                response = jsonWriter(self._db_wrapper(db_body))
+                response = jsonWriter(self._db_wrapper(db_body)) + '\n'
                 if 'env' in web.ctx:
                     web.ctx.status = '200 OK'
                     web.header('Content-Type', 'application/json')
@@ -527,7 +527,7 @@ class RestHandlerFactory (object):
                     return response
 
                 try:
-                    response = jsonWriter( self._db_wrapper(db_body) )
+                    response = jsonWriter( self._db_wrapper(db_body) ) + '\n'
                 except ValueError:
                     raise Forbidden('listing of other client identities forbidden')
 
@@ -576,7 +576,7 @@ class RestHandlerFactory (object):
 
                     return list(userids)
         
-                response = jsonWriter( self._db_wrapper(db_body) )
+                response = jsonWriter( self._db_wrapper(db_body) ) + '\n'
                 if 'env' in web.ctx:
                     web.ctx.status = '200 OK'
                     web.header('Content-Type', 'application/json')
@@ -684,7 +684,7 @@ class RestHandlerFactory (object):
                     return response
 
                 try:
-                    response = jsonWriter( self._db_wrapper(db_body) )
+                    response = jsonWriter( self._db_wrapper(db_body) ) + '\n'
                 except ValueError:
                     raise Forbidden('listing of other attributes forbidden')
 
@@ -733,7 +733,7 @@ class RestHandlerFactory (object):
 
                     return list(attrs)
         
-                response = jsonWriter( self._db_wrapper(db_body) )
+                response = jsonWriter( self._db_wrapper(db_body) ) + '\n'
                 if 'env' in web.ctx:
                     web.ctx.status = '200 OK'
                     web.header('Content-Type', 'application/json')
@@ -839,7 +839,7 @@ class RestHandlerFactory (object):
                     return response
 
                 try:
-                    response = jsonWriter( self._db_wrapper(db_body) )
+                    response = jsonWriter( self._db_wrapper(db_body) ) + '\n'
                 except ValueError:
                     raise Forbidden('listing of user attributes forbidden')
 
@@ -889,7 +889,7 @@ class RestHandlerFactory (object):
 
                     return list(attrs)
         
-                response = jsonWriter( self._db_wrapper(db_body) )
+                response = jsonWriter( self._db_wrapper(db_body) ) + '\n'
                 if 'env' in web.ctx:
                     web.ctx.status = '200 OK'
                     web.header('Content-Type', 'application/json')
@@ -997,7 +997,7 @@ class RestHandlerFactory (object):
                     return response
 
                 try:
-                    response = jsonWriter( self._db_wrapper(db_body) )
+                    response = jsonWriter( self._db_wrapper(db_body) ) + '\n'
                 except KeyError:
                     raise NotFound('attribute not found')
                 except ValueError:
@@ -1050,7 +1050,7 @@ class RestHandlerFactory (object):
 
                     return list(parents)
         
-                response = jsonWriter( self._db_wrapper(db_body) )
+                response = jsonWriter( self._db_wrapper(db_body) ) + '\n'
                 if 'env' in web.ctx:
                     web.ctx.status = '200 OK'
                     web.header('Content-Type', 'application/json')
