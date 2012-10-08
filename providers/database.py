@@ -123,113 +123,6 @@ class DatabaseConnection2 (DatabaseConnection):
         # create a raw client early to force config errors
         self._put_pooled_connection(self._get_pooled_connection())
 
-    def _client_exists(self, db, clientname):
-        results = db.query("""
-SELECT * FROM %(utable)s WHERE username = %(uname)s ;
-"""
-                           % dict(utable=self._table('user'),
-                                  uname=sql_literal(clientname))
-                           )
-        return len(results) > 0
-
-    def _client_passwd(self, db, clientname):
-        results = db.query("""
-SELECT
-  u.uid uid,
-  p.uid puid,
-  u.username username,
-  p.pwhash pwhash,
-  p.salthex salthex,
-  p.reps reps
-FROM %(utable)s u
-JOIN %(ptable)s p USING (uid)
-WHERE u.username = %(uname)s
-""" 
-                           % dict(ptable=self._table('password'),
-                                  utable=self._table('user'),
-                                  uname=sql_literal(clientname))
-                           )
-        if len(results) > 0:
-            return results[0]
-        else:
-            return None
-
-    def _session(self, db, sessionids):
-        # purge old sessions before searching for valid keys
-        db.query("""
-DELETE FROM %(stable)s WHERE expires < 'now'::timestamptz ;
-"""
-                 % dict(stable=self._table('session'))
-                 )
-
-        results = db.query("""
-SELECT * FROM %(stable)s 
-WHERE key IN ( %(keys)s ) OR key_old IN ( %(keys)s )
-ORDER BY expires DESC ;
-"""
-                           % dict(stable=self._table('session'),
-                                  keys=','.join([ sql_literal(k) for k in sessionids ]))
-                           )
-        if len(results) > 1:
-            # TODO: warn about this
-            pass
-        if len(results) > 0:
-            return results[0]
-        else:
-            raise KeyError(str('sessionids'))
-
-    def _client_passwd_matches(self, db, clientname, passwd):
-        row = self._client_passwd(db, clientname)
-        if row == None:
-            raise KeyError(clientname)
-
-        inhash, salthex, reps = hash_password(passwd, row.salthex, row.reps)
-
-        if inhash == row.pwhash:
-            return row.username
-        else:
-            raise ValueError('user %s or password' % clientname)
-
-    def _attribute_exists(self, db, attributename):
-        results = db.query("""
-SELECT * FROM %(atable)s WHERE attribute = %(aname)s ;
-"""
-                           % dict(atable=self._table('attribute'),
-                                  aname=sql_literal(attributename))
-                           )
-        return len(results) > 0
-
-    def _attribute_assigned(self, db, attributename, clientname):
-        results = db.query("""
-SELECT * 
-FROM %(uatable)s ua
-JOIN %(atable)s a USING (aid)
-WHERE a.attribute = %(aname)s 
-  AND ua.username = %(uname)s ;
-"""
-                           % dict(uatable=self._table('userattribute'),
-                                  atable=self._table('attribute'),
-                                  aname=sql_literal(attributename),
-                                  uname=sql_literal(clientname))
-                           )
-        return len(results) > 0
-
-    def _attribute_nested(self, db, parentname, childname):
-        results = db.query("""
-SELECT * 
-FROM %(natable)s na
-JOIN %(atable)s c ON (na.child = c.aid)
-JOIN %(atable)s p ON (na.parent = p.aid)
-WHERE c.attribute = %(cname)s 
-  AND p.attribute = %(pname)s ;
-"""
-                           % dict(natable=self._table('nestedattribute'),
-                                  atable=self._table('attribute'),
-                                  cname=sql_literal(childname),
-                                  pname=sql_literal(parentname))
-                           )
-        return len(results) > 0
-
     def deploy_upgrade(self, db, versioninfo):
         """
         Upgrade database storage format to current version with tri-state response.
@@ -309,6 +202,8 @@ CREATE SCHEMA %(schema)s ;
 class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
 
     key = 'database'
+    storage_name = 'session'
+    extra_columns = []  # list of (columnname, typestring) pairs
 
     # data storage format version
     major = 1
@@ -351,8 +246,18 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
                 context.client = srow.client
                 context.attributes.add( context.client )
 
+            return srow
+
         except KeyError:
             context.session = None
+            return None
+
+    def _new_session_extras(self, manager, context, db):
+        """
+        Generate extra (column, value) pairs for INSERT of new session.
+
+        """
+        return []
 
     def new(self, manager, context, db=None):
         """
@@ -378,16 +283,21 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
                 duration = datetime.timedelta(minutes=int(manager.config.get('session_expiration_minutes', 30)))
                 context.session.expires = context.session.since + duration
 
+            extras = self._new_session_extras(manager, context, db)
+            extracols = [ extra[0] for extra in extras ]
+            extravals = [ extra[1] for extra in extras ]
             db.query("""
-INSERT INTO %(stable)s (key, since, keysince, expires, client, attributes)
-  VALUES (%(key)s, %(since)s, %(since)s, %(expires)s, %(client)s, %(attributes)s) ;
+INSERT INTO %(stable)s (key, since, keysince, expires, client, attributes %(extracols)s)
+  VALUES (%(key)s, %(since)s, %(since)s, %(expires)s, %(client)s, %(attributes)s %(extravals)s) ;
 """
-                     % dict(stable=self._table('session'),
+                     % dict(stable=self._table(self.storage_name),
                             key=sql_literal(context.session.keys[0]),
                             since=sql_literal(context.session.since),
                             expires=sql_literal(context.session.expires),
                             client=sql_literal(context.client),
-                            attributes='ARRAY[%s]::text[]' % ','.join([ sql_literal(a) for a in context.attributes ]))
+                            attributes='ARRAY[%s]::text[]' % ','.join([ sql_literal(a) for a in context.attributes ]),
+                            extracols=','.join(extracols and [ '' ] + extracols),
+                            extravals=','.join(extravals and [ '' ] + extravals))
                      
                      )
 
@@ -413,10 +323,9 @@ INSERT INTO %(stable)s (key, since, keysince, expires, client, attributes)
             db.query("""
 UPDATE %(stable)s SET expires = %(expires)s WHERE key = %(key)s ;
 """
-                     % dict(stable=self._table('session'),
+                     % dict(stable=self._table(self.storage_name),
                             key=sql_literal(srow.key),
                             expires=sql_literal(expires))
-
                      )
 
         if db:
@@ -434,7 +343,7 @@ UPDATE %(stable)s SET expires = %(expires)s WHERE key = %(key)s ;
             db.query("""
 DELETE FROM %(stable)s WHERE key = %(key)s ;
 """
-                     % dict(stable=self._table('session'),
+                     % dict(stable=self._table(self.storage_name),
                             key=sql_literal(srow.key))
 
                      )
@@ -444,6 +353,30 @@ DELETE FROM %(stable)s WHERE key = %(key)s ;
         else:
             return self._db_wrapper(db_body)
 
+    def _session(self, db, sessionids):
+        # purge old sessions before searching for valid keys
+        db.query("""
+DELETE FROM %(stable)s WHERE expires < 'now'::timestamptz ;
+"""
+                 % dict(stable=self._table(self.storage_name))
+                 )
+
+        results = db.query("""
+SELECT * FROM %(stable)s 
+WHERE key IN ( %(keys)s ) OR key_old IN ( %(keys)s )
+ORDER BY expires DESC ;
+"""
+                           % dict(stable=self._table(self.storage_name),
+                                  keys=','.join([ sql_literal(k) for k in sessionids ]))
+                           )
+        if len(results) > 1:
+            # TODO: warn about this
+            pass
+        if len(results) > 0:
+            return results[0]
+        else:
+            raise KeyError(str('sessionids'))
+
     def deploy(self, db=None):
         """
         Deploy initial provider state.
@@ -452,7 +385,7 @@ DELETE FROM %(stable)s WHERE key = %(key)s ;
         def db_body(db):
             DatabaseConnection2.deploy(self)
 
-            if not self._table_exists(db, 'session'):
+            if not self._table_exists(db, self.storage_name):
                 db.query("""
 CREATE TABLE %(stable)s (
   key text UNIQUE,
@@ -462,12 +395,14 @@ CREATE TABLE %(stable)s (
   expires timestamptz,
   client text,
   attributes text[]
+  %(extras)s
 );
 """
-                         % dict(stable=self._table('session'))
+                         % dict(stable=self._table(self.storage_name),
+                                extras=','.join(self.extra_columns and [ '' ] + [ '%s %s' % ec for ec in self.extra_columns ]))
                          )
 
-            self.deploy_guard(db, '_session')
+            self.deploy_guard(db, '_' + self.storage_name)
 
         if db:
             return db_body(db)
@@ -489,7 +424,7 @@ class DatabaseClientSearch (ClientSearch):
                          for row in db.query("""
 SELECT username FROM %(utable)s ;
 """
-                                             % dict(utable=self.provider._table('user'))
+                                             % dict(utable=self.provider._table(self.provider.client_storage_name))
                                              ) ])
 
         if db:
@@ -534,16 +469,28 @@ class DatabaseClientManage (ClientManage):
     def __init__(self, provider):
         ClientManage.__init__(self, provider)
 
+    def _create_noauthz_extras(self, manager, context, clientname, db):
+        """
+        Generate extra (column, value) pairs for INSERT of new client.
+
+        """
+        return []
+
     def create_noauthz(self, manager, context, clientname, db=None):
         def db_body(db):
             if self.provider._client_exists(db, clientname):
                 return
 
+            extras = self._create_noauthz_extras(manager, context, clientname, db)
+            extracols = [ extra[0] for extra in extras ]
+            extravals = [ extra[1] for extra in extras ]
             results = db.query("""
-INSERT INTO %(utable)s (username) VALUES ( %(uname)s );
+INSERT INTO %(utable)s (username %(extracols)s) VALUES ( %(uname)s %(extravals)s );
 """
-                               % dict(utable=self.provider._table('user'),
-                                      uname=sql_literal(clientname))
+                               % dict(utable=self.provider._table(self.provider.client_storage_name),
+                                      uname=sql_literal(clientname),
+                                      extracols=','.join(extracols and [ '' ] + extracols),
+                                      extravals=','.join(extravals and [ '' ] + extravals))
                                )
 
         if db:
@@ -559,7 +506,7 @@ INSERT INTO %(utable)s (username) VALUES ( %(uname)s );
             results = db.query("""
 DELETE FROM %(utable)s WHERE username = %(uname)s ;
 """
-                               % dict(utable=self.provider._table('user'),
+                               % dict(utable=self.provider._table(self.provider.client_storage_name),
                                       uname=sql_literal(clientname))
                                )
 
@@ -572,6 +519,13 @@ class DatabaseClientPasswd (ClientPasswd):
 
     def __init__(self, provider):
         ClientPasswd.__init__(self, provider)
+
+    def _create_noauthz_extras(self, manager, context, clientname, db):
+        """
+        Generate extra (column, value) pairs for INSERT of new client.
+
+        """
+        return []
 
     def create_noauthz(self, manager, context, clientname, password=None, oldpasswd=None, db=None):
         made_random = False
@@ -595,18 +549,23 @@ class DatabaseClientPasswd (ClientPasswd):
             if self.provider._client_passwd(db, clientname) != None:
                 self.delete_noauthz(manager, context, clientname, db=db)
 
+            extras = self._create_noauthz_extras(manager, context, clientname, db)
+            extracols = [ extra[0] for extra in extras ]
+            extravals = [ extra[1] for extra in extras ]
             results = db.query("""
-INSERT INTO %(ptable)s (uid, pwhash, salthex, reps) 
-  SELECT uid, %(pwhash)s, %(salthex)s, %(reps)s
+INSERT INTO %(ptable)s (uid, pwhash, salthex, reps %(extracols)s) 
+  SELECT uid, %(pwhash)s, %(salthex)s, %(reps)s %(extravals)s
   FROM %(utable)s
   WHERE username = %(uname)s
 """
-                               % dict(ptable=self.provider._table('password'),
-                                      utable=self.provider._table('user'),
+                               % dict(ptable=self.provider._table(self.provider.passwd_storage_name),
+                                      utable=self.provider._table(self.provider.client_storage_name),
                                       uname=sql_literal(clientname),
                                       pwhash=sql_literal(pwhash),
                                       salthex=sql_literal(salthex),
-                                      reps=sql_literal(reps))
+                                      reps=sql_literal(reps),
+                                      extracols=','.join(extracols and [ '' ] + extracols),
+                                      extravals=','.join(extravals and [ '' ] + extravals))
                                )
             if made_random:
                 return password
@@ -640,8 +599,8 @@ USING %(utable)s u
 WHERE u.username = %(uname)s
   AND u.uid = p.uid ;
 """
-                               % dict(ptable=self.provider._table('password'),
-                                      utable=self.provider._table('user'),
+                               % dict(ptable=self.provider._table(self.provider.passwd_storage_name),
+                                      utable=self.provider._table(self.provider.client_storage_name),
                                       uname=sql_literal(clientname))
                                )
 
@@ -653,24 +612,79 @@ WHERE u.username = %(uname)s
 class DatabaseClientProvider (ClientProvider, DatabaseConnection2):
 
     key = 'database'
+    client_storage_name = 'user'
+    extra_client_columns = []  # list of (columnname, typestring) pairs
+    passwd_storage_name = 'password'
+    extra_passwd_columns = []  # list of (columnname, typestring) pairs
+    summary_storage_name = 'usersummary'
     
     # data storage format version
     major = 1
     minor = 0
 
-    def __init__(self, config):
+    def __init__(self, config, 
+                 Login=DatabaseLogin,
+                 Search=DatabaseClientSearch,
+                 Manage=DatabaseClientManage,
+                 Passwd=DatabaseClientPasswd):
         ClientProvider.__init__(self, config)
         DatabaseConnection2.__init__(self, config)
         self.def_passwd_len = config.def_passwd_len
         self.hash_passwd_reps = config.hash_passwd_reps
-        self.login = DatabaseLogin(self)
-        self.search = DatabaseClientSearch(self)
-        self.manage = DatabaseClientManage(self)
-        self.passwd = DatabaseClientPasswd(self)
+        self.login = Login(self)
+        self.search = Search(self)
+        self.manage = Manage(self)
+        self.passwd = Passwd(self)
+
+    def _client_exists(self, db, clientname):
+        results = db.query("""
+SELECT * FROM %(utable)s WHERE username = %(uname)s ;
+"""
+                           % dict(utable=self._table(self.client_storage_name),
+                                  uname=sql_literal(clientname))
+                           )
+        return len(results) > 0
+
+    def _client_passwd(self, db, clientname):
+        results = db.query("""
+SELECT
+  u.uid uid,
+  p.uid puid,
+  u.username username,
+  p.pwhash pwhash,
+  p.salthex salthex,
+  p.reps reps
+  %(extras)s
+FROM %(utable)s u
+JOIN %(ptable)s p USING (uid)
+WHERE u.username = %(uname)s
+""" 
+                           % dict(ptable=self._table(self.passwd_storage_name),
+                                  utable=self._table(self.client_storage_name),
+                                  uname=sql_literal(clientname),
+                                  extras=','.join(self.extra_passwd_columns and
+                                                  [''] + ['p.%s %s' % (ec[0], ec[0]) for ec in self.extra_passwd_columns]))
+                           )
+        if len(results) > 0:
+            return results[0]
+        else:
+            return None
+
+    def _client_passwd_matches(self, db, clientname, passwd):
+        row = self._client_passwd(db, clientname)
+        if row == None:
+            raise KeyError(clientname)
+
+        inhash, salthex, reps = hash_password(passwd, row.salthex, row.reps)
+
+        if inhash == row.pwhash:
+            return row.username
+        else:
+            raise ValueError('user %s or password' % clientname)
 
     def deploy_views(self, db):
-        if self._table_exists(db, 'usersummary'):
-            db.query('DROP VIEW %s' % self._table('usersummary'))
+        if self._table_exists(db, self.summary_storage_name):
+            db.query('DROP VIEW %s' % self._table(self.summary_storage_name))
 
         db.query("""
 CREATE VIEW %(summary)s AS
@@ -679,9 +693,9 @@ CREATE VIEW %(summary)s AS
   LEFT OUTER JOIN %(ptable)s p USING (uid) ;
 ;
 """
-                 % dict(utable=self._table('user'),
-                        ptable=self._table('password'),
-                        summary=self._table('usersummary'))
+                 % dict(utable=self._table(self.client_storage_name),
+                        ptable=self._table(self.passwd_storage_name),
+                        summary=self._table(self.summary_storage_name))
                  )
 
     def deploy_upgrade(self, db, versioninfo):
@@ -708,18 +722,21 @@ CREATE VIEW %(summary)s AS
             DatabaseConnection2.deploy(self)
             tables_added = False
 
-            if not self._table_exists(db, 'user'):
+            if not self._table_exists(db, self.client_storage_name):
                 tables_added = True
                 db.query("""
 CREATE TABLE %(utable)s (
   uid serial PRIMARY KEY,
   username text UNIQUE
+  %(extras)s
 );
 """
-                         % dict(utable=self._table('user'))
+                         % dict(utable=self._table(self.client_storage_name),
+                                extras=','.join(self.extra_client_columns and
+                                                [''] + ['%s %s' % ec for ec in self.extra_client_columns]))
                          )
 
-            if not self._table_exists(db, 'password'):
+            if not self._table_exists(db, self.passwd_storage_name):
                 tables_added = True
                 db.query("""
 CREATE TABLE %(ptable)s (
@@ -727,10 +744,13 @@ CREATE TABLE %(ptable)s (
   pwhash text,
   salthex text,
   reps int
+  %(extras)s
 );
 """
-                         % dict(utable=self._table('user'),
-                                ptable=self._table('password'))
+                         % dict(utable=self._table(self.client_storage_name),
+                                ptable=self._table(self.passwd_storage_name),
+                                extras=','.join(self.extra_passwd_columns and
+                                                [''] + ['%s %s' % ec for ec in self.extra_passwd_columns]))
                          )
 
             self.deploy_guard(db, '_client')
@@ -1039,6 +1059,46 @@ class DatabaseAttributeProvider (AttributeProvider, DatabaseConnection2):
         self.assign = DatabaseAttributeAssign(self)
         self.nest   = DatabaseAttributeNest(self)
     
+    def _attribute_exists(self, db, attributename):
+        results = db.query("""
+SELECT * FROM %(atable)s WHERE attribute = %(aname)s ;
+"""
+                           % dict(atable=self._table('attribute'),
+                                  aname=sql_literal(attributename))
+                           )
+        return len(results) > 0
+
+    def _attribute_assigned(self, db, attributename, clientname):
+        results = db.query("""
+SELECT * 
+FROM %(uatable)s ua
+JOIN %(atable)s a USING (aid)
+WHERE a.attribute = %(aname)s 
+  AND ua.username = %(uname)s ;
+"""
+                           % dict(uatable=self._table('userattribute'),
+                                  atable=self._table('attribute'),
+                                  aname=sql_literal(attributename),
+                                  uname=sql_literal(clientname))
+                           )
+        return len(results) > 0
+
+    def _attribute_nested(self, db, parentname, childname):
+        results = db.query("""
+SELECT * 
+FROM %(natable)s na
+JOIN %(atable)s c ON (na.child = c.aid)
+JOIN %(atable)s p ON (na.parent = p.aid)
+WHERE c.attribute = %(cname)s 
+  AND p.attribute = %(pname)s ;
+"""
+                           % dict(natable=self._table('nestedattribute'),
+                                  atable=self._table('attribute'),
+                                  cname=sql_literal(childname),
+                                  pname=sql_literal(parentname))
+                           )
+        return len(results) > 0
+
     def deploy_views(self, db):
         if self._table_exists(db, 'attributesummary'):
             db.query("DROP VIEW %s" % self._table('attributesummary'))
