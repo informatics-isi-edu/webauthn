@@ -387,9 +387,8 @@ class RestHandlerFactory (object):
                     except (ValueError, IndexError):
                         raise Unauthorized()
                         
-                    userids = self._password_prep(userids)
                     new_passwords = dict()
-                    for userid in userids:
+                    for userid in self._password_prep(userids):
                         try:
                             new_passwords[userid] = self.manager.clients.password.create(self.manager,
                                                                                          self.context,
@@ -439,9 +438,7 @@ class RestHandlerFactory (object):
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
-                    userids = self._password_prep(userids)
-
-                    for userid in userids:
+                    for userid in self._password_prep(userids):
                         try:
                             self.manager.clients.password.delete(self.manager,
                                                                  self.context,
