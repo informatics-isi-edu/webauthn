@@ -480,7 +480,7 @@ class AttributeSearch (ProviderInterface):
             return self.get_all_attributes_noauthz(manager, context, clientnames, db)
         else:
             # not allowed
-            return None
+            return set()
 
 class AttributeManage (ProviderInterface):
     """
