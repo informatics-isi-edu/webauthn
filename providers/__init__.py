@@ -19,6 +19,7 @@ import providers
 import null
 import webcookie
 import database
+import oauth1a
 import crowd2
 import web
 
@@ -47,10 +48,12 @@ class ProviderMap:
             return self.providers_dict[key]
 
 sessionids =      ProviderMap([ null.NullSessionIdProvider,
-                                webcookie.WebcookieSessionIdProvider ])
+                                webcookie.WebcookieSessionIdProvider,
+                                oauth1a.Oauth1aSessionIdProvider ])
 
 sessionstates =   ProviderMap([ null.NullSessionStateProvider,
-                                database.DatabaseSessionStateProvider ])
+                                database.DatabaseSessionStateProvider,
+                                oauth1a.Oauth1aSessionStateProvider ])
 
 clients =         ProviderMap([ null.NullClientProvider,
                                 database.DatabaseClientProvider,
@@ -61,6 +64,7 @@ attributes =      ProviderMap([ null.NullAttributeProvider,
                                 crowd2.Crowd2AttributeProvider ])
 
 config_built_ins = web.storage()
+config_built_ins.update( oauth1a.config_built_ins )
 config_built_ins.update( crowd2.config_built_ins )
 config_built_ins.update( database.config_built_ins )
 config_built_ins.update( webcookie.config_built_ins )

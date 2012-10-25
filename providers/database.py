@@ -284,8 +284,8 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
                 context.session.expires = context.session.since + duration
 
             extras = self._new_session_extras(manager, context, db)
-            extracols = [ extra[0] for extra in extras ]
-            extravals = [ extra[1] for extra in extras ]
+            extracols = [ sql_identifier(extra[0]) for extra in extras ]
+            extravals = [ sql_literal(extra[1]) for extra in extras ]
             db.query("""
 INSERT INTO %(stable)s (key, since, keysince, expires, client, attributes %(extracols)s)
   VALUES (%(key)s, %(since)s, %(since)s, %(expires)s, %(client)s, %(attributes)s %(extravals)s) ;

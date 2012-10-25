@@ -16,6 +16,7 @@ INSTALL_PYTHON_FILES= \
 	providers/crowd2.py \
 	providers/database.py \
 	providers/null.py \
+	providers/oauth1a.py \
 	providers/providers.py \
 	providers/webcookie.py
 
