@@ -394,7 +394,7 @@ class RestHandlerFactory (object):
                                                                                        self.context,
                                                                                        userid,
                                                                                        password,
-                                                                                       old_passwd,
+                                                                                       old_password,
                                                                                        db)
                         except KeyError, ev:
                             # this is only raised by password provider if authorized
