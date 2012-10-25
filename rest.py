@@ -390,12 +390,12 @@ class RestHandlerFactory (object):
                     new_passwords = dict()
                     for userid in self._password_prep(userids):
                         try:
-                            new_passwords[userid] = self.manager.clients.password.create(self.manager,
-                                                                                         self.context,
-                                                                                         userid,
-                                                                                         password,
-                                                                                         old_passwd,
-                                                                                         db)
+                            new_passwords[userid] = self.manager.clients.passwd.create(self.manager,
+                                                                                       self.context,
+                                                                                       userid,
+                                                                                       password,
+                                                                                       old_passwd,
+                                                                                       db)
                         except KeyError, ev:
                             # this is only raised by password provider if authorized
                             raise NotFound('user "%s"' % userid)
