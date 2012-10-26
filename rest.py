@@ -440,16 +440,16 @@ class RestHandlerFactory (object):
 
                     for userid in self._password_prep(userids):
                         try:
-                            self.manager.clients.password.delete(self.manager,
+                            self.manager.clients.passwd.delete(self.manager,
                                                                  self.context,
                                                                  userid,
-                                                                 old_passwd,
+                                                                 old_password,
                                                                  db)
                         except KeyError, ev:
                             # this is only raised by password provider if authorized
-                            raise NotFound('user "%s"' % uri_key)
+                            raise NotFound('user "%s"' % userid)
                         except ValueError, ev:
-                            raise Forbidden('delete of password for user "%s" forbidden' % uri_key)
+                            raise Forbidden('delete of password for user "%s" forbidden' % userid)
     
                 self._db_wrapper(db_body)
                 if 'env' in web.ctx:
