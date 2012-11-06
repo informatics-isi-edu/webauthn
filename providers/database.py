@@ -740,7 +740,7 @@ CREATE TABLE %(utable)s (
                 tables_added = True
                 db.query("""
 CREATE TABLE %(ptable)s (
-  uid int PRIMARY KEY REFERENCES %(utable)s (uid),
+  uid int PRIMARY KEY REFERENCES %(utable)s (uid) ON DELETE CASCADE,
   pwhash text,
   salthex text,
   reps int
@@ -1209,7 +1209,7 @@ CREATE TABLE %(atable)s (
                 db.query("""
 CREATE TABLE %(uatable)s (
   username text,
-  aid int REFERENCES %(atable)s (aid),
+  aid int REFERENCES %(atable)s (aid) ON DELETE CASCADE,
   UNIQUE (username, aid)
 );
 """
@@ -1221,8 +1221,8 @@ CREATE TABLE %(uatable)s (
                 tables_added = True
                 db.query("""
 CREATE TABLE %(aatable)s (
-  child int REFERENCES %(atable)s (aid),
-  parent int REFERENCES %(atable)s (aid),
+  child int REFERENCES %(atable)s (aid) ON DELETE CASCADE,
+  parent int REFERENCES %(atable)s (aid) ON DELETE CASCADE,
   UNIQUE (child, parent)
 );
 """
