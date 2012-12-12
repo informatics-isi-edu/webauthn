@@ -39,26 +39,26 @@ class NullSessionIdProvider (SessionIdProvider):
     key = 'null'
     
     def __init__(self, config):
-        SessionIdProvider(config)
+        SessionIdProvider.__init__(self, config)
 
 class NullSessionStateProvider (SessionStateProvider):
 
     key = 'null'
 
     def __init__(self, config):
-        SessionStateProvider(config)
+        SessionStateProvider.__init__(self, config)
 
 class NullClientProvider (ClientProvider):
 
     key = 'null'
 
     def __init__(self, config):
-        ClientProvider(config)
+        ClientProvider.__init__(self, config)
 
 class NullAttributeProvider (AttributeProvider):
 
     key = 'null'
 
     def __init__(self, config):
-        AttributeProvider(config)
+        AttributeProvider.__init__(self, config)
 
