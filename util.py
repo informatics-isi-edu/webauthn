@@ -361,7 +361,8 @@ class DatabaseConnection (PooledConnection):
                     t.rollback()
                     last_ev = ev
 
-            retries -1
+                retries -= 1
+
             if retries == 0:
                 # we never get here unless:
                 # 1. an exception prevented 'return val' above
