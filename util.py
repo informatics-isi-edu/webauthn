@@ -361,6 +361,14 @@ class DatabaseConnection (PooledConnection):
                     t.rollback()
                     last_ev = ev
 
+                except Exception, ev:
+                    # assume all other exceptions are fatal
+                    try:
+                        t.rollback()
+                    except:
+                        pass
+                    raise ev
+
                 retries -= 1
 
             if retries == 0:
