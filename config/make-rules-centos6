@@ -2,7 +2,7 @@
 # Recipes for CentOS 6.x
 
 $(PREINSTALL):
-	yum -y --skip-broken install python{,-psycopg2,-dateutil,-json,-simplejson,,-setuptools} pytz || true
+	yum -y --skip-broken install python{,-psycopg2,-dateutil,-oauth,-json,-simplejson,,-setuptools} pytz || true
 	easy_install web.py || true
 	mkdir -p $(VARLIBDIR)
 	touch $(PREINSTALL)
