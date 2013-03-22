@@ -21,6 +21,7 @@ import webcookie
 import database
 import oauth1a
 import crowd2
+import globusonline
 import web
 
 __doc__ += null.__doc__ + webcookie.__doc__ + database.__doc__ + crowd2.__doc__
@@ -57,13 +58,16 @@ sessionstates =   ProviderMap([ null.NullSessionStateProvider,
 
 clients =         ProviderMap([ null.NullClientProvider,
                                 database.DatabaseClientProvider,
-                                crowd2.Crowd2ClientProvider ])
+                                crowd2.Crowd2ClientProvider,
+                                globusonline.GlobusOnlineClientProvider ])
 
 attributes =      ProviderMap([ null.NullAttributeProvider,
                                 database.DatabaseAttributeProvider,
-                                crowd2.Crowd2AttributeProvider ])
+                                crowd2.Crowd2AttributeProvider,
+                                globusonline.GlobusOnlineAttributeProvider ])
 
 config_built_ins = web.storage()
+config_built_ins.update( globusonline.config_built_ins )
 config_built_ins.update( oauth1a.config_built_ins )
 config_built_ins.update( crowd2.config_built_ins )
 config_built_ins.update( database.config_built_ins )
