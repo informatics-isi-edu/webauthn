@@ -169,7 +169,8 @@ config_built_ins = web.storage(
     sessionstates_provider='null',
     clients_provider='null',
     attributes_provider='null',
-    handler_uri_usersession=None
+    handler_uri_usersession=None,
+    extend_session=True
     )
 
 config_built_ins.update(providers.config_built_ins)
@@ -245,7 +246,7 @@ class Manager (util.DatabaseConnection):
         else:
             self._db_wrapper( db_body )
 
-    def get_request_context(self, require_client=None, require_attributes=None, setheader=None, db=None, extend_session=True):
+    def get_request_context(self, require_client=None, require_attributes=None, setheader=None, db=None, extend_session=None):
         """
         Obtain a Context instance summarizing all service request authentication context.
 
@@ -278,6 +279,9 @@ class Manager (util.DatabaseConnection):
             raise ValueError()
         if require_attributes and len(c.attributes) == 0:
             raise IndexError()
+
+        if extend_session is None:
+            extend_session = self.config["extend_session"]
 
         if extend_session:
             self.sessions.extend(self, c, db)

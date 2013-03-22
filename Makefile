@@ -18,7 +18,9 @@ INSTALL_PYTHON_FILES= \
 	providers/null.py \
 	providers/oauth1a.py \
 	providers/providers.py \
-	providers/webcookie.py
+	providers/webcookie.py \
+	providers/globusonline.py \
+	providers/verified_https.py
 
 INSTALL_PYTHON_DIRS= \
 	providers
