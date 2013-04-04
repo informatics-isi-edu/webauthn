@@ -1,0 +1,33 @@
+Overview
+========
+
+This document describes how to install tagfiler on debian based distributions.
+The instruction should also work on other distributions after taking into
+account directory layout and package manager naming differences.
+
+Dependencies
+============
+
+webauthn2 requires python 2.6+ and several python libraries.
+The libraries can be installed using system packages (preferred) or using
+pip or easy_install. For example on ubuntu 12.04:
+
+    sudo apt-get install python-{webpy,psycopg2,tz,oauth,suds}
+
+OR
+
+    sudo pip install web.py psycopg2 tz oauth suds
+
+Install
+=======
+
+The simplest way to install webauthn2 is using the setup.py script:
+
+    sudo python setup.py install
+
+Note that this will not automatically pull in dependencies from PyPI because it
+uses distutils instead of setuptools. This was done to avoid extra dependencies
+and provide more control over using distribution packages.
+
+This can also be done as a standard user by using the --user option
+(see python setup.py install -h), or using a virtualenv.
