@@ -26,6 +26,8 @@ import random
 import time
 import itertools
 import os
+import sys
+import traceback
 
 try:
     import simplejson
@@ -43,7 +45,7 @@ except:
     else:
         raise ValueError('Could not configure JSON library.')
 
-def jsonWriter(o):
+def jsonWriter(o, indent=None):
     def munge(o):
         if type(o) in [ dict, web.Storage ]:
             return type(o)( itertools.imap( lambda p: (p[0], munge(p[1])),
@@ -57,7 +59,7 @@ def jsonWriter(o):
         else:
             return o
 
-    return jsonWriterRaw( munge(o) )
+    return jsonWriterRaw( munge(o), indent=indent )
 
 def merge_config(overrides=None, defaults=None, jsonFileName='webauthn2_config.json', built_ins={}):
     """
@@ -361,8 +363,19 @@ class DatabaseConnection (PooledConnection):
                     t.rollback()
                     last_ev = ev
 
+                except web.HTTPError, ev:
+                    # don't log these "normal" exceptions
+                    try:
+                        t.rollback()
+                    except:
+                        pass
+                    raise ev
+
                 except Exception, ev:
                     # assume all other exceptions are fatal
+                    et, ev2, tb = sys.exc_info()
+                    web.debug('got exception "%s" during _db_wrapper()' % str(ev2),
+                              traceback.format_exception(et, ev2, tb))
                     try:
                         t.rollback()
                     except:
