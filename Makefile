@@ -12,6 +12,7 @@ INSTALL_PYTHON_FILES= \
 	manager.py \
 	rest.py \
 	util.py \
+	exc.py \
 	providers/__init__.py \
 	providers/crowd2.py \
 	providers/database.py \
