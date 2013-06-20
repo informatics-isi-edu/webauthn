@@ -359,6 +359,9 @@ class DatabaseConnection (PooledConnection):
                 except (psycopg2.IntegrityError, 
                         psycopg2.extensions.TransactionRollbackError, 
                         IOError), ev:
+                    et, ev2, tb = sys.exc_info()
+                    web.debug('got exception "%s" during _db_wrapper()' % str(ev2),
+                              traceback.format_exception(et, ev2, tb))
                     # these are likely transient errors so rollback and retry
                     t.rollback()
                     last_ev = ev
