@@ -22,13 +22,35 @@ Webauthn2 web app security context management system.
 __version__ = "2.0"
 __license__ = "Apache License, Version 2.0"
 
+import exc
 import rest
 import manager
+import providers
 
 from rest import RestHandlerFactory
 
 from manager import *
 from util import *
+
+import hashlib
+import inspect
+
+def source_checksum():
+    """Get checksum representing the loaded module for cache management etc."""
+
+    if manager.source_checksum is None:
+        h = hashlib.md5()
+        for mod in [ exc, rest, manager, util, providers,
+                     providers.providers, providers.null, providers.webcookie, 
+                     providers.database, providers.oauth1a, providers.crowd2, 
+                     providers.globusonline, providers.web ]:
+            try:
+                h.update( inspect.getsource( mod ) )
+            except IOError:
+                pass
+        manager.source_checksum = h.hexdigest()
+
+    return manager.source_checksum
 
 __doc__ += manager.__doc__ + rest.__doc__
 
@@ -48,5 +70,7 @@ __all__ = [
     'urlunquote',
     'BadRequest',
     'PooledConnection',
-    'DatabaseConnection'
+    'DatabaseConnection',
+    'source_checksum'
     ]
+

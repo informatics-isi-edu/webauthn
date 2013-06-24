@@ -87,6 +87,8 @@ import providers
 
 from providers import Session
 
+source_checksum = None
+
 __doc__ += providers.__doc__
 
 __all__ = [
