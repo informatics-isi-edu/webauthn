@@ -113,3 +113,6 @@ class WebcookieSessionIdProvider (SessionIdProvider):
         else:
             test_cookies[self.cookiename] = cookie
 
+    def get_http_vary(self):
+        return set([ 'cookie' ])
+

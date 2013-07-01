@@ -103,6 +103,9 @@ class GlobusOnlineClientProvider (ClientProvider):
         ClientProvider.__init__(self, config)
         self.msgauthn = GlobusOnlineClientMsgAuthn(self, config)
 
+    def get_http_vary(self):
+        return set(['authorization'])
+
 
 class GlobusOnlineAttributeClient (AttributeClient):
 

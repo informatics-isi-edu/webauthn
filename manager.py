@@ -290,5 +290,17 @@ class Manager (util.DatabaseConnection):
 
         return c
        
+    def get_http_vary(self):
+        """
+        Obtain a set of provider-specific HTTP header names that may affect request context.
+
+        """
+        result = set()
+        result.update( self.sessionids.get_http_vary() )
+        result.update( self.sessions.get_http_vary() )
+        result.update( self.clients.get_http_vary() )
+        result.update( self.attributes.get_http_vary() )
+        return result
+
 nullmanager = Manager()
 

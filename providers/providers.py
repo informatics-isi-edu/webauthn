@@ -132,6 +132,9 @@ class Provider (object):
         self.manageusers_permit = config.manageusers_permit
         self.manageattributes_permit = config.manageattributes_permit
 
+    def get_http_vary(self):
+        return set()
+
 class ProviderInterface (object):
 
     def __init__(self, provider):
