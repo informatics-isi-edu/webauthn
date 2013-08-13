@@ -15,6 +15,7 @@ INSTALL_PYTHON_FILES= \
 	exc.py \
 	providers/__init__.py \
 	providers/crowd2.py \
+	providers/crowdrest1.py \
 	providers/database.py \
 	providers/null.py \
 	providers/oauth1a.py \
