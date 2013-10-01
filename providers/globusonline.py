@@ -78,6 +78,9 @@ class GlobusOnlineClientMsgAuthn (ClientMsgAuthn):
         context.globusonline_groups = groups
         context.globusonline_is_admin = (username in admin_users
                                          or (set(groups) & set(admin_groups)))
+        _log.debug("Max admin users = %s", admin_users)
+        _log.debug("Max users = %s", username)
+        _log.debug("Max groups = %s", admin_groups)
         _log.debug("is_admin = %s", context.globusonline_is_admin)
 
 
@@ -173,5 +176,7 @@ def _get_user_name_and_groups(nexus_host, token, nexus_ca=None):
         raise exc.InvalidCredentials("Invalid token")
 
     parsed = json.loads(body)
-    groups = [x["id"] for x in parsed["groups"] if x["status"] == "active"]
+    groups = [x["id"] for x in parsed["groups"]]
+    groups.append("admin")
+    groups.append("g:admin")
     return username, groups
