@@ -265,9 +265,9 @@ class Manager (util.DatabaseConnection):
            headers if necessary for the enabled authentication providers
 
         """
-        if require_client == None:
+        if require_client is None:
             require_client = self.require_client
-        if require_attributes == None:
+        if require_attributes is None:
             require_attributes = self.require_attributes
         if setheader == None:
             setheader = self.setheader
@@ -285,7 +285,7 @@ class Manager (util.DatabaseConnection):
         if extend_session is None:
             extend_session = self.config["extend_session"]
 
-        if extend_session:
+        if extend_session and c.session:
             self.sessions.extend(self, c, db)
 
         return c
