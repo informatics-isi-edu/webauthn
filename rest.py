@@ -69,6 +69,7 @@ just use the Manager instance directly in its own message handlers:
 from util import *
 from manager import Manager, Context
 from providers import Session
+import re
 
 import web
 
@@ -172,6 +173,8 @@ class RestHandlerFactory (object):
                     if key not in storage:
                         raise BadRequest('missing required parameter "%s"' % key)
 
+                referrer = storage.get('referrer')
+
                 def db_body(db):
                     self.context = Context(self.manager, False, db)
 
@@ -211,19 +214,28 @@ class RestHandlerFactory (object):
                     uri = keys
 
                 if 'env' in web.ctx:
-                    web.ctx.status = '201 Created'
-                    web.header('Content-Type', 'text/uri-list')
-                    web.header('Content-Length', len(uri))
-                return uri
+                    if referrer:
+                        web.ctx.status = '303 See Other'
+                        web.header('Location', referrer)
+                        return ''
+                    else:
+                        web.ctx.status = '201 Created'
+                        web.header('Content-Type', 'text/uri-list')
+                        web.header('Content-Length', len(uri))
+                        return uri
 
-            def _session_authz(self, sessionids):
+            def _session_authz(self, sessionids, get_html=False):
                 if not self.manager.sessionids \
                         or not self.manager.sessions:
                     # the provider config doesn't support sessions
                     raise NoMethod()
-
+            
                 if not self.context.session:
-                    raise Forbidden('unauthenticated session access forbidden')
+                    if get_html:
+                        # return as no-op and let caller deal with it
+                        return
+                    else:
+                        raise Forbidden('unauthenticated session access forbidden')
 
                 if sessionids:
                     # format is /key,... so unpack
@@ -251,7 +263,7 @@ class RestHandlerFactory (object):
                 """
                 def db_body(db):
                     self.context = Context(self.manager, False, db)
-                    self._session_authz(sessionids)
+                    self._session_authz(sessionids, get_html=True)
 
                 if db:
                     db_body(db)
@@ -259,6 +271,41 @@ class RestHandlerFactory (object):
                     self._db_wrapper(db_body)
 
                 # just report on current session status
+                if self.context.session is None:
+                    if not self.context.session:
+                        if self.manager.clients.login is not None \
+                                and self.session_uri is not None:
+                            # return a basic HTML form for bootstrapping API servers
+                            params = web.input()
+                            body = ("""<!DOCTYPE html>
+<html>
+<body>
+<h1>Log in</h1>
+  <form action="%(uri)s" method="post">
+  %(inputs)s
+  </form>
+</body>
+</html>
+""" % dict(uri=self.session_uri,
+           inputs="\n".join(['<p>%(name)s: <input type="%(type)s" name="%(name)s" /></p>' % dict(
+                                                name=name,
+                                                type=name.lower().find('password') > -1 and 'password' or 'text'
+                                                )
+                             for name in self.manager.clients.login.login_keywords()
+                             ] + 
+                            ['<input type="submit" value="Login" />',
+                             '<input type="hidden" name="referrer" value="%(refer)s" />' % dict(
+                                                refer=params.get('referrer', '')
+                                                )
+                             ])
+           )
+                                    )
+                            web.ctx.status = '403 Forbidden'
+                            web.header('Content-Type', 'text/html')
+                            web.header('Content-Length', '%d' % len(body))
+                            return body
+                        else:
+                            raise NotFound('existing login session')
 
                 # do not include sessionids since we don't want to enable
                 # any XSS attack where a hidden cookie can be turned into an 
