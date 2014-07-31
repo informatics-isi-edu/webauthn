@@ -190,9 +190,19 @@ class RestHandlerFactory (object):
                         # perform authentication
                         self.context.client = self.manager.clients.login.login(self.manager, self.context, db, **storage)
                     except (KeyError, ValueError), ev:
-                        # we don't reveal detailed reason for failed login
-                        raise Forbidden('session establishment for given parameters (%s) forbidden'
-                                            % ', '.join(self.manager.clients.login.login_keywords(True)))
+                        # we don't reveal detailed reason for failed login 
+                        msg = 'session establishment with (%s) failed' \
+                            % ', '.join(self.manager.clients.login.login_keywords(True))
+                        if referrer and self.session_uri:
+                            web.ctx.status = '303 See Other'
+                            web.header('Location', '%s?referrer=%s&error=%s' % (
+                                    self.session_uri, 
+                                    urlquote(referrer),
+                                    urlquote(msg))
+                                       )
+                            return None
+                        else:
+                            raise Unauthorized(msg)
 
                     if self.manager.attributes.client:
                         # dig up attributes for client
@@ -200,9 +210,12 @@ class RestHandlerFactory (object):
 
                     # try to register new session
                     self.manager.sessions.new(self.manager, self.context, db)
+                    return True
 
                 # run entire sequence in a restartable db transaction
-                self._db_wrapper(db_body)
+                result = self._db_wrapper(db_body)
+                if result is None:
+                    return
                 
                 # build response
                 self.manager.sessionids.set_request_sessionids(self.manager, self.context)
@@ -286,12 +299,13 @@ class RestHandlerFactory (object):
 <html>
 <body>
 <h1>Log in</h1>
-  <form action="%(uri)s" method="post">
-  %(inputs)s
-  </form>
+%(error)s<form action="%(uri)s" method="post">
+%(inputs)s
+</form>
 </body>
 </html>
 """ % dict(uri=self.session_uri,
+           error=params.get('error') and '<p>%s</p>' % params.get('error') or '',
            inputs="\n".join(['<p>%(name)s: <input type="%(type)s" name="%(name)s" /></p>' % dict(
                                             name=name,
                                             type=name.lower().find('password') > -1 and 'password' or 'text'
