@@ -235,7 +235,7 @@ class RestHandlerFactory (object):
                         # return as no-op and let caller deal with it
                         return
                     else:
-                        raise Forbidden('unauthenticated session access forbidden')
+                        raise NotFound('existing session')
 
                 if sessionids:
                     # format is /key,... so unpack
@@ -271,13 +271,18 @@ class RestHandlerFactory (object):
                     self._db_wrapper(db_body)
 
                 # just report on current session status
+                content_type = negotiated_content_type(
+                    ['application/json', 'text/html'],
+                    'application/json'
+                    )
+
                 if self.context.session is None:
-                    if not self.context.session:
-                        if self.manager.clients.login is not None \
-                                and self.session_uri is not None:
-                            # return a basic HTML form for bootstrapping API servers
-                            params = web.input()
-                            body = ("""<!DOCTYPE html>
+                    if content_type == 'text/html' \
+                            and self.manager.clients.login is not None \
+                            and self.session_uri is not None:
+                        # return a basic HTML form for bootstrapping API servers
+                        params = web.input()
+                        body = ("""<!DOCTYPE html>
 <html>
 <body>
 <h1>Log in</h1>
@@ -288,24 +293,24 @@ class RestHandlerFactory (object):
 </html>
 """ % dict(uri=self.session_uri,
            inputs="\n".join(['<p>%(name)s: <input type="%(type)s" name="%(name)s" /></p>' % dict(
-                                                name=name,
-                                                type=name.lower().find('password') > -1 and 'password' or 'text'
-                                                )
+                                            name=name,
+                                            type=name.lower().find('password') > -1 and 'password' or 'text'
+                                            )
                              for name in self.manager.clients.login.login_keywords()
                              ] + 
                             ['<input type="submit" value="Login" />',
                              '<input type="hidden" name="referrer" value="%(refer)s" />' % dict(
-                                                refer=params.get('referrer', '')
-                                                )
+                                            refer=params.get('referrer', '')
+                                            )
                              ])
            )
-                                    )
-                            web.ctx.status = '403 Forbidden'
-                            web.header('Content-Type', 'text/html')
-                            web.header('Content-Length', '%d' % len(body))
-                            return body
-                        else:
-                            raise NotFound('existing login session')
+                                )
+                        web.ctx.status = '401 Unauthorized'
+                        web.header('Content-Type', 'text/html')
+                        web.header('Content-Length', '%d' % len(body))
+                        return body
+                    else:
+                        raise NotFound('existing login session')
 
                 # do not include sessionids since we don't want to enable
                 # any XSS attack where a hidden cookie can be turned into an 
