@@ -220,7 +220,7 @@ class RestHandlerFactory (object):
                 # build response
                 self.manager.sessionids.set_request_sessionids(self.manager, self.context)
                 uri = self.session_uri
-                keys = ','.join([ urlquote(i) for i in self.context.session.keys ]) + '\n'
+                keys = ','.join([ urlquote(i) for i in self.context.session.keys ])
                 if uri:
                     uri += '/' + keys
                 else:
@@ -234,8 +234,9 @@ class RestHandlerFactory (object):
                     else:
                         web.ctx.status = '201 Created'
                         web.header('Content-Type', 'text/uri-list')
-                        web.header('Content-Length', len(uri))
-                        return uri
+                        web.header('Content-Length', len(keys) + 1)
+                        web.header('Location', uri)
+                        return keys + '\n'
 
             def _session_authz(self, sessionids, get_html=False):
                 if not self.manager.sessionids \
@@ -324,7 +325,7 @@ class RestHandlerFactory (object):
                         web.header('Content-Length', '%d' % len(body))
                         return body
                     else:
-                        raise NotFound('existing login session')
+                        raise NotFound('No existing login session found.')
 
                 # do not include sessionids since we don't want to enable
                 # any XSS attack where a hidden cookie can be turned into an 
