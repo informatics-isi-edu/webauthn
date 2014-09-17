@@ -552,6 +552,10 @@ class DatabaseClientPasswd (ClientPasswd):
             extras = self._create_noauthz_extras(manager, context, clientname, db)
             extracols = [ extra[0] for extra in extras ]
             extravals = [ extra[1] for extra in extras ]
+            
+            if not self.provider._client_exists(db, clientname):
+                raise KeyError(clientname)
+            
             results = db.query("""
 INSERT INTO %(ptable)s (uid, pwhash, salthex, reps %(extracols)s) 
   SELECT uid, %(pwhash)s, %(salthex)s, %(reps)s %(extravals)s
