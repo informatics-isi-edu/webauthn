@@ -25,7 +25,7 @@ INSTALL_PYTHON_FILES= \
 	webauthn2/providers/verified_https.py
 
 INSTALL_PYTHON_DIRS= \
-	webauthn2/providers
+	webauthn2/providers 
 
 EDIT_FILES= \
 	Makefile \
@@ -41,7 +41,7 @@ CLEAN_FILES= \
 # these are the install target contents... actual system file paths
 INSTALL_FILES= \
 	$(INSTALL_PYTHON_FILES:%=$(PYLIBDIR)/%) \
-	$(SHAREDIR)/samples/webauthn2_config.json
+	$(SHAREDIR)/webauthn2_config.json
 
 INSTALL_DIRS= \
 	$(INSTALL_PYTHON_DIRS:%=$(PYLIBDIR)/%)
@@ -57,16 +57,16 @@ install: $(INSTALL_FILES) $(PREINSTALL)
 
 uninstall: force
 	rm -f $(INSTALL_FILES)
-	rmdir --ignore-fail-on-non-empty -p $(INSTALL_DIRS)
+	rmdir --ignore-fail-on-non-empty -p $(INSTALL_DIRS) $(SHAREDIR)
 
 # get platform-specific rules (e.g. actual predeploy recipe)
 include config/make-rules-$(PLATFORM)
 
-$(SHAREDIR)/%: %
-	install -o root -g root -m a=r -p -D $< $@
+$(SHAREDIR)/%: ./samples/%
+	install -o root -g root -m u=rw,g=r,o=r -p -D $< $@
 
 $(PYLIBDIR)/%: ./%
-	install -o root -g root -m a=rx -p -D $< $@
+	install -o root -g root -m u=rw,g=r,o=r -p -D $< $@
 
 preinstall: $(PREDEPLOY)
 
