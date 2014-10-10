@@ -8,28 +8,28 @@ include config/make-vars-$(PLATFORM)
 
 # catalog of all the files/dirs we manage via make targets below
 INSTALL_PYTHON_FILES= \
-	__init__.py \
-	manager.py \
-	rest.py \
-	util.py \
-	exc.py \
-	providers/__init__.py \
-	providers/crowd2.py \
-	providers/crowdrest1.py \
-	providers/database.py \
-	providers/null.py \
-	providers/oauth1a.py \
-	providers/providers.py \
-	providers/webcookie.py \
-	providers/globusonline.py \
-	providers/verified_https.py
+	webauthn2/__init__.py \
+	webauthn2/manager.py \
+	webauthn2/rest.py \
+	webauthn2/util.py \
+	webauthn2/exc.py \
+	webauthn2/providers/__init__.py \
+	webauthn2/providers/crowd2.py \
+	webauthn2/providers/crowdrest1.py \
+	webauthn2/providers/database.py \
+	webauthn2/providers/null.py \
+	webauthn2/providers/oauth1a.py \
+	webauthn2/providers/providers.py \
+	webauthn2/providers/webcookie.py \
+	webauthn2/providers/globusonline.py \
+	webauthn2/providers/verified_https.py
 
 INSTALL_PYTHON_DIRS= \
-	providers
+	webauthn2/providers 
 
 EDIT_FILES= \
 	Makefile \
-	webauthn2_config.json \
+	samples/webauthn2_config.json \
 	$(INSTALL_PYTHON_FILES)
 
 CLEAN_FILES= \
@@ -40,11 +40,11 @@ CLEAN_FILES= \
 
 # these are the install target contents... actual system file paths
 INSTALL_FILES= \
-	$(INSTALL_PYTHON_FILES:%=$(PYLIBDIR)/webauthn2/%) \
+	$(INSTALL_PYTHON_FILES:%=$(PYLIBDIR)/%) \
 	$(SHAREDIR)/webauthn2_config.json
 
 INSTALL_DIRS= \
-	$(INSTALL_PYTHON_DIRS:%=$(PYLIBDIR)/webauthn2/%)
+	$(INSTALL_PYTHON_DIRS:%=$(PYLIBDIR)/%)
 
 # bump the revision when changing predeploy side-effects
 PREINSTALL=$(VARLIBDIR)/preinstall.r4143
@@ -57,16 +57,16 @@ install: $(INSTALL_FILES) $(PREINSTALL)
 
 uninstall: force
 	rm -f $(INSTALL_FILES)
-	rmdir --ignore-fail-on-non-empty -p $(INSTALL_DIRS)
+	rmdir --ignore-fail-on-non-empty -p $(INSTALL_DIRS) $(SHAREDIR)
 
 # get platform-specific rules (e.g. actual predeploy recipe)
 include config/make-rules-$(PLATFORM)
 
-$(SHAREDIR)/%: %
-	install -o root -g root -m a=r -p -D $< $@
+$(SHAREDIR)/%: ./samples/%
+	install -o root -g root -m u=rw,g=r,o=r -p -D $< $@
 
-$(PYLIBDIR)/webauthn2/%: ./%
-	install -o root -g root -m a=rx -p -D $< $@
+$(PYLIBDIR)/%: ./%
+	install -o root -g root -m u=rw,g=r,o=r -p -D $< $@
 
 preinstall: $(PREDEPLOY)
 
