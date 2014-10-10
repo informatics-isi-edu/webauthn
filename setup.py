@@ -17,17 +17,18 @@
 
 from distutils.core import setup
 
-setup(name="webauthn2",
-      description="web app security context management system",
-      version="0.1",
-      package_dir={"webauthn2": ""},
-      packages=["webauthn2", "webauthn2.providers"],
-      requires=["web.py", "pytz", "psycopg2", "oauth", "suds"],
-      classifiers=[
-        "Intended Audience :: Developers",
-        "License :: OSI Approved :: Apache Software License",
-        "Programming Language :: Python",
-        "Topic :: Internet :: WWW/HTTP",
-        "Topic :: Software Development :: Libraries :: Python Modules",
-        ],
-     )
+setup(
+    name="webauthn2",
+    description="web app security context management system",
+    version="0.1-prerelease",
+    packages=["webauthn2", "webauthn2.providers"],
+    requires=["web.py", "pytz", "psycopg2", "oauth", "suds"],
+    maintainer_email="support@misd.isi.edu",
+    license='Apache License, Version 2.0',
+    classifiers=[
+      "Intended Audience :: Developers",
+      "License :: OSI Approved :: Apache Software License",
+      "Programming Language :: Python",
+      "Topic :: Internet :: WWW/HTTP",
+      "Topic :: Software Development :: Libraries :: Python Modules"
+    ])
