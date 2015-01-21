@@ -169,74 +169,8 @@ class RestHandlerFactory (object):
 
                 if not storage:
                     storage = web.input()
-                for key in self.manager.clients.login.login_keywords():
-                    if key not in storage:
-                        raise BadRequest('missing required parameter "%s"' % key)
 
-                referrer = storage.get('referrer')
-
-                def db_body(db):
-                    self.context = Context(self.manager, False, db)
-
-                    if self.context.session or self.context.client:
-                        raise Conflict('Login request conflicts with current client authentication state.')
-
-                    self.context.session = Session()
-
-                    # allocate new session ID first
-                    self.manager.sessionids.create_unique_sessionids(self.manager, self.context)
-
-                    try:
-                        # perform authentication
-                        self.context.client = self.manager.clients.login.login(self.manager, self.context, db, **storage)
-                    except (KeyError, ValueError), ev:
-                        # we don't reveal detailed reason for failed login 
-                        msg = 'session establishment with (%s) failed' \
-                            % ', '.join(self.manager.clients.login.login_keywords(True))
-                        if referrer and self.session_uri:
-                            web.ctx.status = '303 See Other'
-                            web.header('Location', '%s?referrer=%s&error=%s' % (
-                                    self.session_uri, 
-                                    urlquote(referrer),
-                                    urlquote(msg))
-                                       )
-                            return None
-                        else:
-                            raise Unauthorized(msg)
-
-                    if self.manager.attributes.client:
-                        # dig up attributes for client
-                        self.manager.attributes.client.set_msg_context(self.manager, self.context, db)
-
-                    # try to register new session
-                    self.manager.sessions.new(self.manager, self.context, db)
-                    return True
-
-                # run entire sequence in a restartable db transaction
-                result = self._db_wrapper(db_body)
-                if result is None:
-                    return
-                
-                # build response
-                self.manager.sessionids.set_request_sessionids(self.manager, self.context)
-                uri = self.session_uri
-                keys = ','.join([ urlquote(i) for i in self.context.session.keys ])
-                if uri:
-                    uri += '/' + keys
-                else:
-                    uri = keys
-
-                if 'env' in web.ctx:
-                    if referrer:
-                        web.ctx.status = '303 See Other'
-                        web.header('Location', referrer)
-                        return ''
-                    else:
-                        web.ctx.status = '201 Created'
-                        web.header('Content-Type', 'text/uri-list')
-                        web.header('Content-Length', len(keys) + 1)
-                        web.header('Location', uri)
-                        return keys + '\n'
+                return self._login_get_or_post(storage)
 
             def _session_authz(self, sessionids, get_html=False):
                 if not self.manager.sessionids \
@@ -275,6 +209,7 @@ class RestHandlerFactory (object):
                 database transactions.
 
                 """
+
                 def db_body(db):
                     self.context = Context(self.manager, False, db)
                     self._session_authz(sessionids, get_html=True)
@@ -290,7 +225,20 @@ class RestHandlerFactory (object):
                     'application/json'
                     )
 
+                def has_login_params():
+                    for p in web.input():
+                        if p != 'referrer':
+                            return True
+                    return False
+
                 if self.context.session is None:
+                    if self.manager.clients.login is not None:
+                            if self.manager.clients.login.accepts_login_get() and has_login_params():
+                                return self._login_get_or_post(web.input())
+                            elif self.manager.preauth is not None:
+                                preauth_info = self.manager.preauth.preauth_info(self.manager, self.context, db)
+                                if preauth_info != None:
+                                    return preauth_info
                     if content_type == 'text/html' \
                             and self.manager.clients.login is not None \
                             and self.session_uri is not None:
@@ -325,7 +273,7 @@ class RestHandlerFactory (object):
                         web.header('Content-Length', '%d' % len(body))
                         return body
                     else:
-                        raise NotFound('No existing login session found.')
+                        raise NotFound('No existing login session found.' + str(web.ctx))
 
                 # do not include sessionids since we don't want to enable
                 # any XSS attack where a hidden cookie can be turned into an 
@@ -390,6 +338,84 @@ class RestHandlerFactory (object):
                 if 'env' in web.ctx:
                     web.ctx.status = '204 No Content'
                 return ''
+
+            def _login_get_or_post(self, storage):
+                for key in self.manager.clients.login.login_keywords():
+                    if key not in storage:
+                        raise BadRequest('missing required parameter "%s"' % key)
+
+                referrer = storage.get('referrer')
+
+                def db_body(db):
+                    self.context = Context(self.manager, False, db)
+
+                    if self.context.session or self.context.client:
+                        raise Conflict('Login request conflicts with current client authentication state.')
+
+                    self.context.session = Session()
+
+                    # allocate new session ID first
+                    self.manager.sessionids.create_unique_sessionids(self.manager, self.context)
+
+                    try:
+                        # perform authentication
+                        self.context.client = self.manager.clients.login.login(self.manager, self.context, db, **storage)
+                    except (KeyError, ValueError), ev:
+                        # we don't reveal detailed reason for failed login 
+                        msg = 'session establishment with (%s) failed' \
+                            % ', '.join(self.manager.clients.login.login_keywords(True))
+                        if referrer and self.session_uri:
+                            web.ctx.status = '303 See Other'
+                            web.header('Location', '%s?referrer=%s&error=%s' % (
+                                    self.session_uri, 
+                                    urlquote(referrer),
+                                    urlquote(msg))
+                                       )
+                            return None
+                        else:
+                            raise Unauthorized(msg)
+
+                    if self.manager.attributes.client:
+                        # dig up attributes for client
+                        self.manager.attributes.client.set_msg_context(self.manager, self.context, db)
+
+                    # try to register new session
+                    self.manager.sessions.new(self.manager, self.context, db)
+                    return True
+
+                # run entire sequence in a restartable db transaction
+                result = self._db_wrapper(db_body)
+                if result is None:
+                    return
+                
+                # build response
+                self.manager.sessionids.set_request_sessionids(self.manager, self.context)
+                uri = self.session_uri
+                keys = ','.join([ urlquote(i) for i in self.context.session.keys ])
+                if uri:
+                    uri += '/' + keys
+                else:
+                    uri = keys
+
+                if self.manager.preauth != None:
+                    preauth_referrer = self.manager.preauth.preauth_referrer()
+                    if preauth_referrer != None:
+                        web.ctx.status = '303 See Other'
+                        web.header('Location', preauth_referrer)
+                        return ''
+
+                if 'env' in web.ctx:
+                    if referrer:
+                        web.ctx.status = '303 See Other'
+                        web.header('Location', referrer)
+                        return ''
+                    else:
+                        web.ctx.status = '201 Created'
+                        web.header('Content-Type', 'text/uri-list')
+                        web.header('Content-Length', len(keys) + 1)
+                        web.header('Location', uri)
+                        return keys + '\n'
+
                
         class UserPassword (RestHandler):
             """
@@ -1163,6 +1189,63 @@ class RestHandlerFactory (object):
                     web.ctx.status = '204 No Content'
                 return ''
 
+        class Preauth (RestHandler):
+            """
+            Preauth is a RESTful pre-authentication handler.
+
+            Register it at a web.py URI pattern like:
+
+               "your_preauth_prefix(/?)"
+               "your_preauth_prefix(/[^/]+)"
+            
+            """
+            def __init__(self):
+                RestHandler.__init__(self)
+
+            def GET(self, db=None):
+                """
+                Return pre-authentication data (e.g., display a web form for users to select among IdPs).
+                """
+                def db_body(db):
+                    self.context = Context(self.manager, False, db)
+                    # Should probably fail or something if the user is logged in, but for now we won't bother
+
+                if db:
+                    db_body(db)
+                else:
+                    self._db_wrapper(db_body)
+                
+                return self.manager.preauth.preauth_info(self.manager, self.context, db)
+
+            def POST(self, db=None):
+                """
+                Perform pre-authentication tasks (e.g., cache pre-authentication information)
+                """
+                def db_body(db):
+                    self.context = Context(self.manager, False, db)
+                    # Should probably fail or something if the user is logged in, but for now we won't bother
+
+                if db:
+                    db_body(db)
+                else:
+                    self._db_wrapper(db_body)
+
+                return self.manager.preauth.preauth_initiate_login(self.manager, self.context, db)
+
+            def DELETE(self, db=None):
+                """
+                Perform pre-authentication tasks (e.g., cache pre-authentication information)
+                """
+                def db_body(db):
+                    self.context = Context(self.manager, False, db)
+                    # Should probably fail or something if the user is logged in, but for now we won't bother
+
+                if db:
+                    db_body(db)
+                else:
+                    self._db_wrapper(db_body)
+
+                self.manager.preauth.preauth_delete(self.manager, self.context, db)
 
         # make these classes available from factory instance
         self.RestHandler = RestHandler
@@ -1172,6 +1255,7 @@ class RestHandlerFactory (object):
         self.AttrManage = AttrManage
         self.AttrAssign = AttrAssign
         self.AttrNest = AttrNest
+        self.Preauth = Preauth
 
 
 

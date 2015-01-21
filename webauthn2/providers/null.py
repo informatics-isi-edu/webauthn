@@ -62,3 +62,11 @@ class NullAttributeProvider (AttributeProvider):
     def __init__(self, config):
         AttributeProvider.__init__(self, config)
 
+
+class NullPreauthProvider (PreauthProvider):
+
+    key = 'null'
+
+    def __init__(self, config):
+        PreauthProvider.__init__(self, config)
+

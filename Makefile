@@ -19,6 +19,7 @@ INSTALL_PYTHON_FILES= \
 	webauthn2/providers/database.py \
 	webauthn2/providers/null.py \
 	webauthn2/providers/oauth1a.py \
+	webauthn2/providers/oauth2.py \
 	webauthn2/providers/providers.py \
 	webauthn2/providers/webcookie.py \
 	webauthn2/providers/globusonline.py \

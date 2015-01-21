@@ -32,6 +32,8 @@ Webauthn2 modular provider system.
 `AttributeProvider`
    : Abstract base class for client attribute providers.
 
+`PreauthProvider`
+   : Abstract base interface for pre-login tasks (OAuth2 authentication redirect, selecting IdP, etc.)
 
 These base classes have interface slots that can be optionally
 populated by a derived class, and each interface also has an abstract
@@ -120,6 +122,8 @@ __all__ = [
     'AttributeManage',
     'AttributeAssign',
     'AttributeNest',
+
+    'PreauthProvider',
 
     'config_built_ins'
     ]
@@ -228,6 +232,38 @@ class SessionStateProvider (Provider):
         """
         raise NotImplementedError()
 
+class PreauthProvider(Provider):
+    """
+    Preauth interface for pre-login tasks (OAuth2 authentication redirect, selecting IdP, etc.)
+    """
+    def __init__(self, config):
+        Provider.__init__(self, config)
+
+    def preauth_info(self, manager, context, db=None):
+        """
+        Present any required pre-authentication information (e.g., a web form with options).
+        """
+        pass
+
+    def preauth_initiate_login(self, manager, context, db=None):
+        """
+        Do any required pre-authentication tasks (e.g., redirect to an IdP).
+        
+        """
+        pass
+
+    def preauth_referrer(self):
+        """
+        If there's some special way of getting the original referrer, do it here.
+        """
+
+    def preauth_delete(self, manager, context, db=None):
+        """
+        Delete any pre-authentication information from a partially-authenticated session
+        
+        """
+        raise NotImplementedError()
+
 class ClientLogin (ProviderInterface):
     """
     ClientLogin interface for establishing client identity.
@@ -268,6 +304,12 @@ class ClientLogin (ProviderInterface):
         
         """
         raise NotImplementedError()
+
+    def accepts_login_get(self):
+        """
+        return True if this login mechanism is required to accept login requests via GET, False otherwise.
+        """
+        return False
 
 class ClientMsgAuthn (ProviderInterface):
     """
@@ -339,10 +381,13 @@ class ClientManage (ProviderInterface):
     def __init__(self, provider):
         ProviderInterface.__init__(self, provider)
 
-    def create_noauthz(self, clientname):
+    def create_noauthz(self, manager, context, clientname, db=None):
         raise NotImplementedError()
 
-    def delete_noauthz(self, clientname):
+    def delete_noauthz(self, manager, context, clientname, db=None):
+        raise NotImplementedError()
+
+    def update_noauthz(self, manager, context, clientname, db=None):
         raise NotImplementedError()
 
     def create(self, manager, context, clientname, db=None):

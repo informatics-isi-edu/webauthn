@@ -67,6 +67,9 @@ sessionstates_provider
 clients_provider
    The key for the provider used to determine client identities.
 
+preauth_provider
+   The key for the provider used to perform pre-authentication.
+
 attributes_provider
    The key for the provider used to determine client attributes.
 
@@ -107,6 +110,7 @@ class Context (object):
         context.session     exposes session information or is None 
         context.client      exposes client identity or None
         context.attributes  exposes a set of client attributes
+        context.user        exposes name-value pairs associated with the client
 
     The non-None session object should always implement interfaces
     consistent with the Session class.  It may support additional
@@ -130,6 +134,7 @@ class Context (object):
         self.session = None
         self.client = None
         self.attributes = set()
+        self.user = dict()
 
         if manager:
             # look for existing session ID context in message
@@ -161,7 +166,8 @@ class Context (object):
     def __repr__(self):
         return '<%s %s>' % (type(self), dict(session=self.session,
                                              client=self.client,
-                                             attributes=self.attributes))
+                                             attributes=self.attributes,
+                                             user=self.user))
 
 config_built_ins = web.storage(
     require_client = True,
@@ -171,6 +177,7 @@ config_built_ins = web.storage(
     sessionstates_provider='null',
     clients_provider='null',
     attributes_provider='null',
+    preauth_provider='null',
     handler_uri_usersession=None,
     extend_session=True
     )
@@ -231,6 +238,7 @@ class Manager (util.DatabaseConnection):
         self.sessions = providers.sessionstates[config['sessionstates_provider']](config)
         self.clients = providers.clients[config['clients_provider']](config)
         self.attributes = providers.attributes[config['attributes_provider']](config)
+        self.preauth = providers.preauths[config['preauth_provider']](config)
         self.config = config
         
     def deploy(self, db=None):

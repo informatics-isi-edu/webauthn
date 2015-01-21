@@ -515,6 +515,31 @@ DELETE FROM %(utable)s WHERE username = %(uname)s ;
         else:
             return self.provider._db_wrapper(db_body)
 
+    def update_noauthz(self, manager, context, clientname, db=None):
+        def db_body(db):
+            if not self.provider._client_exists(db, clientname):
+                raise ValueError("User does not exist")
+
+            rawcols = self._get_noauthz_updatecols(manager, context, clientname, db)
+            cols=[]
+            vals=dict()
+            for c in rawcols:
+                cols.append(c[0] + '= $' + c[0])
+                vals[c[0]] = c[1]
+            results = db.query("""
+UPDATE %(utable)s SET %(colstring)s where username=%(uname)s
+"""
+                               % dict(utable=self.provider._table(self.provider.client_storage_name),
+                                      colstring=','.join(cols),
+                                      uname=sql_literal(clientname)),
+                               vars=vals)
+        if db:
+            return db_body(db)
+        else:
+            return self.provider._db_wrapper(db_body)
+
+
+
 class DatabaseClientPasswd (ClientPasswd):
 
     def __init__(self, provider):
