@@ -27,7 +27,6 @@ import crowd2
 import crowdrest1
 import globusonline
 import web
-import oauth2
 
 __doc__ += null.__doc__ + webcookie.__doc__ + database.__doc__ + crowd2.__doc__
 
@@ -54,20 +53,24 @@ class ProviderMap:
         else:
             return self.providers_dict[key]
 
+    def add(self, provider):
+        if provider not in self.providers:
+            self.providers.append(provider)
+            self.providers_dict[provider.key] = provider
+
+
 sessionids =      ProviderMap([ null.NullSessionIdProvider,
                                 webcookie.WebcookieSessionIdProvider,
                                 oauth1a.Oauth1aSessionIdProvider ])
 
 sessionstates =   ProviderMap([ null.NullSessionStateProvider,
                                 database.DatabaseSessionStateProvider,
-                                oauth2.OAuth2SessionStateProvider,
                                 oauth1a.Oauth1aSessionStateProvider ])
 
 clients =         ProviderMap([ null.NullClientProvider,
                                 database.DatabaseClientProvider,
                                 crowd2.Crowd2ClientProvider,
                                 crowdrest1.CrowdREST1ClientProvider,
-                                oauth2.OAuth2ClientProvider,
                                 globusonline.GlobusOnlineClientProvider ])
 
 attributes =      ProviderMap([ null.NullAttributeProvider,
@@ -76,8 +79,7 @@ attributes =      ProviderMap([ null.NullAttributeProvider,
                                 crowdrest1.CrowdREST1AttributeProvider,
                                 globusonline.GlobusOnlineAttributeProvider ])
 
-preauths =        ProviderMap([ null.NullPreauthProvider,
-                                oauth2.OAuth2PreauthProvider ])
+preauths =        ProviderMap([ null.NullPreauthProvider ])
 
 config_built_ins = web.storage()
 config_built_ins.update( globusonline.config_built_ins )
@@ -88,5 +90,18 @@ config_built_ins.update( database.config_built_ins )
 config_built_ins.update( webcookie.config_built_ins )
 config_built_ins.update( null.config_built_ins )
 config_built_ins.update( providers.config_built_ins )
-config_built_ins.update( oauth2.config_built_ins )
+
+try:
+    # conditionalize oauth2 module since it has oddball dependencies
+    import oauth2
+    _enable_oauth2 = True
+except:
+    _enable_oauth2 = False
+    
+if _enable_oauth2:
+    __doc__ += oauth2.__doc__
+    sessionstates.add(oauth2.OAuth2SessionStateProvider)
+    clients.add(oauth2.OAuth2ClientProvider)
+    preauths.add(oauth2.OAuth2PreauthProvider)
+    config_built_ins.update( oauth2.config_built_ins )
 
