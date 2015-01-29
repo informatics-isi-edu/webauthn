@@ -22,7 +22,6 @@ import providers
 import null
 import webcookie
 import database
-import oauth1a
 import crowd2
 import crowdrest1
 import globusonline
@@ -60,12 +59,10 @@ class ProviderMap:
 
 
 sessionids =      ProviderMap([ null.NullSessionIdProvider,
-                                webcookie.WebcookieSessionIdProvider,
-                                oauth1a.Oauth1aSessionIdProvider ])
+                                webcookie.WebcookieSessionIdProvider])
 
 sessionstates =   ProviderMap([ null.NullSessionStateProvider,
-                                database.DatabaseSessionStateProvider,
-                                oauth1a.Oauth1aSessionStateProvider ])
+                                database.DatabaseSessionStateProvider])
 
 clients =         ProviderMap([ null.NullClientProvider,
                                 database.DatabaseClientProvider,
@@ -83,7 +80,6 @@ preauths =        ProviderMap([ null.NullPreauthProvider ])
 
 config_built_ins = web.storage()
 config_built_ins.update( globusonline.config_built_ins )
-config_built_ins.update( oauth1a.config_built_ins )
 config_built_ins.update( crowd2.config_built_ins )
 config_built_ins.update( crowdrest1.config_built_ins )
 config_built_ins.update( database.config_built_ins )
@@ -104,4 +100,16 @@ if _enable_oauth2:
     clients.add(oauth2.OAuth2ClientProvider)
     preauths.add(oauth2.OAuth2PreauthProvider)
     config_built_ins.update( oauth2.config_built_ins )
+
+try:
+    # conditionalize oauth1 module since it has oddball dependencies
+    import oauth1a
+    _enable_oauth1a = True
+except:
+    _enable_oauth1a = False
+    
+if _enable_oauth1a:
+    __doc__ += oauth1a.__doc__
+    sessionstates.add(oauth1a.Oauth1aSessionStateProvider)
+    config_built_ins.update( oauth1a.config_built_ins )
 
