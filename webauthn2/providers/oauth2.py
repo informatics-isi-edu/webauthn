@@ -191,82 +191,6 @@ class OAuth2 (database.DatabaseConnection2):
     def __init__(self, config):
         database.DatabaseConnection2.__init__(self, config)
 
-    def deploy_upgrade(self, db, versioninfo):
-        """
-        Upgrade database storage format to current version with tri-state response.
-
-        Results:
-           True:  database was upgraded
-           None:  no upgrade was necessary
-           False: upgrade not possible, data incompatible
-
-        """
-        if versioninfo.major != self.major or versioninfo.minor != self.minor:
-            return False
-        else:
-            return None
-
-    def deploy_guard(self, db, suffix=''):
-        """
-        Atomic test and set deployed version info with optional suffix for version storage.
-
-        Override this method if the derived class can do something
-        better than an exact version equality test, such as in-place
-        upgrades.
-
-        """
-        if not self._table_exists(db, 'webauthn2_version' + suffix):
-            db.query("""
-CREATE VIEW %(version)s AS
-  SELECT %(major)s::int AS major, %(minor)s::int AS minor;
-"""
-                     % dict(version=self._table('webauthn2_version' + suffix),
-                            major=sql_literal(self.major),
-                            minor=sql_literal(self.minor))
-                     )
-
-        else:
-            results = db.query("SELECT * FROM %s" % self._table('webauthn2_version' + suffix))
-
-            if len(results) != 1:
-                raise TypeError('Unexpected version info format in %s' % self._table('webauthn2_version' + suffix))
-
-            versioninfo = results[0]
-
-            test_result = self.deploy_upgrade(db, versioninfo)
-
-            if test_result == False:
-                raise ValueError('Incompatible %s == %s.' % (self._table('webauthn2_version' + suffix), versioninfo))
-
-            elif test_result == True:
-                db.query("""
-DROP VIEW %(version)s;
-CREATE VIEW %(version)s AS
-  SELECT 2 AS major, 0 AS minor;
-"""
-                         % dict(version=self._table('webauthn2_version' + suffix),
-                                major=sql_literal(self.major),
-                                minor=sql_literal(self.minor))
-                         )
-    
-    def deploy(self, db=None):
-        """
-        Deploy custom schema if necessary.
-
-        """
-        def db_body(db):
-            if self.database_schema and not self._schema_exists(db, self.database_schema):
-                db.query("""
-CREATE SCHEMA %(schema)s ;
-"""
-                         % dict(schema=sql_identifier(self.database_schema))
-                         )
-
-        if db:
-            return db_body(db)
-        else:
-            return self._db_wrapper(db_body)
-
 class OAuth2Login (ClientLogin):
 
     def __init__(self, provider):
@@ -678,20 +602,6 @@ CREATE VIEW %(summary)s AS
                         summary=self._table(self.summary_storage_name))
                  )
 
-    def deploy_upgrade(self, db, versioninfo):
-        """
-        Conditionally upgrade provider state.
-
-        """
-        if versioninfo.major == self.major and versioninfo.minor == self.minor:
-            # nothing to do
-            return None
-        elif versioninfo.major == self.major and versioninfo.minor < self.minor:
-            # minor updates only change the helper view definitions but not the tables?
-            self.deploy_views(db)
-            return True
-        else:
-            return False
 
     def deploy(self, db=None):
         """
