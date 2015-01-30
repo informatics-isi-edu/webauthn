@@ -110,6 +110,7 @@ except:
     
 if _enable_oauth1a:
     __doc__ += oauth1a.__doc__
+    sessionids.add(oauth1a.Oauth1aSessionIdProvider)
     sessionstates.add(oauth1a.Oauth1aSessionStateProvider)
     config_built_ins.update( oauth1a.config_built_ins )
 
