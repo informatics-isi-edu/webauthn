@@ -102,6 +102,20 @@ if _enable_oauth2:
     config_built_ins.update( oauth2.config_built_ins )
 
 try:
+    # conditionalize goauth module since it has oddball dependencies
+    import goauth
+    _enable_goauth = True
+except:
+    _enable_goauth = False
+    
+if _enable_goauth:
+    __doc__ += goauth.__doc__
+    clients.add(goauth.GOAuthClientProvider)
+    preauths.add(goauth.GOAuthPreauthProvider)
+    config_built_ins.update( goauth.config_built_ins )
+
+
+try:
     # conditionalize oauth1 module since it has oddball dependencies
     import oauth1a
     _enable_oauth1a = True
