@@ -62,7 +62,8 @@ class GlobusOnlineClientMsgAuthn (ClientMsgAuthn):
         # make remote calls to globus nexus
         auth_header = web.ctx.env.get("HTTP_AUTHORIZATION")
         if not auth_header:
-            _log.debug("no auth header")
+            if manager.require_client or manager.require_attributes:
+                _log.debug("no auth header")
             return
         token = _get_token(auth_header)
 
