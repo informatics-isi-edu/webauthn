@@ -326,7 +326,7 @@ class DatabaseConnection (PooledConnection):
 
     """
 
-    def __init__(self, config):
+    def __init__(self, config, extended_exceptions=None):
         """
         Create a pooled database connection for the config value.
 
@@ -348,6 +348,11 @@ class DatabaseConnection (PooledConnection):
         self.database_name, \
             self.database_type, \
             = self.config_tuple
+
+        if extended_exceptions:
+            self.extended_exceptions = extended_exceptions
+        else:
+            self.extended_exceptions = []
 
     def _new_connection(self):
         return web.database(dbn=self.database_type, db=self.database_name)
@@ -420,10 +425,27 @@ class DatabaseConnection (PooledConnection):
                     raise ev
 
                 except Exception, ev:
+                    def trace():
+                        et, ev2, tb = sys.exc_info()
+                        web.debug('got exception "%s" during _db_wrapper()' % str(ev2),
+                                  traceback.format_exception(et, ev2, tb))
+
+                    # see if subclass told us how to handle exception
+                    for cls, do_commit, do_trace in self.extended_exceptions:
+                        if isinstance(ev, cls):
+                            if do_trace:
+                                trace()
+                            if do_commit:
+                                t.commit()
+                            else:
+                                try:
+                                    t.rollback()
+                                except:
+                                    pass
+                            raise ev
+
                     # assume all other exceptions are fatal
-                    et, ev2, tb = sys.exc_info()
-                    web.debug('got exception "%s" during _db_wrapper()' % str(ev2),
-                              traceback.format_exception(et, ev2, tb))
+                    trace()
                     try:
                         t.rollback()
                     except:
