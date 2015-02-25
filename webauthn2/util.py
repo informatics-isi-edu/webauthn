@@ -106,7 +106,7 @@ def negotiated_content_type(supported_types=['text/csv', 'application/json', 'ap
 
     return default
 
-def merge_config(overrides=None, defaults=None, jsonFileName='webauthn2_config.json', built_ins={}):
+def merge_config(overrides=None, defaults=None, jsonFileName=None, built_ins={}):
     """
     Construct web.storage config result from inputs.
 
@@ -132,18 +132,15 @@ def merge_config(overrides=None, defaults=None, jsonFileName='webauthn2_config.j
     defaults (even if the dictionary is empty).
     
     """
-    if defaults == None:
-        try:
-            homedir = os.environ.get('HOME', './')
-            fname = '%s/%s' % (homedir, jsonFileName)
-            f = open(fname)
-            s = f.read()
-            f.close()
-            defaults = jsonReader(s)
-            if type(defaults) != dict:
-                raise TypeError('%r' % defaults)
-        except:
-            defaults = {}
+    if defaults is None and jsonFileName is not None:
+        homedir = os.environ.get('HOME', './')
+        fname = '%s/%s' % (homedir, jsonFileName)
+        f = open(fname)
+        s = f.read()
+        f.close()
+        defaults = jsonReader(s)
+        if type(defaults) != dict:
+            raise TypeError('%r' % defaults)
 
     config = web.storage()
     config.update(built_ins)
