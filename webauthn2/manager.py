@@ -76,8 +76,8 @@ attributes_provider
 handler_uri_usersession
    The base URI of RESTful user session management when using RestHandlerFactory.
 
-database_name
-   The name of the database used when creating database connections.
+database_dsn
+   The DSN of the database used when creating database connections.
 
 database_type
    The database system name used when creating database connections.

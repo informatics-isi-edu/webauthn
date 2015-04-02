@@ -54,8 +54,8 @@ from nexus import GlobusOnlineRestClient
 
 config_built_ins = web.storage(
     # Items needed for methods inherited from database provider
-    database_name= '',
     database_type= 'postgres',
+    database_dsn= 'dbname=',
     database_schema= 'webauthn2',
     database_max_retries= 5,
     oauth2_redirect_relative_uri="/authn/session",

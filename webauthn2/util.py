@@ -330,19 +330,19 @@ class DatabaseConnection (PooledConnection):
         Required config attributes:
 
         config.database_type  (e.g. 'postgres')
-        config.database_name  (e.g. 'myapp1' or '')
+        config.database_dsn  (e.g. 'dbname=myapp1' or 'host=... user=... password=... dbname=...')
         config.database_schema  (e.g. 'public' or None)
         config.database_max_retries  (e.g. 5)
 
         """
-        config_tuple = (config.database_name,
+        config_tuple = (config.database_dsn,
                         config.database_type)
         PooledConnection.__init__(self, config_tuple)
 
         self.database_schema = config.database_schema
         self.database_max_retries = max(config.database_max_retries, 0)
 
-        self.database_name, \
+        self.database_dsn, \
             self.database_type, \
             = self.config_tuple
 
@@ -352,7 +352,7 @@ class DatabaseConnection (PooledConnection):
             self.extended_exceptions = []
 
     def _new_connection(self):
-        return web.database(dbn=self.database_type, db=self.database_name)
+        return web.database(dbn=self.database_type, dsn=self.database_dsn)
 
     def _db_wrapper(self, db_thunk):
         """

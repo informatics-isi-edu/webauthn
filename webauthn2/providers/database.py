@@ -28,6 +28,12 @@ Webauthn2 provider implementations using private database tables.
 
 Provider-specific parameters for database module:
 
+`database_type`
+   : The database type (e.g., postgres).
+
+`database_dsn`
+   : The database source name (e.g., "host=localhost user=ermrest password=... dbname=ermrest").
+
 `database_schema`
    : The schema name qualifier for provider tables within the database (text or None).
 
@@ -55,8 +61,8 @@ import urllib
 import re
 
 config_built_ins = web.storage(
-    database_name= '',
     database_type= 'postgres',
+    database_dsn= 'dbname=',
     database_schema= 'webauthn2',
     database_max_retries= 5,
     def_passwd_len= 10,

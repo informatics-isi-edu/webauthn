@@ -19,6 +19,12 @@ Webauthn2 provider implementations using OAuth2 OpenID Connect. This class inher
 
 Provider-specific parameters inherited from DatabaseConnection2 module:
 
+`database_type`
+   : The database type (e.g., postgres).
+
+`database_dsn`
+   : The database source name (e.g., "host=localhost user=ermrest password=... dbname=ermrest").
+
 `database_schema`
    : The schema name qualifier for provider tables within the database (text or None).
 
@@ -68,8 +74,8 @@ import collections
 
 config_built_ins = web.storage(
     # Items needed for methods inherited from database provider
-    database_name= '',
     database_type= 'postgres',
+    database_dsn= 'dbname=',
     database_schema= 'webauthn2',
     database_max_retries= 5,
     # OAuth-specific items
