@@ -436,9 +436,9 @@ class OAuth2PreauthProvider (PreauthProvider):
             return simplejson.dumps({
                     'authentication_type' : 'oauth2',
                     'cookie' : self.nonce_cookie_name,
-                    'redirect_url' : self.preauth_initiate(db)})
-                  
-    def preauth_initiate_login(self, manager, context, db):
+                    'redirect_url' : self.preauth_initiate(manager, context, db, False)})
+
+    def preauth_initiate(self, manager, context, db, do_redirect):
         """
         Initiate a login (redirect to OAuth2 provider)
         """
@@ -446,7 +446,17 @@ class OAuth2PreauthProvider (PreauthProvider):
         session = self.make_session(db, web.input().get('referrer'))
         auth_request_args = self.make_auth_request_args(session)
         web.setcookie(self.nonce_cookie_name, session.get('auth_cookie_nonce'), secure=True)
-        raise web.seeother(self.make_redirect_uri(auth_request_args))
+        if do_redirect :
+            web.debug("redirecting")
+            raise web.seeother(self.make_redirect_uri(auth_request_args))
+        else:
+            return self.make_redirect_uri(auth_request_args)
+
+    def preauth_initiate_login(self, manager, context, db):
+        """
+        Initiate a login (redirect to OAuth2 provider)
+        """
+        self.preauth_initiate(manager, context, db, True)
     
     def preauth_referrer(self):
         """
