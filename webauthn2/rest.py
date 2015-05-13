@@ -273,7 +273,7 @@ class RestHandlerFactory (object):
                         web.header('Content-Length', '%d' % len(body))
                         return body
                     else:
-                        raise NotFound('No existing login session found.' + str(web.ctx))
+                        raise NotFound('No existing login session found.')
 
                 # do not include sessionids since we don't want to enable
                 # any XSS attack where a hidden cookie can be turned into an 
