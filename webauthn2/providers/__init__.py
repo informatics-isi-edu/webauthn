@@ -112,6 +112,7 @@ if _enable_goauth:
     __doc__ += goauth.__doc__
     clients.add(goauth.GOAuthClientProvider)
     preauths.add(goauth.GOAuthPreauthProvider)
+    attributes.add(goauth.GOAuthAttributeProvider)
     config_built_ins.update( goauth.config_built_ins )
 
 
