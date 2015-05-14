@@ -108,6 +108,8 @@ class GOAuthLogin(ClientLogin):
         context.user['refresh_token'] = refresh_token
         context.user['access_token_expiration'] = base_timestamp + timedelta(seconds=int(expires_in))
         context.user['userinfo'] =  simplejson.dumps(userinfo, separators=(',', ':'))
+        # TODO: fetch user's real group list and store here instead of 'dummy'
+        context.goauth_groups = set(['dummy'])
 
         if self.provider._client_exists(db, username):
             manager.clients.manage.update_noauthz(manager, context, username, db)
@@ -190,3 +192,22 @@ class GOAuthConfig(oauth2.OAuth2Config):
         d=yaml.load(f)
         f.close()
         return d
+
+
+class GOAuthAttributeClient (AttributeClient):
+
+    def __init__(self, provider):
+        AttributeClient.__init__(self, provider)
+
+    def set_msg_context(self, manager, context, db=None):
+        if hasattr(self.context, 'goauth_groups'):
+            context.attributes.update(["g:" + group for group in context.goauth_groups])
+
+class GOAuthAttributeProvider (AttributeProvider):
+
+    key = 'goauth'
+
+    def __init__(self, config):
+        AttributeProvider.__init__(self, config)
+        self.client = GOAuthAttributeClient(self)
+
