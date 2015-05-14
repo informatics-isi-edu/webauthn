@@ -108,8 +108,12 @@ class GOAuthLogin(ClientLogin):
         context.user['refresh_token'] = refresh_token
         context.user['access_token_expiration'] = base_timestamp + timedelta(seconds=int(expires_in))
         context.user['userinfo'] =  simplejson.dumps(userinfo, separators=(',', ':'))
-        # TODO: fetch user's real group list and store here instead of 'dummy'
-        context.goauth_groups = set(['dummy'])
+        
+        group_ids = []
+        response, content = go.get_group_list(my_roles=["manager","admin","member"])
+        if response["status"] == "200":
+            group_ids = [g["id"] for g in content if g["my_status"] == "active"]
+        context.goauth_groups = set(group_ids)
 
         if self.provider._client_exists(db, username):
             manager.clients.manage.update_noauthz(manager, context, username, db)
