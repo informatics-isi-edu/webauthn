@@ -204,7 +204,7 @@ class GOAuthAttributeClient (AttributeClient):
         AttributeClient.__init__(self, provider)
 
     def set_msg_context(self, manager, context, db=None):
-        if hasattr(self.context, 'goauth_groups'):
+        if hasattr(context, 'goauth_groups'):
             context.attributes.update(["g:" + group for group in context.goauth_groups])
 
 class GOAuthAttributeProvider (AttributeProvider):
