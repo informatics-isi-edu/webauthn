@@ -103,14 +103,18 @@ class GOAuthLogin(ClientLogin):
         base_timestamp = datetime.now()
         access_token, refresh_token, expires_in = go.goauth_get_access_token_from_code(vals.get('code'))
         username, client_id, server = go.goauth_validate_token(access_token)
-        userinfo = go.get_user(username)
         context.user['access_token'] = access_token
         context.user['refresh_token'] = refresh_token
         context.user['access_token_expiration'] = base_timestamp + timedelta(seconds=int(expires_in))
+        
+        # Get Globus client for authenticated user
+        user_config = {"server" : go.config["server"], "client" : username, "client_secret" : None, "goauth_token" : access_token}
+        user_client = GlobusOnlineRestClient(config=user_config)
+        userinfo = user_client.get_user(username)
         context.user['userinfo'] =  simplejson.dumps(userinfo, separators=(',', ':'))
         
         group_ids = []
-        response, content = go.get_group_list(my_roles=["manager","admin","member"])
+        response, content = user_client.get_group_list(my_roles=["manager","admin","member"])
         if response["status"] == "200":
             group_ids = [g["id"] for g in content if g["my_status"] == "active"]
         context.goauth_groups = set(group_ids)
