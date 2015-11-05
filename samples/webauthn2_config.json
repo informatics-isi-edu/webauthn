@@ -32,5 +32,18 @@
   "crowd_app_passwd": null, 
   "crowd_max_retries": 5, 
   "crowd_listusers_scope": [],
-  "crowd_listgroups_scope": []
+  "crowd_listgroups_scope": [],
+  
+  "oauth2_nonce_hard_timeout" : 3600,
+  "oauth2_discovery_uri": "https://accounts.google.com/.well-known/openid-configuration",
+  "oauth2_redirect_relative_uri": "/authn/session",
+  "oauth2_client_secret_file": "/usr/local/etc/oauth2/client_secret_google.json",
+  "oauth2_scope": "openid email profile",
+  "oauth2_provider_sets_token_nonce": false,
+
+  "goauth_config_file" : "/usr/local/etc/goauth/go_config.yml",
+  "goauth_endpoint_protocol" : "https",
+  "goauth_endpoint_server" : "www.globus.org",
+  "goauth_endpoint_path" : "/OAuth",
+  "goauth_redirect_relative_uri" : "/authn/session"
 }

@@ -1,0 +1,6 @@
+server: nexus.api.globusonline.org
+cache:
+  class: 'nexus.token_utils.InMemoryCache'
+client: your_service_goauth_username
+client_secret: your_service_goauth_password
+verify_ssl: false
