@@ -211,11 +211,11 @@ class GOAuthAttributeClient (AttributeClient):
         if hasattr(context, 'goauth_groups'):
             context.attributes.update(["g:" + group for group in context.goauth_groups])
 
-class GOAuthAttributeProvider (AttributeProvider):
+class GOAuthAttributeProvider (database.DatabaseAttributeProvider):
 
     key = 'goauth'
 
     def __init__(self, config):
-        AttributeProvider.__init__(self, config)
+        database.DatabaseAttributeProvider.__init__(self, config)
         self.client = GOAuthAttributeClient(self)
 
