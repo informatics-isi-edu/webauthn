@@ -327,7 +327,7 @@ INSERT INTO %(stable)s (key, since, keysince, expires, client, attributes %(extr
                 # don't update too often
                 return
             db.query("""
-UPDATE %(stable)s SET expires = %(expires)s WHERE key = %(key)s ;
+UPDATE %(stable)s SET expires = %(expires)s WHERE key = %(key)s AND %(expires)s > expires ;
 """
                      % dict(stable=self._table(self.storage_name),
                             key=sql_literal(srow.key),
