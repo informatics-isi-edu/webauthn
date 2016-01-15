@@ -323,7 +323,9 @@ INSERT INTO %(stable)s (key, since, keysince, expires, client, attributes %(extr
             now = datetime.datetime.now(pytz.timezone('UTC'))
             duration = datetime.timedelta(minutes=int(manager.config.get('session_expiration_minutes', 30)))
             expires = now + duration
-            if (expires - srow.expires).seconds < 5:
+            # check timestamp ordering because python time differences wrap around
+            # in ugly ways instead of producing signed results!
+            if (srow.expires > expires) or (expires - srow.expires).seconds < 5:
                 # don't update too often
                 return
             db.query("""
