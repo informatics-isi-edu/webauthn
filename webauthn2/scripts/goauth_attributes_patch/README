@@ -1,0 +1,13 @@
+Note: if your database was built with a version of webauthn that was checked in
+to github after December 18, 2015, you do NOT need this patch.
+
+The original problem was that the initial implementation of the goauth attribute
+(group) provider didn't create the attribute tables in the database. If your
+database has a table called webauthn2_goauth.attribute, you don't need
+this patch.
+
+If you do need it, run goauth_attributes_patch.sql on your database.
+
+Again, if your database was created with:
+https://github.com/informatics-isi-edu/webauthn/commit/1244d2d6de8d7fe8145a29c89538fe21e4bcf4c2
+or later, then you don't need this patch.
