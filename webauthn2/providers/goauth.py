@@ -102,6 +102,8 @@ class GOAuthLogin(ClientLogin):
         go = GlobusOnlineRestClient(config_file=self.provider.cfg.get('goauth_config_file'))
         base_timestamp = datetime.now()
         access_token, refresh_token, expires_in = go.goauth_get_access_token_from_code(vals.get('code'))
+        # Temporary for Kyle -- print access token
+        web.debug("Globus access token: '{access_token}'".format(access_token=access_token))
         username, client_id, server = go.goauth_validate_token(access_token)
         context.user['access_token'] = access_token
         context.user['refresh_token'] = refresh_token

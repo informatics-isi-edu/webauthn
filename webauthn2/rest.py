@@ -209,7 +209,12 @@ class RestHandlerFactory (object):
                 database transactions.
 
                 """
-
+                # Debug for referrer tracing
+                referrer_arg = str(web.input().get('referrer'))
+                referer_header = str(web.ctx.env.get('HTTP_REFERER'))
+                web.debug("in GET /session, referrer arg is '{referrer_arg}', Referrer header is '{referer_header}'"\
+                          .format(referrer_arg=referrer_arg, referer_header=referer_header))
+                
                 def db_body(db):
                     self.context = Context(self.manager, False, db)
                     self._session_authz(sessionids, get_html=True)
@@ -361,6 +366,7 @@ class RestHandlerFactory (object):
                         # perform authentication
                         self.context.client = self.manager.clients.login.login(self.manager, self.context, db, **storage)
                     except (KeyError, ValueError), ev:
+                        web.debug(ev.format_stack())
                         # we don't reveal detailed reason for failed login 
                         msg = 'session establishment with (%s) failed' \
                             % ', '.join(self.manager.clients.login.login_keywords(True))
@@ -1206,6 +1212,11 @@ class RestHandlerFactory (object):
                 """
                 Return pre-authentication data (e.g., display a web form for users to select among IdPs).
                 """
+                referrer_arg = str(web.input().get('referrer'))
+                referer_header = str(web.ctx.env.get('HTTP_REFERER'))
+                web.debug("in GET /preauth, referrer arg is '{referrer_arg}', Referrer header is '{referer_header}'"\
+                          .format(referrer_arg=referrer_arg, referer_header=referer_header))
+
                 def db_body(db):
                     self.context = Context(self.manager, False, db)
                     # Should probably fail or something if the user is logged in, but for now we won't bother
