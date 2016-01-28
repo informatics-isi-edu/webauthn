@@ -72,6 +72,7 @@ from providers import Session
 import re
 
 import web
+import traceback
 
 class RestHandlerFactory (object):
     """
@@ -366,7 +367,7 @@ class RestHandlerFactory (object):
                         # perform authentication
                         self.context.client = self.manager.clients.login.login(self.manager, self.context, db, **storage)
                     except (KeyError, ValueError), ev:
-                        web.debug(ev.format_stack())
+                        web.debug(traceback.format_exc(ev))
                         # we don't reveal detailed reason for failed login 
                         msg = 'session establishment with (%s) failed' \
                             % ', '.join(self.manager.clients.login.login_keywords(True))
@@ -1214,6 +1215,7 @@ class RestHandlerFactory (object):
                 """
                 referrer_arg = str(web.input().get('referrer'))
                 referer_header = str(web.ctx.env.get('HTTP_REFERER'))
+                web.debug("in GET /preauth, user agent is '{user_agent}'".format(user_agent=str(web.ctx.env.get('HTTP_USER_AGENT'))))
                 web.debug("in GET /preauth, referrer arg is '{referrer_arg}', Referrer header is '{referer_header}'"\
                           .format(referrer_arg=referrer_arg, referer_header=referer_header))
 
