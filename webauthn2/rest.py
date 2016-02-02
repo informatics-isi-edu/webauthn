@@ -227,7 +227,7 @@ class RestHandlerFactory (object):
 
                 # just report on current session status
                 content_type = negotiated_content_type(
-                    ['application/json', 'text/html'],
+                    ['application/json'],
                     'application/json'
                     )
 
@@ -239,47 +239,10 @@ class RestHandlerFactory (object):
 
                 if self.context.session is None:
                     if self.manager.clients.login is not None:
-                            if self.manager.clients.login.accepts_login_get() and has_login_params():
-                                return self._login_get_or_post(web.input())
-                            elif self.manager.preauth is not None:
-                                preauth_info = self.manager.preauth.preauth_info(self.manager, self.context, db)
-                                if preauth_info != None:
-                                    return preauth_info
-                    if content_type == 'text/html' \
-                            and self.manager.clients.login is not None \
-                            and self.session_uri is not None:
-                        # return a basic HTML form for bootstrapping API servers
-                        params = web.input()
-                        body = ("""<!DOCTYPE html>
-<html>
-<body>
-<h1>Log in</h1>
-%(error)s<form action="%(uri)s" method="post">
-%(inputs)s
-</form>
-</body>
-</html>
-""" % dict(uri=self.session_uri,
-           error=params.get('error') and '<p>%s</p>' % params.get('error') or '',
-           inputs="\n".join(['<p>%(name)s: <input type="%(type)s" name="%(name)s" /></p>' % dict(
-                                            name=name,
-                                            type=name.lower().find('password') > -1 and 'password' or 'text'
-                                            )
-                             for name in self.manager.clients.login.login_keywords()
-                             ] + 
-                            ['<input type="submit" value="Login" />',
-                             '<input type="hidden" name="referrer" value="%(refer)s" />' % dict(
-                                            refer=params.get('referrer', '')
-                                            )
-                             ])
-           )
-                                )
-                        web.ctx.status = '401 Unauthorized'
-                        web.header('Content-Type', 'text/html')
-                        web.header('Content-Length', '%d' % len(body))
-                        return body
-                    else:
-                        raise NotFound('No existing login session found.')
+                        if self.manager.clients.login.accepts_login_get() and has_login_params():
+                            return self._login_get_or_post(web.input())
+                    
+                    raise NotFound('No existing login session found.')
 
                 # do not include sessionids since we don't want to enable
                 # any XSS attack where a hidden cookie can be turned into an 
