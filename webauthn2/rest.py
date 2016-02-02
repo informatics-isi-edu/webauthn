@@ -313,8 +313,6 @@ class RestHandlerFactory (object):
                     if key not in storage:
                         raise BadRequest('missing required parameter "%s"' % key)
 
-                referrer = storage.get('referrer')
-
                 def db_body(db):
                     self.context = Context(self.manager, False, db)
 
@@ -334,16 +332,7 @@ class RestHandlerFactory (object):
                         # we don't reveal detailed reason for failed login 
                         msg = 'session establishment with (%s) failed' \
                             % ', '.join(self.manager.clients.login.login_keywords(True))
-                        if referrer and self.session_uri:
-                            web.ctx.status = '303 See Other'
-                            web.header('Location', '%s?referrer=%s&error=%s' % (
-                                    self.session_uri, 
-                                    urlquote(referrer),
-                                    urlquote(msg))
-                                       )
-                            return None
-                        else:
-                            raise Unauthorized(msg)
+                        raise Unauthorized(msg)
 
                     if self.manager.attributes.client:
                         # dig up attributes for client
@@ -375,16 +364,11 @@ class RestHandlerFactory (object):
                         return ''
 
                 if 'env' in web.ctx:
-                    if referrer:
-                        web.ctx.status = '303 See Other'
-                        web.header('Location', referrer)
-                        return ''
-                    else:
-                        web.ctx.status = '201 Created'
-                        web.header('Content-Type', 'text/uri-list')
-                        web.header('Content-Length', len(keys) + 1)
-                        web.header('Location', uri)
-                        return keys + '\n'
+                    web.ctx.status = '201 Created'
+                    web.header('Content-Type', 'text/uri-list')
+                    web.header('Content-Length', len(keys) + 1)
+                    web.header('Location', uri)
+                    return keys + '\n'
 
                
         class UserPassword (RestHandler):
