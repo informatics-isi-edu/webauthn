@@ -1174,8 +1174,10 @@ class RestHandlerFactory (object):
                     db_body(db)
                 else:
                     self._db_wrapper(db_body)
-                
-                return self.manager.preauth.preauth_info(self.manager, self.context, db)
+
+                response = self.manager.preauth.preauth_info(self.manager, self.context, db)
+                web.header('Content-Length', len(response))
+                return response
 
             def POST(self, db=None):
                 """
@@ -1190,7 +1192,10 @@ class RestHandlerFactory (object):
                 else:
                     self._db_wrapper(db_body)
 
-                return self.manager.preauth.preauth_initiate_login(self.manager, self.context, db)
+                # note: this caller always raises a seeother exception with current implementation...
+                response = self.manager.preauth.preauth_initiate_login(self.manager, self.context, db)
+                web.header('Content-Length', len(response))
+                return response
 
             def DELETE(self, db=None):
                 """
@@ -1206,6 +1211,10 @@ class RestHandlerFactory (object):
                     self._db_wrapper(db_body)
 
                 self.manager.preauth.preauth_delete(self.manager, self.context, db)
+
+                if 'env' in web.ctx:
+                    web.ctx.status = '204 No Content'
+                return ''
 
         # make these classes available from factory instance
         self.RestHandler = RestHandler
