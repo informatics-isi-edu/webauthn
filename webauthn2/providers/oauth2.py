@@ -460,7 +460,7 @@ class OAuth2PreauthProvider (PreauthProvider):
         """
         Initiate a login (redirect to OAuth2 provider)
         """
-        self.preauth_initiate(manager, context, db, True)
+        return self.preauth_initiate(manager, context, db, True)
     
     def preauth_referrer(self):
         """
