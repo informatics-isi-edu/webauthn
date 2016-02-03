@@ -1210,7 +1210,10 @@ class RestHandlerFactory (object):
                 else:
                     self._db_wrapper(db_body)
 
-                self.manager.preauth.preauth_delete(self.manager, self.context, db)
+                try:
+                    self.manager.preauth.preauth_delete(self.manager, self.context, db)
+                except NotImplementedError:
+                    raise NoMethod()
 
                 if 'env' in web.ctx:
                     web.ctx.status = '204 No Content'
