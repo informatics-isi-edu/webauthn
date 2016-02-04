@@ -101,7 +101,9 @@ class GOAuthLogin(ClientLogin):
         # Globus doesn't forward "scope" parameters, so no nonce checking here.
         go = GlobusOnlineRestClient(config_file=self.provider.cfg.get('goauth_config_file'))
         base_timestamp = datetime.now()
-        access_token, refresh_token, expires_in = go.goauth_get_access_token_from_code(vals.get('code'))
+        my_uri = web.ctx.home + web.ctx.path
+        web.debug("passing {my_uri} as referrer_uri".format(my_uri = my_uri))
+        access_token, refresh_token, expires_in = go.goauth_get_access_token_from_code(vals.get('code'), my_uri)        
         # Temporary for Kyle -- print access token
         web.debug("Globus access token: '{access_token}'".format(access_token=access_token))
         username, client_id, server = go.goauth_validate_token(access_token)
