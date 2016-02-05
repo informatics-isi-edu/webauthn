@@ -103,7 +103,11 @@ class GOAuthLogin(ClientLogin):
         base_timestamp = datetime.now()
         my_uri = web.ctx.home + web.ctx.path
         web.debug("passing {my_uri} as referrer_uri".format(my_uri = my_uri))
-        access_token, refresh_token, expires_in = go.goauth_get_access_token_from_code(vals.get('code'), my_uri)        
+        try:
+            access_token, refresh_token, expires_in = go.goauth_get_access_token_from_code(vals.get('code'), my_uri)
+        except TypeError:
+            web.debug("old version of globus library, trying old goauth_get_access_token_from_code")
+            access_token, refresh_token, expires_in = go.goauth_get_access_token_from_code(vals.get('code'))
         # Temporary for Kyle -- print access token
         web.debug("Globus access token: '{access_token}'".format(access_token=access_token))
         username, client_id, server = go.goauth_validate_token(access_token)
