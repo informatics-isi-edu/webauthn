@@ -258,7 +258,10 @@ class OAuth2Login (ClientLogin):
         raw_id_token=payload.get('id_token')
 
         # Validate id token
-        raw_keys=jwk.load_jwks_from_url(self.provider.cfg.get('jwks_uri'))
+        u=urllib2.urlopen(self.provider.cfg.get('jwks_uri'))
+        raw_keys = jwk.KEYS()
+        raw_keys.load_jwks(u.read())
+        u.close()
         keys=[]
         for k in raw_keys:
             keys.append(k.key.exportKey())
@@ -414,6 +417,7 @@ class OAuth2PreauthProvider (PreauthProvider):
         self.nonce_state = nonce_util(config)
         self.nonce_cookie_name = config.oauth2_nonce_cookie_name
         self.cfg=OAuth2Config(config)
+
         auth_url=urlparse.urlsplit(self.cfg.get('authorization_endpoint'))
         self.authentication_uri_base = [auth_url.scheme, auth_url.netloc, auth_url.path]
         self.authentication_uri_args = {
@@ -433,7 +437,6 @@ class OAuth2PreauthProvider (PreauthProvider):
             ['application/json', 'text/html'],
             'application/json'
             )
-                  
         if content_type == 'text/html':
             self.preauth_initiate_login(manager, context, db)
         else:
@@ -686,10 +689,11 @@ class OAuth2Config(collections.MutableMapping):
 
     def load_discovery_data(self, config):
         if config.oauth2_discovery_uri == None:
-            raise OAuth2ConfigurationError("No oauth2_discovery_uri configured")
-        f = urllib2.urlopen(config.oauth2_discovery_uri)
-        discovery_data = simplejson.load(f)
-        f.close()
+            discovery_data = dict()
+        else:
+            f = urllib2.urlopen(config.oauth2_discovery_uri)
+            discovery_data = simplejson.load(f)
+            f.close()
         return discovery_data
 
     def __getitem__(self, key):
