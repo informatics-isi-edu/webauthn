@@ -145,7 +145,7 @@ insert into %(nonce_table)s (key, timeout)
 
     @staticmethod
     def get_cookie_url(cookie):
-        url = base64.b64decode(cookie.split('.')[2])
+        url = base64.urlsafe_b64decode(cookie.split('.')[2])
 
         # Debug for referrer tracing
         web.debug("in get_cookie_url, cookie is '{cookie}', url is '{url}'".format(cookie=str(cookie), url=str(url)))
