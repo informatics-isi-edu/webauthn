@@ -26,6 +26,7 @@ import crowd2
 import crowdrest1
 import globusonline
 import web
+import globus_auth
 
 __doc__ += null.__doc__ + webcookie.__doc__ + database.__doc__ + crowd2.__doc__
 
@@ -68,6 +69,7 @@ clients =         ProviderMap([ null.NullClientProvider,
                                 database.DatabaseClientProvider,
                                 crowd2.Crowd2ClientProvider,
                                 crowdrest1.CrowdREST1ClientProvider,
+                                globus_auth.GlobusAuthClientProvider,
                                 globusonline.GlobusOnlineClientProvider ])
 
 attributes =      ProviderMap([ null.NullAttributeProvider,
@@ -129,3 +131,15 @@ if _enable_oauth1a:
     sessionstates.add(oauth1a.Oauth1aSessionStateProvider)
     config_built_ins.update( oauth1a.config_built_ins )
 
+try:
+    # conditionalize globus_auth module since it has oddball dependencies
+    import globus_auth
+    _enable_globus_auth = True
+except:
+    _enable_globus_auth = False
+    
+if _enable_globus_auth:
+    __doc__ += globus_auth.__doc__
+    clients.add(globus_auth.GlobusAuthClientProvider)
+    preauths.add(globus_auth.GlobusAuthPreauthProvider)
+    config_built_ins.update( globus_auth.config_built_ins )
