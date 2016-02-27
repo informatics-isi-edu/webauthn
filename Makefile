@@ -24,6 +24,7 @@ INSTALL_PYTHON_FILES= \
 	webauthn2/providers/providers.py \
 	webauthn2/providers/webcookie.py \
 	webauthn2/providers/globusonline.py \
+	webauthn2/providers/globus_auth.py \
 	webauthn2/providers/verified_https.py
 
 INSTALL_PYTHON_DIRS= \

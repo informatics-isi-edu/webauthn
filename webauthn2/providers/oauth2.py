@@ -1,4 +1,3 @@
-
 # 
 # Copyright 2010-2012 University of Southern California
 # 
@@ -59,6 +58,7 @@ import web
 import simplejson
 import psycopg2
 import oauth2client.client
+import jwkest
 from jwkest import jwk
 from jwkest import jws
 from oauth2client.crypt import AppIdentityError, _urlsafe_b64decode, CLOCK_SKEW_SECS, AUTH_TOKEN_LIFETIME_SECS, MAX_TOKEN_LIFETIME_SECS, PyCryptoVerifier
@@ -67,6 +67,9 @@ import base64
 from Crypto import Random
 from Crypto.Hash.HMAC import HMAC
 import Crypto.Hash.SHA256
+import Crypto.Hash.SHA512
+from Crypto.PublicKey import RSA
+from Crypto.Signature import PKCS1_v1_5
 import json
 from datetime import datetime, timedelta
 import webauthn2.providers
@@ -145,7 +148,7 @@ insert into %(nonce_table)s (key, timeout)
 
     @staticmethod
     def get_cookie_url(cookie):
-        url = base64.b64decode(cookie.split('.')[2])
+        url = base64.urlsafe_b64decode(cookie.split('.')[2])
 
         # Debug for referrer tracing
         web.debug("in get_cookie_url, cookie is '{cookie}', url is '{url}'".format(cookie=str(cookie), url=str(url)))
@@ -213,6 +216,7 @@ class OAuth2Login (ClientLogin):
         It is expected that the caller will store the resulting username into context.client for reuse.
         
         """
+        repeatable = True
         vals = web.input()
 
         # Check that this request came from the same user who initiated the oauth flow
@@ -251,20 +255,30 @@ class OAuth2Login (ClientLogin):
             'nonce' : nonce_vals['auth_url_nonce'],
             'grant_type' : 'authorization_code'}
         base_timestamp = datetime.now()
-        u=urllib2.urlopen(self.provider.cfg.get('token_endpoint'), urllib.urlencode(token_args))
+        token_request = urllib2.Request(self.provider.cfg.get('token_endpoint'), urllib.urlencode(token_args))
+        self.add_extra_token_request_headers(token_request)
+        u = self.open_url(token_request, "getting token", repeatable)
+        repeatable = False
+        # Access token has been used, so from this point on, all exceptions should be ones
+        # that will not cause db_wrapper to retry (because those retries will fail and generate
+        # confusing exceptions / log messages).
         payload=simplejson.load(u)
         u.close()
         token_payload=simplejson.dumps(payload, separators=(',', ':'))
         raw_id_token=payload.get('id_token')
 
         # Validate id token
-        raw_keys=jwk.load_jwks_from_url(self.provider.cfg.get('jwks_uri'))
+        u=self.open_url(self.provider.cfg.get('jwks_uri'), "getting jwks info", repeatable)
+        raw_keys = jwk.KEYS()
+        raw_keys.load_jwks(u.read())
+        u.close()
         keys=[]
         for k in raw_keys:
             keys.append(k.key.exportKey())
 
         id_result=self.verify_signed_jwt_with_keys(raw_id_token, keys, self.provider.cfg.get('client_id'))
         id_token=id_result.get('body')
+        web.debug("id token is " + str(id_token))
         id_header=id_result.get('header')
         if id_token.get('iss') == None or id_token.get('iss').strip() == '':
             raise OAuth2IDTokenError('No issuer in ID token')
@@ -278,8 +292,9 @@ class OAuth2Login (ClientLogin):
 
         # Get user directory data. Right now we're assuming the server will return json.
         # TODO: in theory the return value could be signed jwt
-        req=urllib2.Request(self.provider.cfg.get('userinfo_endpoint'), headers={'Authorization' : 'Bearer ' + payload.get('access_token')})
-        f = urllib2.urlopen(req)
+        userinfo_endpoint = self.provider.cfg.get('userinfo_endpoint')
+        req = self.make_userinfo_request(self.provider.cfg.get('userinfo_endpoint'), payload.get('access_token'))
+        f = self.open_url(req, "getting userinfo", repeatable)
         userinfo=simplejson.load(f)
         f.close()
         username = id_token.get('iss') + ':' + id_token.get('sub')
@@ -287,6 +302,12 @@ class OAuth2Login (ClientLogin):
         # Update user table
         self.create_or_update_user(manager, context, username, id_token, userinfo, base_timestamp, payload, db)
         return username
+
+    def add_extra_token_request_headers(self, token_request):
+        pass
+
+    def make_userinfo_request(self, userinfo_endpoint, access_token):
+        return urllib2.Request(userinfo_endpoint, headers={'Authorization' : 'Bearer ' + access_token})
 
     def create_or_update_user(self, manager, context, username, id_token, userinfo, base_timestamp, token_payload, db):
         context.user['id_token'] = simplejson.dumps(id_token, separators=(',', ':'))
@@ -299,32 +320,66 @@ class OAuth2Login (ClientLogin):
         else:
             context.user['username'] = username
             manager.clients.manage.create_noauthz(manager, context, username, db)
-                                                                                      
+
+    @staticmethod
+    def open_url(req, text="opening url", repeatable=True):
+        # This is called within db_wrapper, which will retry if it gets
+        # a urllib2.HTTPError
+        try:
+            return urllib2.urlopen(req)
+        except Exception, ev:
+            if repeatable:
+                raise ev
+            else:
+                raise OAuth2ProtocolError("Error {text}: {ev} ({url})".format(text=text, ev=str(ev), url=req.get_full_url()))
 
     def validate_userinfo(self, userinfo, id_token):
         if userinfo.get('sub') != id_token.get('sub'):
             raise Oauth2UserinfoError("Subject mismatch")
         for key in ['iss', 'aud']:
             if userinfo.get(key) != None and userinfo.get(key) != id_token.get(key):
-                raise Oauth2UserinfoError("Bad value for " + key)
+                raise OAuth2UserinfoError("Bad value for " + key)
 
-    @staticmethod
-    def validate_access_token(alg, expected_hash, access_token):
+    @classmethod
+    def validate_access_token(cls, alg, expected_hash, access_token):
         if alg == None:
             raise OAuth2ProtocolError("No hash algorithm specified")
-        if alg.lower() == 'rs256':
-            hash = jws.left_hash(access_token)
-        else:
-            hash = jws.left_hash(access_token, alg)            
+        hash = cls.do_left_hash(access_token, alg, base64.urlsafe_b64encode)
 
         if hash == None:
             raise OAuth2Exception("Hash failed, alg = '" + alg + "', token is '" + access_token + "'")
         if hash != expected_hash:
-            raise OAuth2Exception("Bad hash value in access token")
+            hash = cls.do_left_hash(access_token, alg, jwkest.b64e)
+            if hash != expected_hash:
+                raise OAuth2Exception("Bad hash value in access token, alg = '" + alg + "', hash = '" + str(hash) + "', expected = '" + str(expected_hash) + "'")
+
+    @classmethod
+    def do_left_hash(cls, input, alg, base64_func):
+        hash_funcs = { 'HS256' : [16, jwk.sha256_digest],
+                       'hs256' : [16, jwk.sha256_digest],
+                       'RS256' : [16, jwk.sha256_digest],
+                       'rs256' : [16, jwk.sha256_digest],
+                       'HS384' : [24, jwk.sha384_digest],
+                       'hs384' : [24, jwk.sha384_digest],
+                       'RS384' : [24, jwk.sha384_digest],
+                       'rs384' : [24, jwk.sha384_digest],
+                       'HS512' : [32, jwk.sha512_digest],
+                       'hs512' : [32, jwk.sha512_digest],
+                       'RS512' : [32, jwk.sha512_digest],
+                       'rs512' : [32, jwk.sha512_digest]
+                       }
+
+        hash_info = hash_funcs.get(alg)
+        if hash_info == None:
+            raise OAuth2ProtocolError("unknown hash algorithm: " + alg)
+
+        hash_size, hash_func = hash_info
+        return jwkest.as_unicode(base64_func(hash_func(input)[:hash_size]))
 
 
-    @staticmethod
-    def verify_signed_jwt_with_keys(jwt, keys, audience):
+
+    @classmethod
+    def verify_signed_jwt_with_keys(cls, jwt, keys, audience):
       """Verify a JWT against public keys.
     
       See http://self-issued.info/docs/draft-jones-json-web-token.html.
@@ -358,10 +413,9 @@ class OAuth2Login (ClientLogin):
       # Check signature.
       verified = False
       for pem in keys:
-        verifier = PyCryptoVerifier.from_string(pem, False)
-        if verifier.verify(signed, signature):
-          verified = True
-          break
+        verified = cls.verify_signature(header.get('alg'), pem, signed, signature)
+        if verified:
+            break
       if not verified:
         raise AppIdentityError('Invalid token signature: %s' % jwt)
     
@@ -376,8 +430,7 @@ class OAuth2Login (ClientLogin):
       exp = parsed.get('exp')
       if exp is None:
         raise AppIdentityError('No exp field in token: %s' % json_body)
-      if exp >= now + MAX_TOKEN_LIFETIME_SECS:
-        raise AppIdentityError('exp field too far in future: %s' % json_body)
+
       latest = exp + CLOCK_SKEW_SECS
     
       if now < earliest:
@@ -405,6 +458,17 @@ class OAuth2Login (ClientLogin):
     def login_keywords(self, optional=False):
         return set()
 
+    @staticmethod
+    def verify_signature(alg_name, pem, signed, signature):
+        hash_algs = {'RS256' : Crypto.Hash.SHA256,
+                     'RS512' : Crypto.Hash.SHA512
+                     }
+        hash_alg = hash_algs.get(alg_name)
+        if hash_alg == None:
+            raise AppIdentityError("Unknown signature algorithm: " + alg_name)
+        hash = hash_alg.new(signed)
+        return PKCS1_v1_5.new(RSA.importKey(pem)).verify(hash, signature)
+
 
 class OAuth2PreauthProvider (PreauthProvider):
     key = 'oauth2'
@@ -414,6 +478,7 @@ class OAuth2PreauthProvider (PreauthProvider):
         self.nonce_state = nonce_util(config)
         self.nonce_cookie_name = config.oauth2_nonce_cookie_name
         self.cfg=OAuth2Config(config)
+
         auth_url=urlparse.urlsplit(self.cfg.get('authorization_endpoint'))
         self.authentication_uri_base = [auth_url.scheme, auth_url.netloc, auth_url.path]
         self.authentication_uri_args = {
@@ -433,7 +498,6 @@ class OAuth2PreauthProvider (PreauthProvider):
             ['application/json', 'text/html'],
             'application/json'
             )
-                  
         if content_type == 'text/html':
             self.preauth_initiate_login(manager, context, db)
         else:
@@ -686,10 +750,11 @@ class OAuth2Config(collections.MutableMapping):
 
     def load_discovery_data(self, config):
         if config.oauth2_discovery_uri == None:
-            raise OAuth2ConfigurationError("No oauth2_discovery_uri configured")
-        f = urllib2.urlopen(config.oauth2_discovery_uri)
-        discovery_data = simplejson.load(f)
-        f.close()
+            discovery_data = dict()
+        else:
+            f = urllib2.urlopen(config.oauth2_discovery_uri)
+            discovery_data = simplejson.load(f)
+            f.close()
         return discovery_data
 
     def __getitem__(self, key):
@@ -727,7 +792,7 @@ class OAuth2Config(collections.MutableMapping):
 
 
 
-class OAuth2Exception(RuntimeError):
+class OAuth2Exception(ValueError):
     pass
 
 class OAuth2SessionGenerationFailed(OAuth2Exception):
@@ -739,13 +804,11 @@ class OAuth2ProtocolError(OAuth2Exception):
 class OAuth2UserinfoError(OAuth2ProtocolError):
     pass
 
-class OAuth2IDTokenError(OAuth2ProtocolError):
-    pass
-
 class OAuth2LoginTimeoutError(OAuth2ProtocolError):
     pass
 
 class OAuth2ConfigurationError(OAuth2Exception):
     pass
 
-
+class OAuth2IdTokenError(OAuth2ProtocolError):
+    pass
