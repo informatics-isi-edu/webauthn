@@ -25,6 +25,8 @@ import oauth2
 import base64
 import urllib2
 import urllib
+import urlparse
+import json
 
 import web
 
@@ -44,17 +46,50 @@ class GlobusAuth (database.DatabaseConnection2):
         database.DatabaseConnection2.__init__(self, config)
 
 class GlobusAuthLogin(oauth2.OAuth2Login):
+    def login(self, manager, context, db, **kwargs):
+        username = oauth2.OAuth2Login.login(self, manager, context, db, **kwargs)
+        other_tokens = self.payload.get('other_tokens')
+        if other_tokens == None:
+            return username
+        group_token = None
+        issuer = self.id_token.get('iss')
+        for token in other_tokens:
+            scope = token.get('scope')
+            if scope is not None:
+                self.add_to_wallet(context, scope, issuer, token)
+            if scope == "urn:globus:auth:scope:nexus.api.globus.org:groups":
+                group_token = token
+                break
+        web.debug("wallet: " + str(context.wallet))
+        if group_token == None:
+            return username
+        group_args = {
+            'include_identity_set_properties' : 'true',
+            'my_roles' : 'admin,manager,member',
+            'my_statuses' : 'active',
+            'for_all_identities' : 'true'
+            }
+        group_endpoint = urlparse.urlunsplit(["https", 'nexus.api.globusonline.org', "groups", urllib.urlencode(group_args), None])
+        token_request = urllib2.Request(group_endpoint)
+        token_request.add_header('Authorization', 'Bearer ' + group_token.get('access_token'))
+        u = self.open_url(token_request, "getting groups", False)
+        groups = simplejson.load(u)
+        u.close()
+        group_ids = [g["id"] for g in groups if g["my_status"] == "active"]
+        context.globus_groups = set(group_ids)
+        context.globus_identities = set()
+        context.globus_identities.add(username)
+        for g in groups:
+            if g.get('identity_set_properties') != None:
+                for k in g.get('identity_set_properties').keys():
+                    context.globus_identities.add(issuer + '/' +  k)
+        return username
+
     def add_extra_token_request_headers(self, token_request):
         client_id = self.provider.cfg.get('client_id')
         client_secret = self.provider.cfg.get('client_secret')
-        web.debug('auth string = "' + client_id + ':' + client_secret + '"')
         basic_auth_token = base64.b64encode(client_id + ':' + client_secret)
-        web.debug('basic_auth_token = "' + basic_auth_token + '"')
         token_request.add_header('Authorization', 'Basic ' + basic_auth_token)
-        web.debug("token_request url: " + token_request.get_full_url())
-        web.debug("token_request Authorization headers: " + str(token_request.header_items()))
-        web.debug("token_request data: " + str(token_request.get_data()))
-
     def make_userinfo_request(self, endpoint, access_token):
         req = urllib2.Request(endpoint, data=urllib.urlencode({'token' : access_token}))
         self.add_extra_token_request_headers(req)
@@ -96,3 +131,21 @@ class GlobusAuthPreauthProvider (oauth2.OAuth2PreauthProvider):
             return override_uri
         else:
             return oauth2.OAuth2PreauthProvider.make_uri(self, relative_uri)
+
+class GlobusAuthAttributeClient (AttributeClient):
+
+    def __init__(self, provider):
+        AttributeClient.__init__(self, provider)
+
+    def set_msg_context(self, manager, context, db=None):
+        if hasattr(context, 'globus_groups'):
+            context.attributes.update(["g:" + group for group in context.globus_groups])
+        context.attributes.update(identity for identity in context.globus_identities)
+
+class GlobusAuthAttributeProvider (database.DatabaseAttributeProvider):
+
+    key = 'globus_auth'
+
+    def __init__(self, config):
+        database.DatabaseAttributeProvider.__init__(self, config)
+        self.client = GlobusAuthAttributeClient(self)

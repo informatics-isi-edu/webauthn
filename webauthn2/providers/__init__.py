@@ -69,13 +69,13 @@ clients =         ProviderMap([ null.NullClientProvider,
                                 database.DatabaseClientProvider,
                                 crowd2.Crowd2ClientProvider,
                                 crowdrest1.CrowdREST1ClientProvider,
-                                globus_auth.GlobusAuthClientProvider,
                                 globusonline.GlobusOnlineClientProvider ])
 
 attributes =      ProviderMap([ null.NullAttributeProvider,
                                 database.DatabaseAttributeProvider,
                                 crowd2.Crowd2AttributeProvider,
                                 crowdrest1.CrowdREST1AttributeProvider,
+                                globus_auth.GlobusAuthAttributeProvider,
                                 globusonline.GlobusOnlineAttributeProvider ])
 
 preauths =        ProviderMap([ null.NullPreauthProvider ])
@@ -142,4 +142,5 @@ if _enable_globus_auth:
     __doc__ += globus_auth.__doc__
     clients.add(globus_auth.GlobusAuthClientProvider)
     preauths.add(globus_auth.GlobusAuthPreauthProvider)
+    attributes.add(globus_auth.GlobusAuthAttributeProvider)
     config_built_ins.update( globus_auth.config_built_ins )

@@ -218,7 +218,7 @@ class OAuth2Login (ClientLogin):
         """
         repeatable = True
         vals = web.input()
-
+        context.wallet = dict()
         # Check that this request came from the same user who initiated the oauth flow
         nonce_vals = {
             'auth_url_nonce' : vals.get('state'),
@@ -262,10 +262,10 @@ class OAuth2Login (ClientLogin):
         # Access token has been used, so from this point on, all exceptions should be ones
         # that will not cause db_wrapper to retry (because those retries will fail and generate
         # confusing exceptions / log messages).
-        payload=simplejson.load(u)
+        self.payload=simplejson.load(u)
         u.close()
-        token_payload=simplejson.dumps(payload, separators=(',', ':'))
-        raw_id_token=payload.get('id_token')
+        token_payload=simplejson.dumps(self.payload, separators=(',', ':'))
+        raw_id_token=self.payload.get('id_token')
 
         # Validate id token
         u=self.open_url(self.provider.cfg.get('jwks_uri'), "getting jwks info", repeatable)
@@ -277,31 +277,37 @@ class OAuth2Login (ClientLogin):
             keys.append(k.key.exportKey())
 
         id_result=self.verify_signed_jwt_with_keys(raw_id_token, keys, self.provider.cfg.get('client_id'))
-        id_token=id_result.get('body')
-        web.debug("id token is " + str(id_token))
+        self.id_token=id_result.get('body')
         id_header=id_result.get('header')
-        if id_token.get('iss') == None or id_token.get('iss').strip() == '':
+        if self.id_token.get('iss') == None or self.id_token.get('iss').strip() == '':
             raise OAuth2IDTokenError('No issuer in ID token')
-        if id_token.get('sub') == None or id_token.get('sub').strip() == '':
+        if self.id_token.get('sub') == None or self.id_token.get('sub').strip() == '':
             raise OAuth2IDTokenError('No subject in ID token')
-        if self.provider.provider_sets_token_nonce and id_token.get('nonce') != nonce_vals['auth_url_nonce']:
+        if self.provider.provider_sets_token_nonce and self.id_token.get('nonce') != nonce_vals['auth_url_nonce']:
             raise OAuth2IDTokenError('Bad nonce in ID token')
 
         # Validate access token
-        self.validate_access_token(id_header.get('alg'), id_token.get('at_hash'), payload.get('access_token'))
+        self.validate_access_token(id_header.get('alg'), self.id_token.get('at_hash'), self.payload.get('access_token'))
 
         # Get user directory data. Right now we're assuming the server will return json.
         # TODO: in theory the return value could be signed jwt
         userinfo_endpoint = self.provider.cfg.get('userinfo_endpoint')
-        req = self.make_userinfo_request(self.provider.cfg.get('userinfo_endpoint'), payload.get('access_token'))
+        req = self.make_userinfo_request(self.provider.cfg.get('userinfo_endpoint'), self.payload.get('access_token'))
         f = self.open_url(req, "getting userinfo", repeatable)
         userinfo=simplejson.load(f)
         f.close()
-        username = id_token.get('iss') + ':' + id_token.get('sub')
+        username = self.id_token.get('iss') + '/' + self.id_token.get('sub')
 
         # Update user table
-        self.create_or_update_user(manager, context, username, id_token, userinfo, base_timestamp, payload, db)
+        self.create_or_update_user(manager, context, username, self.id_token, userinfo, base_timestamp, self.payload, db)
         return username
+
+    @staticmethod
+    def add_to_wallet(context, scope, issuer, token):
+        if context.wallet.get(issuer) == None:
+            context.wallet[issuer] = dict()
+        context.wallet[issuer][scope] = token
+
 
     def add_extra_token_request_headers(self, token_request):
         pass
