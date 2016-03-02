@@ -52,7 +52,12 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
         if other_tokens == None:
             return username
         group_token = None
+        context.globus_identities = set([username])
+        identity_set = self.userinfo.get('identities_set')
         issuer = self.id_token.get('iss')
+        if identity_set != None:
+            for id in identity_set:
+                context.globus_identities.add(issuer + '/' + id)
         for token in other_tokens:
             scope = token.get('scope')
             if scope is not None:
@@ -75,10 +80,10 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
         u = self.open_url(token_request, "getting groups", False)
         groups = simplejson.load(u)
         u.close()
-        group_ids = [g["id"] for g in groups if g["my_status"] == "active"]
-        context.globus_groups = set(group_ids)
-        context.globus_identities = set()
-        context.globus_identities.add(username)
+        context.globus_groups = set()
+        for g in groups:
+            if g["my_status"] == "active":
+                context.globus_groups.add(issuer + "/" + g["id"])
         for g in groups:
             if g.get('identity_set_properties') != None:
                 for k in g.get('identity_set_properties').keys():
@@ -91,7 +96,8 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
         basic_auth_token = base64.b64encode(client_id + ':' + client_secret)
         token_request.add_header('Authorization', 'Basic ' + basic_auth_token)
     def make_userinfo_request(self, endpoint, access_token):
-        req = urllib2.Request(endpoint, data=urllib.urlencode({'token' : access_token}))
+        req = urllib2.Request(endpoint)
+        req.add_data(urllib.urlencode({'token' : access_token, 'include' : 'identities_set'}))
         self.add_extra_token_request_headers(req)
         return req
 
@@ -139,7 +145,7 @@ class GlobusAuthAttributeClient (AttributeClient):
 
     def set_msg_context(self, manager, context, db=None):
         if hasattr(context, 'globus_groups'):
-            context.attributes.update(["g:" + group for group in context.globus_groups])
+            context.attributes.update([group for group in context.globus_groups])
         context.attributes.update(identity for identity in context.globus_identities)
 
 class GlobusAuthAttributeProvider (database.DatabaseAttributeProvider):

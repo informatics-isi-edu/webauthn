@@ -294,12 +294,12 @@ class OAuth2Login (ClientLogin):
         userinfo_endpoint = self.provider.cfg.get('userinfo_endpoint')
         req = self.make_userinfo_request(self.provider.cfg.get('userinfo_endpoint'), self.payload.get('access_token'))
         f = self.open_url(req, "getting userinfo", repeatable)
-        userinfo=simplejson.load(f)
+        self.userinfo=simplejson.load(f)
         f.close()
         username = self.id_token.get('iss') + '/' + self.id_token.get('sub')
 
         # Update user table
-        self.create_or_update_user(manager, context, username, self.id_token, userinfo, base_timestamp, self.payload, db)
+        self.create_or_update_user(manager, context, username, self.id_token, self.userinfo, base_timestamp, self.payload, db)
         return username
 
     @staticmethod
