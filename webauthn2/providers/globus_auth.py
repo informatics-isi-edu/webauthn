@@ -149,9 +149,43 @@ class GlobusAuthAttributeClient (AttributeClient):
         context.attributes.update(identity for identity in context.globus_identities)
 
 class GlobusAuthAttributeProvider (database.DatabaseAttributeProvider):
+    """
+    Globus groups and multiple identities
+    """
 
     key = 'globus_auth'
 
     def __init__(self, config):
         database.DatabaseAttributeProvider.__init__(self, config)
         self.client = GlobusAuthAttributeClient(self)
+
+class GlobusAuthSessionStateProvider(oauth2.OAuth2SessionStateProvider):
+    """
+    OAuth2 session state plus Globus logout
+    """
+
+    key = 'globus_auth'
+
+    def terminate(self, manager, context, db=None):
+        oauth2.OAuth2SessionStateProvider.terminate(self, manager, context, db)
+        logout_base = self.cfg.get('revocation_endpoint')
+        if logout_base == None:
+            raise oauth2.OAuth2ConfigurationError("No revocation endpoint configured")
+        rest_args = web.input()
+        web.debug(str(self.cfg.keys()))
+        args=dict()
+#        for key in ['client_id','redirect_path', 'redirect_name']:
+        for key in ['redirect_path']:
+            val=rest_args.get('logout_' + key)
+            web.debug("rest_args version of " + key + " is " + str(val))
+            if val == None:
+                val = self.cfg.get(self.key + '_logout_' + key)
+                web.debug("config version of " + key + " is " + str(val))
+            if val != None:
+                args[key] = val
+        if args.get('redirect_path') != None:
+            args['redirect_path'] = "{prot}://{host}{path}".format(prot=web.ctx.protocol, host=web.ctx.host, path=args.get('redirect_path'))
+            
+        logout_uri = logout_base + "?" + urllib.urlencode(args)
+        web.debug("logout: redirecting to " + logout_uri)
+        raise web.seeother(logout_uri)

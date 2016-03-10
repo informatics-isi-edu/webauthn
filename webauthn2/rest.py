@@ -301,6 +301,11 @@ class RestHandlerFactory (object):
                 def db_body(db):
                     self.context = Context(self.manager, False, db)
                     self._session_authz(sessionids)
+                    ex = None
+                    try:
+                        self.manager.sessionids.advise_client_of_session_termination(self.manager, self.context)
+                    except Exception, ex:
+                        web.debug("Error trying to tell client the session is over: " + traceback.format_exc(ex))
                     self.manager.sessions.terminate(self.manager, self.context, db)
 
                 self._db_wrapper(db_body)

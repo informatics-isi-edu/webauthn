@@ -170,6 +170,9 @@ class SessionIdProvider (Provider):
     def set_request_sessionids(self, manager, context):
         pass
 
+    def advise_client_of_session_termination(self, manager, context):
+        pass
+
 class SessionStateProvider (Provider):
 
     def __init__(self, config):

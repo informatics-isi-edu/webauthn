@@ -225,6 +225,9 @@ class OAuth2Login (ClientLogin):
             'auth_cookie_nonce' : web.cookies().get(self.provider.nonce_cookie_name)
             }
 
+        # Remove the nonce cookie, since they only need to use it once
+        web.setcookie(self.provider.nonce_cookie_name, "", expires=0, secure=True)
+
         if nonce_vals['auth_url_nonce'] == None:
             raise OAuth2ProtocolError("No authn_nonce in initial redirect")
 
@@ -640,6 +643,7 @@ class OAuth2SessionStateProvider(database.DatabaseSessionStateProvider):
 
     def __init__(self, config):
         database.DatabaseSessionStateProvider.__init__(self, config)
+        self.cfg = OAuth2Config(config)
         self.oauth_context = dict()
 
     def set_oauth_context_val(self, key, value):
