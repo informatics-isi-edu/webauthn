@@ -272,6 +272,13 @@ class ClientLogin (ProviderInterface):
     ClientLogin interface for establishing client identity.
 
     """
+
+    # Standard names for context fields that a login client might support
+    USERNAME = 'username'
+    DISPLAY_USERNAME = 'display_username'
+    NAME = 'name'
+    EMAIL = 'email'
+
     def __init__(self, provider):
         ProviderInterface.__init__(self, provider)
 

@@ -47,12 +47,12 @@ class GlobusAuth (database.DatabaseConnection2):
 
 class GlobusAuthLogin(oauth2.OAuth2Login):
     def login(self, manager, context, db, **kwargs):
-        username = oauth2.OAuth2Login.login(self, manager, context, db, **kwargs)
+        user_id = oauth2.OAuth2Login.login(self, manager, context, db, **kwargs)
         other_tokens = self.payload.get('other_tokens')
         if other_tokens == None:
-            return username
+            return user_id
         group_token = None
-        context.globus_identities = set([username])
+        context.globus_identities = set([user_id])
         identity_set = self.userinfo.get('identities_set')
         issuer = self.id_token.get('iss')
         if identity_set != None:
@@ -67,7 +67,7 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
                 break
         web.debug("wallet: " + str(context.wallet))
         if group_token == None:
-            return username
+            return user_id
         group_args = {
             'include_identity_set_properties' : 'true',
             'my_roles' : 'admin,manager,member',
@@ -88,7 +88,7 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
             if g.get('identity_set_properties') != None:
                 for k in g.get('identity_set_properties').keys():
                     context.globus_identities.add(issuer + '/' +  k)
-        return username
+        return user_id
 
     def add_extra_token_request_headers(self, token_request):
         client_id = self.provider.cfg.get('client_id')

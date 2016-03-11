@@ -120,6 +120,7 @@ class GOAuthLogin(ClientLogin):
         user_client = GlobusOnlineRestClient(config=user_config)
         userinfo = user_client.get_user(username)
         context.user['userinfo'] =  simplejson.dumps(userinfo, separators=(',', ':'))
+        self.fill_context_from_userinfo(context, username, userinfo)
         
         group_ids = []
         response, content = user_client.get_group_list(my_roles=["manager","admin","member"])
@@ -130,7 +131,7 @@ class GOAuthLogin(ClientLogin):
         if self.provider._client_exists(db, username):
             manager.clients.manage.update_noauthz(manager, context, username, db)
         else:
-            context.user['username'] = username
+            context.user[self.USERNAME] = username
             manager.clients.manage.create_noauthz(manager, context, username, db)
 
         return username

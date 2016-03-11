@@ -79,7 +79,7 @@ attributes =      ProviderMap([ null.NullAttributeProvider,
                                 globus_auth.GlobusAuthAttributeProvider,
                                 globusonline.GlobusOnlineAttributeProvider ])
 
-preauths =        ProviderMap([ null.NullPreauthProvider ])
+preauths =        ProviderMap([ null.NullPreauthProvider, database.DatabasePreauthProvider ])
 
 config_built_ins = web.storage()
 config_built_ins.update( globusonline.config_built_ins )

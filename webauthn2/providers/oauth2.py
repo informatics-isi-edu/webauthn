@@ -300,6 +300,7 @@ class OAuth2Login (ClientLogin):
         self.userinfo=simplejson.load(f)
         f.close()
         username = self.id_token.get('iss') + '/' + self.id_token.get('sub')
+        self.fill_context_from_userinfo(context, username, self.userinfo)
 
         # Update user table
         self.create_or_update_user(manager, context, username, self.id_token, self.userinfo, base_timestamp, self.payload, db)
@@ -318,6 +319,24 @@ class OAuth2Login (ClientLogin):
     def make_userinfo_request(self, userinfo_endpoint, access_token):
         return urllib2.Request(userinfo_endpoint, headers={'Authorization' : 'Bearer ' + access_token})
 
+    def fill_context_from_userinfo(self, context, username, userinfo):
+        context.user[self.USERNAME] = username
+        # try both openid connect userinfo claims and oauth token introspection claims
+        val = userinfo.get('preferred_username')
+        if val == None:
+            val = userinfo.get('username')
+        if val != None:
+            context.user[self.DISPLAY_USERNAME] = val
+        
+        val = userinfo.get('name')
+        if val != None:
+            context.user[self.NAME] = val
+
+        val = userinfo.get('email')
+        if val != None:
+            context.user[self.EMAIL] = val
+
+
     def create_or_update_user(self, manager, context, username, id_token, userinfo, base_timestamp, token_payload, db):
         context.user['id_token'] = simplejson.dumps(id_token, separators=(',', ':'))
         context.user['userinfo'] = simplejson.dumps(userinfo, separators=(',', ':'))
@@ -327,7 +346,6 @@ class OAuth2Login (ClientLogin):
         if self.provider._client_exists(db, username):
             manager.clients.manage.update_noauthz(manager, context, username, db)
         else:
-            context.user['username'] = username
             manager.clients.manage.create_noauthz(manager, context, username, db)
 
     @staticmethod
@@ -610,7 +628,7 @@ class OAuth2ClientManage(database.DatabaseClientManage):
             extracols = [ extra[0] for extra in extras ]
             extravals = [ extra[1] for extra in extras ]
             results = db.query("""
-INSERT INTO %(utable)s (username %(extracols)s) VALUES ( %(uname)s %(extravals)s );
+            INSERT INTO %(utable)s (username %(extracols)s) VALUES ( %(uname)s %(extravals)s );
 """
                                % dict(utable=self.provider._table(self.provider.client_storage_name),
                                       uname=sql_literal(context.user.get('username')),
@@ -713,11 +731,18 @@ CREATE VIEW %(summary)s AS
                 db.query("""
 CREATE TABLE %(utable)s (
   uid serial PRIMARY KEY,
-  username text UNIQUE
+  %(username)s text UNIQUE NOT NULL,
+  %(display_username)s text,
+  %(name)s text,
+  %(email)s text
   %(extras)s
 );
 """
                          % dict(utable=self._table(self.client_storage_name),
+                                username=ClientLogin.USERNAME,
+                                display_username=ClientLogin.DISPLAY_USERNAME,
+                                name=ClientLogin.NAME,
+                                email=ClientLogin.EMAIL,
                                 extras=','.join(self.extra_client_columns and
                                                 [''] + ['%s %s' % ec for ec in self.extra_client_columns]))
                          )
