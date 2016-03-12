@@ -26,7 +26,6 @@ import crowd2
 import crowdrest1
 import globusonline
 import web
-import globus_auth
 
 __doc__ += null.__doc__ + webcookie.__doc__ + database.__doc__ + crowd2.__doc__
 
