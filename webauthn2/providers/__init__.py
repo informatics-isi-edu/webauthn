@@ -114,7 +114,6 @@ if _enable_goauth:
     clients.add(goauth.GOAuthClientProvider)
     preauths.add(goauth.GOAuthPreauthProvider)
     attributes.add(goauth.GOAuthAttributeProvider)
-    sessionstates.add(globus_auth.GlobusAuthSessionStateProvider)
     config_built_ins.update( goauth.config_built_ins )
 
 

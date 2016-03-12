@@ -253,6 +253,7 @@ class RestHandlerFactory (object):
                     attributes=list(self.context.attributes),
                     since=self.context.session.since,
                     expires=self.context.session.expires,
+                    user=self.context.user,
                     seconds_remaining=self.context.session.expires and (self.context.session.expires - now).seconds
                     )
                 response = jsonWriter(response) + '\n'
