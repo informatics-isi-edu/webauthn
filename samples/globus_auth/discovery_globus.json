@@ -1,0 +1,17 @@
+{
+    "authorization_endpoint": "https://auth.globus.org/v2/oauth2/authorize",
+    "token_endpoint": "https://auth.globus.org/v2/oauth2/token",
+    "userinfo_endpoint": "https://auth.globus.org/v2/oauth2/token/introspect",
+    "revocation_endpoint": "https://auth.globus.org/v2/web/logout",
+    "jwks_uri": "https://auth.globus.org/jwk.json",
+    "scopes_supported": [
+	"urn:globus:auth:scope:auth.globus.org:view_identities",
+	"urn:globus:auth:scope:nexus.api.globus.org:groups",
+	"urn:globus:auth:scope:transfer.api.globus.org:all",
+	"urn:globus:auth:scope:use.jetstream-cloud.org:all",
+	"urn:globus:auth:scope:publish.api.globus.org:all"
+	]
+}
+
+
+

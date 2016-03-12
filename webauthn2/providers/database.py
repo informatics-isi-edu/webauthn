@@ -254,6 +254,11 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
                 context.client = srow.client
                 context.attributes.add( context.client )
 
+            for key in ClientLogin.standard_names:
+                val = srow.get(key)
+                if val != None:
+                    context.user[key] = val
+
             return srow
 
         except KeyError:
@@ -291,12 +296,18 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
                 duration = datetime.timedelta(minutes=int(manager.config.get('session_expiration_minutes', 30)))
                 context.session.expires = context.session.since + duration
 
+            usercols=[]
+            uservals=[]
+            for key in ClientLogin.standard_names:
+                if context.user.get(key) != None:
+                    usercols.append(sql_identifier(key))
+                    uservals.append(sql_literal(context.user.get(key)))
             extras = self._new_session_extras(manager, context, db)
             extracols = [ sql_identifier(extra[0]) for extra in extras ]
             extravals = [ sql_literal(extra[1]) for extra in extras ]
             db.query("""
-INSERT INTO %(stable)s (key, since, keysince, expires, client, attributes %(extracols)s)
-  VALUES (%(key)s, %(since)s, %(since)s, %(expires)s, %(client)s, %(attributes)s %(extravals)s) ;
+INSERT INTO %(stable)s (key, since, keysince, expires, client, attributes, %(usercols)s %(extracols)s)
+  VALUES (%(key)s, %(since)s, %(since)s, %(expires)s, %(client)s, %(attributes)s, %(uservals)s %(extravals)s) ;
 """
                      % dict(stable=self._table(self.storage_name),
                             key=sql_literal(context.session.keys[0]),
@@ -304,6 +315,8 @@ INSERT INTO %(stable)s (key, since, keysince, expires, client, attributes %(extr
                             expires=sql_literal(context.session.expires),
                             client=sql_literal(context.client),
                             attributes='ARRAY[%s]::text[]' % ','.join([ sql_literal(a) for a in context.attributes ]),
+                            usercols=','.join(usercols),
+                            uservals=','.join(uservals),
                             extracols=','.join(extracols and [ '' ] + extracols),
                             extravals=','.join(extravals and [ '' ] + extravals))
                      
@@ -404,11 +417,13 @@ CREATE TABLE %(stable)s (
   keysince timestamptz,
   expires timestamptz,
   client text,
-  attributes text[]
+  attributes text[],
+  %(user_columns)s                
   %(extras)s
 );
 """
                          % dict(stable=self._table(self.storage_name),
+                                user_columns=','.join("%s text" % name for name in ClientLogin.standard_names),
                                 extras=','.join(self.extra_columns and [ '' ] + [ '%s %s' % ec for ec in self.extra_columns ]))
                          )
 
@@ -468,7 +483,11 @@ class DatabaseLogin (ClientLogin):
             raise TypeError(str(ve))
 
         def db_body(db):
-            return self.provider._client_passwd_matches(db, username, password)
+            uname = self.provider._client_passwd_matches(db, username, password)
+            if uname != None:
+                context.user[self.USERNAME] = uname
+                context.user[self.DISPLAY_USERNAME] = uname
+                return uname
 
         if db:
             return db_body(db)

@@ -26,7 +26,6 @@ import crowd2
 import crowdrest1
 import globusonline
 import web
-import globus_auth
 
 __doc__ += null.__doc__ + webcookie.__doc__ + database.__doc__ + crowd2.__doc__
 
@@ -63,8 +62,8 @@ sessionids =      ProviderMap([ null.NullSessionIdProvider,
                                 webcookie.WebcookieSessionIdProvider])
 
 sessionstates =   ProviderMap([ null.NullSessionStateProvider,
-                                database.DatabaseSessionStateProvider,
-                                globus_auth.GlobusAuthSessionStateProvider])
+                                database.DatabaseSessionStateProvider])
+                                
 
 clients =         ProviderMap([ null.NullClientProvider,
                                 database.DatabaseClientProvider,
@@ -76,7 +75,6 @@ attributes =      ProviderMap([ null.NullAttributeProvider,
                                 database.DatabaseAttributeProvider,
                                 crowd2.Crowd2AttributeProvider,
                                 crowdrest1.CrowdREST1AttributeProvider,
-                                globus_auth.GlobusAuthAttributeProvider,
                                 globusonline.GlobusOnlineAttributeProvider ])
 
 preauths =        ProviderMap([ null.NullPreauthProvider, database.DatabasePreauthProvider ])
@@ -146,4 +144,5 @@ if _enable_globus_auth:
     clients.add(globus_auth.GlobusAuthClientProvider)
     preauths.add(globus_auth.GlobusAuthPreauthProvider)
     attributes.add(globus_auth.GlobusAuthAttributeProvider)
+    sessionstates.add(globus_auth.GlobusAuthSessionStateProvider)
     config_built_ins.update( globus_auth.config_built_ins )

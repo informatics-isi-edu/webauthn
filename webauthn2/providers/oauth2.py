@@ -218,6 +218,7 @@ class OAuth2Login (ClientLogin):
         """
         repeatable = True
         vals = web.input()
+        # Wallet isn't exposed yet, but we will probably want it at some point in the future
         context.wallet = dict()
         # Check that this request came from the same user who initiated the oauth flow
         nonce_vals = {
@@ -308,6 +309,7 @@ class OAuth2Login (ClientLogin):
 
     @staticmethod
     def add_to_wallet(context, scope, issuer, token):
+        # Wallet isn't exposed yet, but we will might as well take this first step
         if context.wallet.get(issuer) == None:
             context.wallet[issuer] = dict()
         context.wallet[issuer][scope] = token

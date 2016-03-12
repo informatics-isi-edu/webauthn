@@ -1,0 +1,46 @@
+"webauthn2" : {
+  "require_client": false,
+  "require_attributes": true, 
+  "listusers_permit": ["admin"], 
+  "listattributes_permit": ["admin"], 
+  "manageusers_permit": ["admin"], 
+  "manageattributes_permit": ["admin"], 
+        
+  "session_expiration_minutes": 30, 
+  "def_passwd_len": 10, 
+  "hash_passwd_reps": 1000,
+        
+  "sessionids_provider": "webcookie", 
+  "sessionstates_provider": "globus_auth", 
+  "clients_provider": "globus_auth", 
+  "preauth_provider": "globus_auth", 
+  "attributes_provider": "globus_auth", 
+        
+  "handler_uri_usersession": "/ermrest/authn/session", 
+        
+  "web_cookie_name": "ermrest", 
+  "web_cookie_path": "/ermrest",
+  "web_cookie_secure": true, 
+  "setheader": false,
+
+  "database_schema": "webauthn2_globus_auth", 
+  "database_type": "postgres", 
+  "database_name": "ermrest", 
+  "database_max_retries": 5, 
+
+  "crowd_home_uri": "https://YOUR CROWD2 HOST:8445/crowd/", 
+  "crowd_app_name": "YOUR CROWD APP NAME", 
+  "crowd_app_passwd": "YOUR CROWD APP PASSWD", 
+  "crowd_max_retries": 5, 
+  "crowd_listusers_scope": ["YOUR APP GROUP"],
+  "crowd_listgroups_scope": [],
+
+  "oauth2_nonce_hard_timeout" : 3600,
+  "oauth2_redirect_relative_uri": "/authn/session",
+  "oauth2_client_secret_file": "/home/secrets/oauth2/client_secret_globus.json",
+  "oauth2_scope": "urn:globus:auth:scope:auth.globus.org:view_identities urn:globus:auth:scope:nexus.api.globus.org:groups urn:globus:auth:scope:transfer.api.globus.org:all",
+  "oauth2_discovery_uri" : "file:///usr/local/etc/oauth2/discovery_globus.json",
+  "oauth2_provider_sets_token_nonce": false,
+
+  "globus_auth_logout_redirect_path": "/chaise/search"
+},

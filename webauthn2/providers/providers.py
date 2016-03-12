@@ -279,6 +279,8 @@ class ClientLogin (ProviderInterface):
     NAME = 'name'
     EMAIL = 'email'
 
+    standard_names = [USERNAME, DISPLAY_USERNAME, NAME, EMAIL]
+
     def __init__(self, provider):
         ProviderInterface.__init__(self, provider)
 
