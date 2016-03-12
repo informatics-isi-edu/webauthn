@@ -75,7 +75,6 @@ attributes =      ProviderMap([ null.NullAttributeProvider,
                                 database.DatabaseAttributeProvider,
                                 crowd2.Crowd2AttributeProvider,
                                 crowdrest1.CrowdREST1AttributeProvider,
-                                globus_auth.GlobusAuthAttributeProvider,
                                 globusonline.GlobusOnlineAttributeProvider ])
 
 preauths =        ProviderMap([ null.NullPreauthProvider ])
