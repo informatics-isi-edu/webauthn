@@ -21,6 +21,7 @@ import os.path
 from webauthn2.providers.providers import (
     ClientMsgAuthn, ClientProvider,
     AttributeClient, AttributeProvider,
+    ClientLogin
     )
 from webauthn2 import exc
 
@@ -76,6 +77,7 @@ class GlobusOnlineClientMsgAuthn (ClientMsgAuthn):
         _log.debug("username = %s", username)
         _log.debug("groups = %s", ", ".join(groups))
         context.client = "u:" + username
+        context.user[ClientLogin.USERNAME] = "u:" + username
         context.globusonline_groups = groups
         context.globusonline_is_admin = (username in admin_users
                                          or (set(groups) & set(admin_groups)))
