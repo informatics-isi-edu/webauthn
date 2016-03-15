@@ -51,6 +51,7 @@ Provider-specific parameters for database module:
 from providers import *
 from webauthn2.util import *
 from webauthn2.exc import *
+import json
 
 import web
 
@@ -245,19 +246,8 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
                                       srow.since,
                                       srow.expires)
 
-            if srow.attributes:
-                context.attributes = set( srow.attributes )
-            else:
-                context.attributes = set()
-
-            if srow.client:
-                context.client = srow.client
-                context.attributes.add( context.client )
-
-            for key in ClientLogin.standard_names:
-                val = srow.get(key)
-                if val != None:
-                    context.user[key] = val
+            context.client = srow.get('client')
+            context.attributes = srow.get('attributes')
 
             return srow
 
@@ -299,9 +289,9 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
             usercols=[]
             uservals=[]
             for key in ClientLogin.standard_names:
-                if context.user.get(key) != None:
+                if context.client.get(key) != None:
                     usercols.append(sql_identifier(key))
-                    uservals.append(sql_literal(context.user.get(key)))
+                    uservals.append(sql_literal(context.client.get(key)))
             extras = self._new_session_extras(manager, context, db)
             extracols = [ sql_identifier(extra[0]) for extra in extras ]
             extravals = [ sql_literal(extra[1]) for extra in extras ]
@@ -313,8 +303,8 @@ INSERT INTO %(stable)s (key, since, keysince, expires, client, attributes, %(use
                             key=sql_literal(context.session.keys[0]),
                             since=sql_literal(context.session.since),
                             expires=sql_literal(context.session.expires),
-                            client=sql_literal(context.client),
-                            attributes='ARRAY[%s]::text[]' % ','.join([ sql_literal(a) for a in context.attributes ]),
+                            client=sql_literal(json.dumps(context.client)),
+                            attributes='ARRAY[%s]::json[]' % ','.join([ sql_literal(json.dumps(a)) for a in context.attributes ]),
                             usercols=','.join(usercols),
                             uservals=','.join(uservals),
                             extracols=','.join(extracols and [ '' ] + extracols),
@@ -416,8 +406,8 @@ CREATE TABLE %(stable)s (
   since timestamptz,
   keysince timestamptz,
   expires timestamptz,
-  client text,
-  attributes text[],
+  client json,
+  attributes json[],
   %(user_columns)s                
   %(extras)s
 );
@@ -445,12 +435,12 @@ class DatabaseClientSearch (ClientSearch):
 
         """
         def db_body(db):
-            return set([ row.get(ClientLogin.USERNAME)
+            return set([ row.get(ID)
                          for row in db.query("""
 SELECT %(username)s FROM %(utable)s ;
 """
                                              % dict(utable=self.provider._table(self.provider.client_storage_name),
-                                                    username=ClientLogin.USERNAME)
+                                                    username=ID)
                                              ) ])
 
         if db:
@@ -485,9 +475,10 @@ class DatabaseLogin (ClientLogin):
         def db_body(db):
             uname = self.provider._client_passwd_matches(db, username, password)
             if uname != None:
-                context.user[self.USERNAME] = uname
-                context.user[self.DISPLAY_USERNAME] = uname
-                return uname
+                context.client = KeyedDict()
+                context.client[ID] = uname
+                context.client[DISPLAY_NAME] = uname
+                return context.client
 
         if db:
             return db_body(db)
@@ -514,14 +505,15 @@ class DatabaseClientManage (ClientManage):
             extras = self._create_noauthz_extras(manager, context, clientname, db)
             extracols = [ extra[0] for extra in extras ]
             extravals = [ extra[1] for extra in extras ]
+
             results = db.query("""
-INSERT INTO %(utable)s (%(username)s %(extracols)s) VALUES ( %(uname)s %(extravals)s );
+INSERT INTO %(utable)s (%(id)s %(extracols)s) VALUES ( %(uname)s %(extravals)s );
 """
-                               % dict(utable=self.provider._table(self.provider.client_storage_name),
-                                      uname=sql_literal(clientname),
-                                      username=ClientLogin.USERNAME,
-                                      extracols=','.join(extracols and [ '' ] + extracols),
-                                      extravals=','.join(extravals and [ '' ] + extravals))
+            % dict(utable=self.provider._table(self.provider.client_storage_name),
+                   uname=sql_literal(clientname),
+                   id=sql_identifier(ID),
+                   extracols=','.join(extracols and [ '' ] + extracols),
+                   extravals=','.join(extravals and [ '' ] + extravals))
                                )
 
         if db:
@@ -538,7 +530,7 @@ INSERT INTO %(utable)s (%(username)s %(extracols)s) VALUES ( %(uname)s %(extrava
 DELETE FROM %(utable)s WHERE %(username)s = %(uname)s ;
 """
                                % dict(utable=self.provider._table(self.provider.client_storage_name),
-                                      username=ClientLogin.USERNAME,
+                                      username=ID,
                                       uname=sql_literal(clientname))
                                )
 
@@ -563,7 +555,7 @@ UPDATE %(utable)s SET %(colstring)s where %(username)s=%(uname)s
 """
                                % dict(utable=self.provider._table(self.provider.client_storage_name),
                                       colstring=','.join(cols),
-                                      username=ClientLogin.USERNAME,
+                                      username=ID,
                                       uname=sql_literal(clientname)),
                                vars=vals)
         if db:
@@ -623,7 +615,7 @@ INSERT INTO %(ptable)s (uid, pwhash, salthex, reps %(extracols)s)
                                % dict(ptable=self.provider._table(self.provider.passwd_storage_name),
                                       utable=self.provider._table(self.provider.client_storage_name),
                                       uname=sql_literal(clientname),
-                                      username=ClientLogin.USERNAME,
+                                      username=ID,
                                       pwhash=sql_literal(pwhash),
                                       salthex=sql_literal(salthex),
                                       reps=sql_literal(reps),
@@ -664,7 +656,7 @@ WHERE u.%(username)s = %(uname)s
 """
                                % dict(ptable=self.provider._table(self.provider.passwd_storage_name),
                                       utable=self.provider._table(self.provider.client_storage_name),
-                                      username=ClientLogin.USERNAME,
+                                      username=ID,
                                       uname=sql_literal(clientname))
                                )
 
@@ -705,7 +697,7 @@ class DatabaseClientProvider (ClientProvider, DatabaseConnection2):
 SELECT * FROM %(utable)s WHERE %(username)s = %(uname)s ;
 """
                            % dict(utable=self._table(self.client_storage_name),
-                                  username=ClientLogin.USERNAME,
+                                  username=ID,
                                   uname=sql_literal(clientname))
                            )
         return len(results) > 0
@@ -727,7 +719,7 @@ WHERE u.%(username)s = %(uname)s
                            % dict(ptable=self._table(self.passwd_storage_name),
                                   utable=self._table(self.client_storage_name),
                                   uname=sql_literal(clientname),
-                                  username=ClientLogin.USERNAME,
+                                  username=ID,
                                   extras=','.join(self.extra_passwd_columns and
                                                   [''] + ['p.%s %s' % (ec[0], ec[0]) for ec in self.extra_passwd_columns]))
                            )
@@ -744,7 +736,7 @@ WHERE u.%(username)s = %(uname)s
         inhash, salthex, reps = hash_password(passwd, row.salthex, row.reps)
 
         if inhash == row.pwhash:
-            return row.get(ClientLogin.USERNAME)
+            return row.get('username')
         else:
             raise ValueError('user %s or password' % clientname)
 
@@ -798,7 +790,7 @@ CREATE TABLE %(utable)s (
 );
 """
                          % dict(utable=self._table(self.client_storage_name),
-                                username=ClientLogin.USERNAME,
+                                username=ID,
                                 extras=','.join(self.extra_client_columns and
                                                 [''] + ['%s %s' % ec for ec in self.extra_client_columns]))
                          )
@@ -849,22 +841,22 @@ class DatabaseAttributeClient (AttributeClient):
 
             # expand direct user-attributes
             for row in db.query("""
-SELECT a.attribute AS attribute
+SELECT a.aid, a.attribute AS attribute
 FROM %(uatable)s ua 
 JOIN %(atable)s a USING (aid)
 WHERE ua.%(username)s = %(uname)s ;
 """
                                    % dict(uatable=self.provider._table('userattribute'),
                                           atable=self.provider._table('attribute'),
-                                          username=ClientLogin.USERNAME,
+                                          username=ID,
                                           uname=sql_literal(context.client))
                                 ):
-                context.attributes.add(row.attribute)
+                context.attributes.add({ID : row.aid, DISPLAY_NAME : row.attribute})
 
             # recursively expand nested-attributes
             while True:
                 results = db.query("""
-SELECT p.attribute AS attribute
+SELECT p.aid, p.attribute AS attribute
 FROM %(natable)s na 
 JOIN %(atable)s p ON (p.aid = na.parent)
 JOIN %(atable)s c ON (c.aid = na.child)
@@ -873,13 +865,13 @@ WHERE c.attribute IN ( %(attrs)s )
 """
                                    % dict(natable=self.provider._table('nestedattribute'),
                                           atable=self.provider._table('attribute'),
-                                          attrs=','.join([ sql_literal(a) for a in context.attributes ]))
+                                          attrs=','.join([ sql_literal(a.get(ID)) for a in context.attributes ]))
                                    )
                 if len(results) == 0:
                     break
                 else:
                     for row in results:
-                        context.attributes.add(row.attribute)
+                        context.attributes.add({ID : row.aid, DISPLAY_NAME : row.attribute})
 
         if db:
             return db_body(db)
@@ -963,7 +955,7 @@ WHERE ua.%(username)s = %(uname)s ;
 """
                                % dict(uatable=self.provider._table('userattribute'),
                                       atable=self.provider._table('attribute'),
-                                      username=ClientLogin.USERNAME,
+                                      username=ID,
                                       uname=sql_literal(clientname))
                                )
 
@@ -989,7 +981,7 @@ INSERT INTO %(uatable)s (aid, %(username)s)
                                % dict(uatable=self.provider._table('userattribute'),
                                       atable=self.provider._table('attribute'),
                                       aname=sql_literal(attributename),
-                                      username=ClientLogin.USERNAME,
+                                      username=ID,
                                       uname=sql_literal(clientname))
                                )
 
@@ -1016,7 +1008,7 @@ WHERE a.attribute = %(aname)s
                                % dict(uatable=self.provider._table('userattribute'),
                                       atable=self.provider._table('attribute'),
                                       aname=sql_literal(attributename),
-                                      username=ClientLogin.USERNAME,
+                                      username=ID,
                                       uname=sql_literal(clientname))
                                )
 
@@ -1150,7 +1142,7 @@ WHERE a.attribute = %(aname)s
                            % dict(uatable=self._table('userattribute'),
                                   atable=self._table('attribute'),
                                   aname=sql_literal(attributename),
-                                  username=ClientLogin.USERNAME,
+                                  username=ID,
                                   uname=sql_literal(clientname))
                            )
         return len(results) > 0
@@ -1238,7 +1230,7 @@ UNION
                  % dict(atable=self._table('attribute'),
                         uatable=self._table('userattribute'),
                         aatable=self._table('nestedattribute'),
-                        username=ClientLogin.USERNAME,
+                        username=ID,
                         summary=self._table('attributesummary'))
                  )
 
@@ -1287,7 +1279,7 @@ CREATE TABLE %(uatable)s (
 );
 """
                          % dict(atable=self._table('attribute'),
-                                username=ClientLogin.USERNAME,
+                                username=ID,
                                 uatable=self._table('userattribute'))
                          )
 

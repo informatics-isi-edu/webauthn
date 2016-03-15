@@ -20,10 +20,10 @@ import os.path
 
 from webauthn2.providers.providers import (
     ClientMsgAuthn, ClientProvider,
-    AttributeClient, AttributeProvider,
-    ClientLogin
+    AttributeClient, AttributeProvider
     )
 from webauthn2 import exc
+from providers import ID
 
 import web
 
@@ -76,8 +76,8 @@ class GlobusOnlineClientMsgAuthn (ClientMsgAuthn):
                                 token, self.config.globusonline_nexus_ca)
         _log.debug("username = %s", username)
         _log.debug("groups = %s", ", ".join(groups))
-        context.client = "u:" + username
-        context.user[ClientLogin.USERNAME] = "u:" + username
+        context.client = dict()
+        context.client[ID] = "u:" + username
         context.globusonline_groups = groups
         context.globusonline_is_admin = (username in admin_users
                                          or (set(groups) & set(admin_groups)))
@@ -120,10 +120,10 @@ class GlobusOnlineAttributeClient (AttributeClient):
 
     def set_msg_context(self, manager, context, db=None):
         context.attributes.add(context.client)
-        context.attributes.update(["g:" + group
-                                   for group in context.globusonline_groups])
+        for group in context.globusonline_groups:
+            context.attributes.add({ID : "g:" + group})
         if context.globusonline_is_admin:
-            context.attributes.add("admin")
+            context.attributes.add({ID : "admin"})
         _log.debug("attributes = %s", ", ".join(context.attributes))
 
 

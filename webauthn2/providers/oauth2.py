@@ -300,12 +300,17 @@ class OAuth2Login (ClientLogin):
         f = self.open_url(req, "getting userinfo", repeatable)
         self.userinfo=simplejson.load(f)
         f.close()
-        username = self.id_token.get('iss') + '/' + self.id_token.get('sub')
+        username = str(self.id_token.get('iss') + '/' + self.id_token.get('sub'))
+        context.user = dict()
         self.fill_context_from_userinfo(context, username, self.userinfo)
 
         # Update user table
         self.create_or_update_user(manager, context, username, self.id_token, self.userinfo, base_timestamp, self.payload, db)
-        return username
+        context.client = KeyedDict()
+        for key in ClientLogin.standard_names:
+            if context.user.get(key) != None:
+                context.client[key] = context.user.get(key)
+        return context.client
 
     @staticmethod
     def add_to_wallet(context, scope, issuer, token):
@@ -322,21 +327,21 @@ class OAuth2Login (ClientLogin):
         return urllib2.Request(userinfo_endpoint, headers={'Authorization' : 'Bearer ' + access_token})
 
     def fill_context_from_userinfo(self, context, username, userinfo):
-        context.user[self.USERNAME] = username
+        context.user[ID] = username
         # try both openid connect userinfo claims and oauth token introspection claims
         val = userinfo.get('preferred_username')
         if val == None:
             val = userinfo.get('username')
         if val != None:
-            context.user[self.DISPLAY_USERNAME] = val
+            context.user[DISPLAY_NAME] = val
         
         val = userinfo.get('name')
         if val != None:
-            context.user[self.NAME] = val
+            context.user[FULL_NAME] = val
 
         val = userinfo.get('email')
         if val != None:
-            context.user[self.EMAIL] = val
+            context.user[EMAIL] = val
 
 
     def create_or_update_user(self, manager, context, username, id_token, userinfo, base_timestamp, token_payload, db):
@@ -614,7 +619,7 @@ class OAuth2ClientManage(database.DatabaseClientManage):
         """
         ec = []
         for k in context.user.keys():
-            if k != 'username' and context.user.get(k) != None:
+            if k != ID and context.user.get(k) != None:
                 if quote:
                     ec.append((k, sql_literal(context.user.get(k))))
                 else:
@@ -630,10 +635,11 @@ class OAuth2ClientManage(database.DatabaseClientManage):
             extracols = [ extra[0] for extra in extras ]
             extravals = [ extra[1] for extra in extras ]
             results = db.query("""
-            INSERT INTO %(utable)s (username %(extracols)s) VALUES ( %(uname)s %(extravals)s );
+            INSERT INTO %(utable)s (%(idcol)s %(extracols)s) VALUES ( %(uname)s %(extravals)s );
 """
                                % dict(utable=self.provider._table(self.provider.client_storage_name),
-                                      uname=sql_literal(context.user.get('username')),
+                                      idcol=sql_identifier(ID),
+                                      uname=sql_literal(context.user.get(ID)),
                                       extracols=','.join(extracols and [ '' ] + extracols),
                                       extravals=','.join(extravals and [ '' ] + extravals))
                                )
@@ -741,10 +747,10 @@ CREATE TABLE %(utable)s (
 );
 """
                          % dict(utable=self._table(self.client_storage_name),
-                                username=ClientLogin.USERNAME,
-                                display_username=ClientLogin.DISPLAY_USERNAME,
-                                name=ClientLogin.NAME,
-                                email=ClientLogin.EMAIL,
+                                username=ID,
+                                display_username=DISPLAY_NAME,
+                                name=FULL_NAME,
+                                email=EMAIL,
                                 extras=','.join(self.extra_client_columns and
                                                 [''] + ['%s %s' % ec for ec in self.extra_client_columns]))
                          )

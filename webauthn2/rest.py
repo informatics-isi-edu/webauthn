@@ -253,7 +253,6 @@ class RestHandlerFactory (object):
                     attributes=list(self.context.attributes),
                     since=self.context.session.since,
                     expires=self.context.session.expires,
-                    user=self.context.user,
                     seconds_remaining=self.context.session.expires and (self.context.session.expires - now).seconds
                     )
                 response = jsonWriter(response) + '\n'
@@ -299,6 +298,7 @@ class RestHandlerFactory (object):
                 extension with authz.
 
                 """
+
                 def db_body(db):
                     self.context = Context(self.manager, False, db)
                     self._session_authz(sessionids)
@@ -307,12 +307,19 @@ class RestHandlerFactory (object):
                         self.manager.sessionids.advise_client_of_session_termination(self.manager, self.context)
                     except Exception, ex:
                         web.debug("Error trying to tell client the session is over: " + traceback.format_exc(ex))
-                    self.manager.sessions.terminate(self.manager, self.context, db)
+                    return self.manager.sessions.terminate(self.manager, self.context, db)
 
-                self._db_wrapper(db_body)
+                response = ''
+                retval = self._db_wrapper(db_body)
                 if 'env' in web.ctx:
-                    web.ctx.status = '204 No Content'
-                return ''
+                    if isintance(retval, dict):
+                        response=jsonWriter(retval) + '\n'
+                        web.ctx.status = '200 OK'
+                        web.header('Content-Type', 'application/json')
+                        web.header('Content-Length', len(response))
+                    else:
+                        web.ctx.status = '204 No Content'
+                return response
 
             def _login_get_or_post(self, storage):
                 for key in self.manager.clients.login.login_keywords():
@@ -322,7 +329,7 @@ class RestHandlerFactory (object):
                 def db_body(db):
                     self.context = Context(self.manager, False, db)
 
-                    if self.context.session or self.context.client:
+                    if self.context.session or self.context.get_client_id():
                         raise Conflict('Login request conflicts with current client authentication state.')
 
                     self.context.session = Session()
@@ -401,8 +408,8 @@ class RestHandlerFactory (object):
                 if userids:
                     # format is /user,...
                     userids = set([ urlunquote(i) for i in userids[1:].split(',') ])
-                elif self.context.client:
-                    userids = [ self.context.client ]
+                elif self.context.get_client_id():
+                    userids = [ self.context.client.get_client_id() ]
                 else:
                     raise BadRequest('password management requires target userid')
 
@@ -552,14 +559,14 @@ class RestHandlerFactory (object):
 
                     if not self.manager.clients.search:
                         if not userids \
-                                or userids.difference( set([ c for c in [self.context.client] if c ]) ):
+                                or userids.difference( set([ c for c in [self.context.get_client_id()] if c ]) ):
                             raise Conflict('Server does not support listing of other client identities.')
 
                     if not userids:
                         # request without userids means list all users
                         clients = self.manager.clients.search.get_all_clients(self.manager, self.context)
                         response = clients and list(clients)
-                    elif userids.difference( set([ c for c in [self.context.client] if c ]) ):
+                    elif userids.difference( set([ c for c in [self.context.get_client_id()] if c ]) ):
                         # request with userids means list only specific users other than self
                         clients = self.manager.clients.search.get_all_clients(self.manager, self.context)
                         if clients and userids.difference( clients ):
@@ -568,8 +575,8 @@ class RestHandlerFactory (object):
                     else:
                         # request with userid equal to self.context.client can be answered without search API
                         assert len(userids) == 1
-                        assert userids[0] == self.context.client
-                        response = [ self.context.client ]
+                        assert userids[0] == self.context.get_client_id()
+                        response = [ self.context.get_client_id() ]
 
                     if response == None:
                         raise ValueError()
@@ -870,7 +877,7 @@ class RestHandlerFactory (object):
                         raise Unauthorized()
 
                     if not self.manager.attributes.assign:
-                        if userid != self.context.client:
+                        if userid != self.context.get_client_id():
                             raise Conflict('Server does not support listing of other user attributes.')
                         # fall back behavior only if provider API isn't available
                         allattrs = self.context.attributes

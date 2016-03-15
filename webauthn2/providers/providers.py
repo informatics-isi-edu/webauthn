@@ -125,8 +125,21 @@ __all__ = [
 
     'PreauthProvider',
 
-    'config_built_ins'
+    'config_built_ins',
+
+    'ID',
+    'DISPLAY_NAME',
+    'FULL_NAME',
+    'EMAIL',
+
+    'KeyedDict'
+
     ]
+
+ID="id"
+DISPLAY_NAME="display_name"
+FULL_NAME="full_name"
+EMAIL="email"
 
 class Provider (object):
 
@@ -274,12 +287,8 @@ class ClientLogin (ProviderInterface):
     """
 
     # Standard names for context fields that a login client might support
-    USERNAME = 'username'
-    DISPLAY_USERNAME = 'display_username'
-    NAME = 'name'
-    EMAIL = 'email'
 
-    standard_names = [USERNAME, DISPLAY_USERNAME, NAME, EMAIL]
+    standard_names = [ID, DISPLAY_NAME, FULL_NAME, EMAIL]
 
     def __init__(self, provider):
         ProviderInterface.__init__(self, provider)
@@ -673,3 +682,6 @@ class AttributeProvider (Provider):
 
 
     
+class KeyedDict(dict):
+    def __hash__(self):
+        return (self.get(ID)).__hash__()
