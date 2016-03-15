@@ -841,7 +841,7 @@ class DatabaseAttributeClient (AttributeClient):
 
             # expand direct user-attributes
             for row in db.query("""
-SELECT a.aid, a.attribute AS attribute
+SELECT a.attribute AS attribute
 FROM %(uatable)s ua 
 JOIN %(atable)s a USING (aid)
 WHERE ua.%(username)s = %(uname)s ;
@@ -851,7 +851,7 @@ WHERE ua.%(username)s = %(uname)s ;
                                           username=sql_identifier(ID),
                                           uname=sql_literal(context.client.get(ID)))
                                 ):
-                context.attributes.add(KeyedDict({ID : row.aid, DISPLAY_NAME : row.attribute}))
+                context.attributes.add(KeyedDict({ID : row.attribute, DISPLAY_NAME : row.attribute}))
 
             # recursively expand nested-attributes
             while True:
