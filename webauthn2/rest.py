@@ -312,7 +312,7 @@ class RestHandlerFactory (object):
                 response = ''
                 retval = self._db_wrapper(db_body)
                 if 'env' in web.ctx:
-                    if isintance(retval, dict):
+                    if isinstance(retval, dict):
                         response=jsonWriter(retval) + '\n'
                         web.ctx.status = '200 OK'
                         web.header('Content-Type', 'application/json')
