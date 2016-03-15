@@ -848,10 +848,10 @@ WHERE ua.%(username)s = %(uname)s ;
 """
                                    % dict(uatable=self.provider._table('userattribute'),
                                           atable=self.provider._table('attribute'),
-                                          username=ID,
-                                          uname=sql_literal(context.client))
+                                          username=sql_identifier(ID),
+                                          uname=sql_literal(context.client.get(ID)))
                                 ):
-                context.attributes.add({ID : row.aid, DISPLAY_NAME : row.attribute})
+                context.attributes.add(KeyedDict({ID : row.aid, DISPLAY_NAME : row.attribute}))
 
             # recursively expand nested-attributes
             while True:
