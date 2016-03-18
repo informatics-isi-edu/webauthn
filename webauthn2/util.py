@@ -47,7 +47,7 @@ except:
 
 def jsonWriter(o, indent=None):
     def munge(o):
-        if type(o) in [ dict, web.Storage ]:
+        if isinstance(o, dict) or type(o) == web.Storage:
             return type(o)( itertools.imap( lambda p: (p[0], munge(p[1])),
                                             o.iteritems() ))
         elif hasattr(o, '__iter__'):

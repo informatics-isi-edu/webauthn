@@ -247,6 +247,9 @@ class RestHandlerFactory (object):
                 # do not include sessionids since we don't want to enable
                 # any XSS attack where a hidden cookie can be turned into an 
                 # explicit session token by an untrusted AJAX client lib...?
+                return self._login_response()
+
+            def _login_response(self):
                 now = datetime.datetime.now(pytz.timezone('UTC'))
                 response = dict(
                     client=self.context.client,
@@ -362,12 +365,6 @@ class RestHandlerFactory (object):
                 
                 # build response
                 self.manager.sessionids.set_request_sessionids(self.manager, self.context)
-                uri = self.session_uri
-                keys = ','.join([ urlquote(i) for i in self.context.session.keys ])
-                if uri:
-                    uri += '/' + keys
-                else:
-                    uri = keys
 
                 if self.manager.preauth != None:
                     preauth_referrer = self.manager.preauth.preauth_referrer()
@@ -376,12 +373,7 @@ class RestHandlerFactory (object):
                         web.header('Location', preauth_referrer)
                         return ''
 
-                if 'env' in web.ctx:
-                    web.ctx.status = '201 Created'
-                    web.header('Content-Type', 'text/uri-list')
-                    web.header('Content-Length', len(keys) + 1)
-                    web.header('Location', uri)
-                    return keys + '\n'
+                return self._login_response()
 
                
         class UserPassword (RestHandler):
