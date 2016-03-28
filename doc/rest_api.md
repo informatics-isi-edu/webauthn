@@ -133,11 +133,11 @@ Otherwise, GET /session takes no parameters.
      },
      "attributes": [
         {
-            "display_name", "isrd-staff",
+            "display_name": "isrd-staff",
             "id" : "https://auth.globus.org/176baec4-ed26-11e5-8e88-22000ab4b42b"
         },
         {
-            "display_name", "isrd-systems",
+            "display_name": "isrd-systems",
             "id" : "https://auth.globus.org/3938e0d0-ed35-11e5-8641-22000ab4b42b"
         }
       ...
