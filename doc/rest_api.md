@@ -9,12 +9,12 @@ Webauthn's REST API supports these endpoints:
   * password - implemented by some providers to manage passwords.
   * attribute - implemented by some provides to manage attributes (groups).
 
-An application should do this to log the user in:
+**To log a user in**
 
 1. Send a GET /preauth request, setting the "Accept: application/json" header.
 2. If successful, the return value will be a JSON structure that contains either a "redirect_url" or "login_form" attribute. If "redirect_url" is present, redirect the user to that URI. If not, create a login form according to the parameters in "login_form" (as described below) and present that to the user.
 
-An application should do this to log the user out:
+**To log a user out**
 
 1. Send a DELETE /session request
 2. The request may return a JSON structure that includes a "redirect_url" parameter. If it does, redirect the end-user to that URL.
