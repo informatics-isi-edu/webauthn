@@ -2,7 +2,7 @@
 
 Webauthn's REST API supports six endpoints (note: the endpoint names are 
 * Endpoints that are typically used during end-user sessions
-  * preauth - used for handling any required pre-authentication setup. In the future, this will be standardized enough for UI developers to rely on it for all providers; it's currently only used with OAuth-based providers.
+  * preauth - used for handling any required pre-authentication setup.
   * session - used for authenticating end-users, establishing sessions, and discovering information about logged-in users.
 * Endpoints used for management (creating users, changing passwords, assigning users to groups, etc.)
   * user - implemented by some providers to manage users.
@@ -34,7 +34,16 @@ This is the current state of the structure returned by /preauth. It assumes that
 {
   "authentication-type": "preauth_provider_name",
   "cookie": "oauth2_auth_nonce",
-  "redirect_uri": "uri_to_redirect_to"
+  "redirect_url": "url_to_redirect_to",
+  "login_form": {
+     "method" : "GET_or_POST",
+     "action" : "relative_url_for_session_handler",
+     "input_fields" : [
+       {"type": "argument_type", "name": "argument_name"},
+            ...
+       {"type": "argument_type", "name": "argument_name"}
+     ]
+   }
 }
 ```
 
@@ -42,25 +51,53 @@ This is the current state of the structure returned by /preauth. It assumes that
 | --- | --- |
 | authentication-type | The name of the preauth provider |
 | cookie | The name of a cookie, if any, that has been added to request headers. That cookie, if it exists, should be sent back to the webauthn server on subsequent requests. |
-| redirect_uri | The URI that the end-user should be redirected to. |
+| redirect_url | The URL that the end-user should be redirected to (only used with providers that require a redirect URI). Typically, GET /preauth will return either a redirect_uri or login_form, but not both. |
+| login_form | For providers that require input from the user (e.g., the database provider, which requires a username and password), information that can be used to build an HTML form to present to the user). |
+| login_form.method | The method (GET or POST) to use when the form is submitted. |
+| login_form.action | Where the information collected by the form should be sent (e.g., /ermrest/authn/session). |
+| login_form.input_fields | A list of name/type entries corresponding to the form arguments. Each has a "name" entry, which should be the name of the parameter (e.g., "username") and a type entry, which is the suggested input field type (e.g., "text" or "password"). |
 
+##### Example: Output of GET /preauth with the database provider
+
+```json
+{
+    "authentication-type": "database",
+    "login_form": {
+        "method" : "POST",
+        "action": "/ermrest/authn/session",
+        "input_fields": [
+            {"type": "text", "name": "username"},
+            {"type": "password", "name": "password"}
+         ]
+     }
+ }
+```
+
+##### Example: Output of GET /preauth with the oauth2 provider
+
+```json
+{
+    "authentication_type": "oauth2",
+    "cookie": "oauth2_auth_nonce",
+    "redirect_url": "https://a/very/long/custom/url/to/a/remote/identity/provider"
+ }
+ ```
+    
+    
 ### /session
 #### POST /session
 Authenticates the user and creates a login session.
 
 **Parameters**
 
-Login parameters are different for each provider.
-* Login parameters for database provider
-* Login parameters for oauth2 provider
-* Login parameters for goauth provider
-* Login parameters for globus_auth provider
+Login parameters are different for each provider. However, the preauth process should create a form or redirect URL that will result in the correct parameters being passed to the POST /session request.
+
 
 **Responses**
 
 | Condition | HTTP Header | Value |
 | Successful login following a /preauth request with a referrer parameter | 303 See Other | *referrer* value |
-| Successful login, no previously-specified referrer parameter | 201 Created | New session id |
+| Successful login, no previously-specified referrer parameter | 200 OK | Session information |
 | Request was made during an existing login session | 409 Conflict | Login request conflicts with current client authentication state. |
 | Authentication failed | 401 Unauthorized | session establishment with (*provider-specific text*) failed |
 
@@ -84,43 +121,64 @@ Otherwise, GET /session takes no parameters.
 
 ```json
 {
-  "seconds_remaining": ​1791,
-  "since": "2016-03-14 16:47:05.049485-07:00",
-  "expires": "2016-03-14 17:17:05.049485-07:00",
-  "client": "https://auth.globus.org/a4e03698-d274-11e5-9a48-8b6f49eb5587",
-  "user": {
-    "username": "https://auth.globus.org/a4e03698-d274-11e5-9a48-8b6f49eb5587",
-    "display_username": "laura@globusid.org",
-    "name": "Laura Pearlman",
-    "email": "laura@isi.edu"
-  },
-  "attributes": [
-    "attribute_id_1",
-    "attribute_id_2,
+     "seconds_remaining": ​1791,
+     "since": "2016-03-14 16:47:05.049485-07:00",
+     "expires": "2016-03-14 17:17:05.049485-07:00",
+     "client": {
+          "id": "https://auth.globus.org/a4e03698-d274-11e5-9a48-8b6f49eb5587",
+           "display_name": "laura@globusid.org",
+           "full_name": "Laura Pearlman",
+           "email": "laura@isi.edu"
+     },
+     "attributes": [
+        {
+            "display_name", "isrd-staff",
+            "id" : "https://auth.globus.org/176baec4-ed26-11e5-8e88-22000ab4b42b"
+        },
+        {
+            "display_name", "isrd-systems",
+            "id" : "https://auth.globus.org/3938e0d0-ed35-11e5-8641-22000ab4b42b"
+        }
       ...
   ]
 }
-
+```
 | Field | Always present? | Meaning |
-| user | yes | Structure with information about the user's identity. |
-| user.username | yes | The unique identifier associated with this end-user. This value should always be used when enforcing policies. |
-| user.display_username | no | A more user-friendly version of the user's login name. If available, this usually corresponds to the username the user used when logging in. This should be used for display purposes only, not for making policy decisions. |
-| user.name | no | If available, this is the user's full name. |
-| user.email | no | If available, this is the user's email address. |
-| attributes | yes | This is a list of the user's attributes (identities and groups). It should be used for attribute-based policy enforcement. |
-| client | yes | This will have the same value as user.username. It's kept for backward-compatibility. |
+| client | yes | Structure with information about the user's identity. |
+| client.id | yes | The unique identifier associated with this end-user. This value should always be used when enforcing policies. |
+| client.display_name | no | A more user-friendly version of the user's login name. If available, this usually corresponds to the username the user used when logging in. This should be used for display purposes only, not for making policy decisions. |
+| client.full_name | no | If available, this is the user's full name. |
+| client.email | no | If available, this is the user's email address. |
+| attributes | yes | This is a list of the user's attributes (identities and groups). It should be used for attribute-based policy enforcement. Each attribute has an "id" field containing the unique identifier associated with this identity or group. The "id" field should be used for policy enforcement. An attribute may also have a "display_name" field (user-friendly version of the identity or group name) and, for identities, "full_name" and "email" fields. |
 | seconds_remaining | yes | The number of seconds remaining (when the response was created) for the current user session. |
 | since | yes | The time the session was initiated. |
 | expires | yes | The time the session expires. |
 
 #### DELETE /session
-Ends a current user session, logging the user out if possible.
+
+Ends a current user session, logging the user out and, if applicable, returning a URL that the user should be redirected to in order to complete the logout process at the third-party identity provicer.
+
 
 **Arguments**
 
-DELETE /session doesn't take any arguments. It does the following:
+DELETE /session passes arguments to the underlying provider. Currently, these are used only by the globus_auth provider.
 
-1. Invalidates the current session.
-2. Calls the currently-configured logout provider. In some cases, 
+| Param | Description |
+| redirect_path | A relative URL (e.g., "/chaise/logout") specifying the destination that the user should be redirected to (or that should be linked back to) by the remote IdP after the logout is complete. |
+| redirect_uri | An absolute URL (e.g., "https://my.host.com/chaise/logout") specifying the destination that the user should be redirected to (or that should be linked back to) by the remote IdP after the logout is complete. This should only be used if the desired destination is on a remote host; otherwise, redirect_path should be used instead. |
+| redirect_name | A user-friendly name for the destination that the user should be redirected to. Providers that provide links back use the redirect_name argument for the text to display with the link. Currently supported only by the globus_auth provider. |
 
+These arguments are currently only supported by the globus_auth provider. They can also be specified as global defaults in the configuration file, with names preceded by globus_auth_logout (e.g., globus_auth_logout_redirect_path).
 
+**Responses**
+
+| Condition | HTTP Header | Value |
+| Logout is complete; no more action needs to be taken. | 204 No Content | |
+| The user needs to be redirected to a third-party identity provider to complete the logout. | 200 OK | A json structure specifying the third-party IdP logout URL. The user should be redirected to this URL |
+| The user is not logged in | 404 Not Found | existing session not found |
+
+The post-logout json structure is:
+
+```json
+{ "logout_url" : "https://a/long/url/to/a/third-party/logout/page"}
+```
