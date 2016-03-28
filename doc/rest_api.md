@@ -96,6 +96,7 @@ Login parameters are different for each provider. However, the preauth process s
 **Responses**
 
 | Condition | HTTP Header | Value |
+| --- | --- | --- |
 | Successful login following a /preauth request with a referrer parameter | 303 See Other | *referrer* value |
 | Successful login, no previously-specified referrer parameter | 200 OK | Session information |
 | Request was made during an existing login session | 409 Conflict | Login request conflicts with current client authentication state. |
@@ -144,6 +145,7 @@ Otherwise, GET /session takes no parameters.
 }
 ```
 | Field | Always present? | Meaning |
+| --- | --- | --- |
 | client | yes | Structure with information about the user's identity. |
 | client.id | yes | The unique identifier associated with this end-user. This value should always be used when enforcing policies. |
 | client.display_name | no | A more user-friendly version of the user's login name. If available, this usually corresponds to the username the user used when logging in. This should be used for display purposes only, not for making policy decisions. |
@@ -164,6 +166,7 @@ Ends a current user session, logging the user out and, if applicable, returning 
 DELETE /session passes arguments to the underlying provider. Currently, these are used only by the globus_auth provider.
 
 | Param | Description |
+| --- | --- |
 | redirect_path | A relative URL (e.g., "/chaise/logout") specifying the destination that the user should be redirected to (or that should be linked back to) by the remote IdP after the logout is complete. |
 | redirect_uri | An absolute URL (e.g., "https://my.host.com/chaise/logout") specifying the destination that the user should be redirected to (or that should be linked back to) by the remote IdP after the logout is complete. This should only be used if the desired destination is on a remote host; otherwise, redirect_path should be used instead. |
 | redirect_name | A user-friendly name for the destination that the user should be redirected to. Providers that provide links back use the redirect_name argument for the text to display with the link. Currently supported only by the globus_auth provider. |
@@ -173,6 +176,7 @@ These arguments are currently only supported by the globus_auth provider. They c
 **Responses**
 
 | Condition | HTTP Header | Value |
+| --- | --- | --- |
 | Logout is complete; no more action needs to be taken. | 204 No Content | |
 | The user needs to be redirected to a third-party identity provider to complete the logout. | 200 OK | A json structure specifying the third-party IdP logout URL. The user should be redirected to this URL |
 | The user is not logged in | 404 Not Found | existing session not found |
