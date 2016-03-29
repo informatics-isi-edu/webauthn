@@ -1312,12 +1312,17 @@ class DatabasePreauthProvider (PreauthProvider):
     def __init__(self, config):
         PreauthProvider.__init__(self, config)
         self.session_path=config.get('handler_uri_usersession')
+        self.form_url=config.get("{key}_login_form".format(key=self.key))
+
 
     def preauth_info(self, manager, context, db):
-        return simplejson.dumps(
-            {
-                'authentication-type' : self.key,
-                'login_form' :
+        if self.form_url != None:
+            if self.form_url[0] == '/':
+                self.form_url = "{prot}://{host}{path}".format(prot=web.ctx.protocol, host=web.ctx.host, path=self.form_url)
+            login_info = {REDIRECT_URL : self.form_url}
+        else:
+            login_info = {
+                LOGIN_FORM :
                 {
                     'method' : 'POST',
                     'action' : self.session_path,
@@ -1331,4 +1336,6 @@ class DatabasePreauthProvider (PreauthProvider):
                     ]
                 }
             }
-            )
+
+        login_info[AUTHENTICATION_TYPE] = self.key
+        return login_info

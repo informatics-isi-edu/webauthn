@@ -535,10 +535,10 @@ class OAuth2PreauthProvider (PreauthProvider):
         if content_type == 'text/html':
             self.preauth_initiate_login(manager, context, db)
         else:
-            return simplejson.dumps({
+            return {
                     AUTHENTICATION_TYPE : self.key,
                     COOKIE : self.nonce_cookie_name,
-                    REDIRECT_URL : self.preauth_initiate(manager, context, db, False)})
+                    REDIRECT_URL : self.preauth_initiate(manager, context, db, False)}
 
     def preauth_initiate(self, manager, context, db, do_redirect):
         """

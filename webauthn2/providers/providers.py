@@ -136,6 +136,7 @@ __all__ = [
     'REDIRECT_NAME',
     'AUTHENTICATION_TYPE',
     'COOKIE',
+    'LOGIN_FORM',
 
     'KeyedDict'
 
@@ -150,7 +151,7 @@ REDIRECT_PATH="redirect_path"
 REDIRECT_NAME="redirect_name"
 AUTHENTICATION_TYPE="authentication_type"
 COOKIE="cookie"
-
+LOGIN_FORM="login_form"
 
 class Provider (object):
 
@@ -265,7 +266,7 @@ class PreauthProvider(Provider):
 
     def preauth_info(self, manager, context, db=None):
         """
-        Present any required pre-authentication information (e.g., a web form with options).
+        Return a dict with any required pre-authentication information (e.g., a web form with options).
         """
         pass
 

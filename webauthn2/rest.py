@@ -1176,8 +1176,11 @@ class RestHandlerFactory (object):
                 else:
                     self._db_wrapper(db_body)
 
-                response = self.manager.preauth.preauth_info(self.manager, self.context, db)
-                web.header('Content-Length', len(response))
+                response = jsonWriter(self.manager.preauth.preauth_info(self.manager, self.context, db))
+                if 'env' in web.ctx:
+                    web.ctx.status = '200 OK'
+                    web.header('Content-Type', 'application/json')
+                    web.header('Content-Length', len(response))
                 return response
 
             def POST(self, db=None):
