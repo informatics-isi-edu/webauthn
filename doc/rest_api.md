@@ -44,7 +44,7 @@ This is the current state of the structure returned by /preauth. It assumes that
   "cookie": "oauth2_auth_nonce",
   "redirect_url": "url_to_redirect_to",
   "login_form": {
-     "method" : "GET_or_POST",
+     "method" : "GET or POST",
      "action" : "relative_url_for_session_handler",
      "input_fields" : [
        {"type": "argument_type", "name": "argument_name"},
@@ -81,13 +81,22 @@ This is the current state of the structure returned by /preauth. It assumes that
  }
 ```
 
+##### Example: Output of GET /preauth with a database provider with a custom HTML form
+
+```json
+{
+   "authentication_type": "database",
+   "redirect_url": "https://webauthn-dev.isi.edu/login_form.html"
+}
+```
+
 ##### Example: Output of GET /preauth with the oauth2 provider
 
 ```json
 {
     "authentication_type": "oauth2",
     "cookie": "oauth2_auth_nonce",
-    "redirect_url": "https://a/very/long/custom/url/to/a/remote/identity/provider"
+    "redirect_url": "https://accounts.google.com/o/oauth2/v2/auth?and_a_very_long_set_of_arguments"
  }
  ```
     
