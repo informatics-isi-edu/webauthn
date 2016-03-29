@@ -1308,3 +1308,27 @@ CREATE TABLE %(aatable)s (
 
 class DatabasePreauthProvider (PreauthProvider):
     key = 'database'
+    
+    def __init__(self, config):
+        PreauthProvider.__init__(self, config)
+        self.session_path=config.get('handler_uri_usersession')
+
+    def preauth_info(self, manager, context, db):
+        return simplejson.dumps(
+            {
+                'authentication-type' : self.key,
+                'login_form' :
+                {
+                    'method' : 'POST',
+                    'action' : self.session_path,
+                    'input_fields' : [
+                        { 'name' : 'username',
+                          'type' : 'text'
+                      },
+                        { 'name' : 'password',
+                          'type' : 'password'
+                      }
+                    ]
+                }
+            }
+            )

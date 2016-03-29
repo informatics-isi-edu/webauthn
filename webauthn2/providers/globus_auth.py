@@ -167,23 +167,27 @@ class GlobusAuthSessionStateProvider(oauth2.OAuth2SessionStateProvider):
     key = 'globus_auth'
 
     def terminate(self, manager, context, db=None):
+        globus_args = ['client_id','redirect_uri', 'redirect_name']
+        other_args = [REDIRECT_PATH, REDIRECT_URL]
         oauth2.OAuth2SessionStateProvider.terminate(self, manager, context, db)
         logout_base = self.cfg.get('revocation_endpoint')
         if logout_base == None:
             raise oauth2.OAuth2ConfigurationError("No revocation endpoint configured")
         rest_args = web.input()
         args=dict()
-#        for key in ['client_id','redirect_path', 'redirect_name']:
-        for key in ['redirect_path']:
+        for key in globus_args + other_args:
             val=rest_args.get('logout_' + key)
             if val == None:
                 val = self.cfg.get(self.key + '_logout_' + key)
             if val != None:
                 args[key] = val
-        if args.get('redirect_path') != None:
-            args['redirect_path'] = "{prot}://{host}{path}".format(prot=web.ctx.protocol, host=web.ctx.host, path=args.get('redirect_path'))
+        if args.get(REDIRECT_URL) != None:
+            args['redirect_uri'] = args.get(REDIRECT_URL)
+        elif args.get(REDIRECT_PATH) != None:
+            args['redirect_uri'] = "{prot}://{host}{path}".format(prot=web.ctx.protocol, host=web.ctx.host, path=args.get(REDIRECT_PATH))
+        for k in other_args:
+            args.pop(k, None)
+        logout_url = logout_base + "?" + urllib.urlencode(args)
         retval = dict()
-        logout_uri = logout_base + "?" + urllib.urlencode(args)
-        retval['logout_uri'] = logout_uri
-        retval['redirect_path'] = args['redirect_path']
+        retval['logout_url'] = logout_url
         return retval

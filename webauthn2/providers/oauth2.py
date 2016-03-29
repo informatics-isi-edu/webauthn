@@ -536,9 +536,9 @@ class OAuth2PreauthProvider (PreauthProvider):
             self.preauth_initiate_login(manager, context, db)
         else:
             return simplejson.dumps({
-                    'authentication_type' : 'oauth2',
-                    'cookie' : self.nonce_cookie_name,
-                    'redirect_url' : self.preauth_initiate(manager, context, db, False)})
+                    AUTHENTICATION_TYPE : self.key,
+                    COOKIE : self.nonce_cookie_name,
+                    REDIRECT_URL : self.preauth_initiate(manager, context, db, False)})
 
     def preauth_initiate(self, manager, context, db, do_redirect):
         """

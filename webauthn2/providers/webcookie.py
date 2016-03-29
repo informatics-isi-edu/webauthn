@@ -131,10 +131,6 @@ class WebcookieSessionIdProvider (SessionIdProvider):
                               domain=None,
                               secure=self.secure)
 
-    def advise_client_of_session_termination(self, manager, context):
-        if 'env' in web.ctx:
-            self.set_cookie("", 0)
-
     def get_http_vary(self):
         return set([ 'cookie' ])
 

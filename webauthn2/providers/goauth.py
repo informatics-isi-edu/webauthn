@@ -85,7 +85,7 @@ class GOAuth (database.DatabaseConnection2):
     def __init__(self, config):
         database.DatabaseConnection2.__init__(self, config)
 
-class GOAuthLogin(ClientLogin):
+class GOAuthLogin(oauth2.OAuth2Login):
     def __init__(self, provider):
         ClientLogin.__init__(self, provider)
 

@@ -131,6 +131,11 @@ __all__ = [
     'DISPLAY_NAME',
     'FULL_NAME',
     'EMAIL',
+    'REDIRECT_URL',
+    'REDIRECT_PATH',
+    'REDIRECT_NAME',
+    'AUTHENTICATION_TYPE',
+    'COOKIE',
 
     'KeyedDict'
 
@@ -140,6 +145,12 @@ ID="id"
 DISPLAY_NAME="display_name"
 FULL_NAME="full_name"
 EMAIL="email"
+REDIRECT_URL="redirect_url"
+REDIRECT_PATH="redirect_path"
+REDIRECT_NAME="redirect_name"
+AUTHENTICATION_TYPE="authentication_type"
+COOKIE="cookie"
+
 
 class Provider (object):
 
@@ -181,9 +192,6 @@ class SessionIdProvider (Provider):
         raise NotImplementedError()
 
     def set_request_sessionids(self, manager, context):
-        pass
-
-    def advise_client_of_session_termination(self, manager, context):
         pass
 
 class SessionStateProvider (Provider):

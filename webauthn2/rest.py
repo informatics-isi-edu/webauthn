@@ -184,7 +184,7 @@ class RestHandlerFactory (object):
                         # return as no-op and let caller deal with it
                         return
                     else:
-                        raise NotFound('existing session')
+                        raise NotFound('existing session not found')
 
                 if sessionids:
                     # format is /key,... so unpack
@@ -306,10 +306,6 @@ class RestHandlerFactory (object):
                     self.context = Context(self.manager, False, db)
                     self._session_authz(sessionids)
                     ex = None
-                    try:
-                        self.manager.sessionids.advise_client_of_session_termination(self.manager, self.context)
-                    except Exception, ex:
-                        web.debug("Error trying to tell client the session is over: " + traceback.format_exc(ex))
                     return self.manager.sessions.terminate(self.manager, self.context, db)
 
                 response = ''
@@ -1197,8 +1193,12 @@ class RestHandlerFactory (object):
                 else:
                     self._db_wrapper(db_body)
 
-                # note: this caller always raises a seeother exception with current implementation...
-                response = self.manager.preauth.preauth_initiate_login(self.manager, self.context, db)
+                try:
+                    # note: this caller always raises a seeother exception with current implementation...
+                    response = self.manager.preauth.preauth_initiate_login(self.manager, self.context, db)
+                except NotImplementedError:
+                    raise NoMethod()
+
                 web.header('Content-Length', len(response))
                 return response
 
@@ -1224,6 +1224,26 @@ class RestHandlerFactory (object):
                     web.ctx.status = '204 No Content'
                 return ''
 
+        class DebugUserSession(UserSession):
+            """
+            This class should be used only for debugging, to provide a convenient interface for
+            DELETE /session. If you decide to register it use a web.py pattern like:
+
+               "your_session_prefix(/?)"
+               "your_session_prefix(/[^/]+)"
+
+            so its methods recieve one positional argument. Currently the only recognized argument
+            is "/logout", which will do the same as DELETE /session.
+            
+            """
+            def __init(self):
+                Resthandler.__init__(self)
+
+            def GET(self, sessionids, db=None):
+                return self.DELETE(sessionids)
+                
+
+
         # make these classes available from factory instance
         self.RestHandler = RestHandler
         self.UserSession = UserSession
@@ -1233,6 +1253,7 @@ class RestHandlerFactory (object):
         self.AttrAssign = AttrAssign
         self.AttrNest = AttrNest
         self.Preauth = Preauth
+        self.DebugUserSession = DebugUserSession
 
 
 
