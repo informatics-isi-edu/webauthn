@@ -12,7 +12,7 @@ Webauthn's REST API supports these endpoints:
 **To log a user in**
 
 1. Send a GET /preauth request, setting the "Accept: application/json" header.
-2. If successful, the return value will be a JSON structure that contains either a "redirect_url" or "login_form" attribute. If "redirect_url" is present, redirect the user to that URI. If not, create a login form according to the parameters in "login_form" (as described below) and present that to the user.
+2. If successful, the return value will be a JSON structure that contains either a "redirect_url" or "login_form" attribute. If "redirect_url" is present, redirect the user to that URL. If not, create a login form according to the parameters in "login_form" (as described below) and present that to the user.
 
 **To log a user out**
 
