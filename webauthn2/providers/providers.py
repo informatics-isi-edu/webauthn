@@ -268,26 +268,13 @@ class PreauthProvider(Provider):
         """
         Return a dict with any required pre-authentication information (e.g., a web form with options).
         """
-        pass
-
-    def preauth_initiate_login(self, manager, context, db=None):
-        """
-        Do any required pre-authentication tasks (e.g., redirect to an IdP).
-        
-        """
-        pass
+        raise NotImplementedError()
 
     def preauth_referrer(self):
         """
         If there's some special way of getting the original referrer, do it here.
         """
-
-    def preauth_delete(self, manager, context, db=None):
-        """
-        Delete any pre-authentication information from a partially-authenticated session
-        
-        """
-        raise NotImplementedError()
+        pass
 
 class ClientLogin (ProviderInterface):
     """

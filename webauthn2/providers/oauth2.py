@@ -532,8 +532,9 @@ class OAuth2PreauthProvider (PreauthProvider):
             ['application/json', 'text/html'],
             'application/json'
             )
-        if content_type == 'text/html':
-            self.preauth_initiate_login(manager, context, db)
+
+        if self.cfg.get("oauth2_preauth_html_compatibility_mode") == True and content_type == 'text/html':
+            self.preauth_initiate(manager, context, db, True)
         else:
             return {
                     AUTHENTICATION_TYPE : self.key,
@@ -554,12 +555,6 @@ class OAuth2PreauthProvider (PreauthProvider):
         else:
             return self.make_redirect_uri(auth_request_args)
 
-    def preauth_initiate_login(self, manager, context, db):
-        """
-        Initiate a login (redirect to OAuth2 provider)
-        """
-        return self.preauth_initiate(manager, context, db, True)
-    
     def preauth_referrer(self):
         """
         Get the original referring URL (stored in the auth_nonce cookie)

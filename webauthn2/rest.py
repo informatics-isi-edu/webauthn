@@ -1176,56 +1176,17 @@ class RestHandlerFactory (object):
                 else:
                     self._db_wrapper(db_body)
 
-                response = jsonWriter(self.manager.preauth.preauth_info(self.manager, self.context, db))
+                try:
+                    response = jsonWriter(self.manager.preauth.preauth_info(self.manager, self.context, db))
+
+                except NotImplementedError:
+                    raise NotFound()
+
                 if 'env' in web.ctx:
                     web.ctx.status = '200 OK'
                     web.header('Content-Type', 'application/json')
                     web.header('Content-Length', len(response))
                 return response
-
-            def POST(self, db=None):
-                """
-                Perform pre-authentication tasks (e.g., cache pre-authentication information)
-                """
-                def db_body(db):
-                    self.context = Context(self.manager, False, db)
-                    # Should probably fail or something if the user is logged in, but for now we won't bother
-
-                if db:
-                    db_body(db)
-                else:
-                    self._db_wrapper(db_body)
-
-                try:
-                    # note: this caller always raises a seeother exception with current implementation...
-                    response = self.manager.preauth.preauth_initiate_login(self.manager, self.context, db)
-                except NotImplementedError:
-                    raise NoMethod()
-
-                web.header('Content-Length', len(response))
-                return response
-
-            def DELETE(self, db=None):
-                """
-                Perform pre-authentication tasks (e.g., cache pre-authentication information)
-                """
-                def db_body(db):
-                    self.context = Context(self.manager, False, db)
-                    # Should probably fail or something if the user is logged in, but for now we won't bother
-
-                if db:
-                    db_body(db)
-                else:
-                    self._db_wrapper(db_body)
-
-                try:
-                    self.manager.preauth.preauth_delete(self.manager, self.context, db)
-                except NotImplementedError:
-                    raise NoMethod()
-
-                if 'env' in web.ctx:
-                    web.ctx.status = '204 No Content'
-                return ''
 
         class DebugUserSession(UserSession):
             """
