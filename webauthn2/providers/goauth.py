@@ -111,6 +111,7 @@ class GOAuthLogin(oauth2.OAuth2Login):
         # Temporary for Kyle -- print access token
         web.debug("Globus access token: '{access_token}'".format(access_token=access_token))
         username, client_id, server = go.goauth_validate_token(access_token)
+        context.user = dict()
         context.user['access_token'] = access_token
         context.user['refresh_token'] = refresh_token
         context.user['access_token_expiration'] = base_timestamp + timedelta(seconds=int(expires_in))
@@ -119,6 +120,8 @@ class GOAuthLogin(oauth2.OAuth2Login):
         user_config = {"server" : go.config["server"], "client" : username, "client_secret" : None, "goauth_token" : access_token}
         user_client = GlobusOnlineRestClient(config=user_config)
         userinfo = user_client.get_user(username)
+        if isinstance(userinfo, list) or isinstance(userinfo, tuple):
+            userinfo = userinfo[0]
         context.user['userinfo'] =  simplejson.dumps(userinfo, separators=(',', ':'))
         self.fill_context_from_userinfo(context, username, userinfo)
         
@@ -131,10 +134,14 @@ class GOAuthLogin(oauth2.OAuth2Login):
         if self.provider._client_exists(db, username):
             manager.clients.manage.update_noauthz(manager, context, username, db)
         else:
-            context.user[self.USERNAME] = username
+            context.user[ID] = username
             manager.clients.manage.create_noauthz(manager, context, username, db)
 
-        return username
+        context.client = KeyedDict()
+        for key in ClientLogin.standard_names:
+            if context.user.get(key) != None:
+                context.client[key] = context.user.get(key)
+        return context.client
 
     def accepts_login_get(self):
         return True
