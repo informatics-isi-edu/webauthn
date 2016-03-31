@@ -120,16 +120,20 @@ class GOAuthLogin(oauth2.OAuth2Login):
         user_config = {"server" : go.config["server"], "client" : username, "client_secret" : None, "goauth_token" : access_token}
         user_client = GlobusOnlineRestClient(config=user_config)
         userinfo = user_client.get_user(username)
-        if isinstance(userinfo, list) or isinstance(userinfo, tuple):
-            userinfo = userinfo[0]
         context.user['userinfo'] =  simplejson.dumps(userinfo, separators=(',', ':'))
-        self.fill_context_from_userinfo(context, username, userinfo)
+        if isinstance(userinfo, list) or isinstance(userinfo, tuple):
+            for u in userinfo:
+                self.fill_context_from_userinfo(context, username, u)
+        else:
+            self.fill_context_from_userinfo(context, username, u)
         
-        group_ids = []
+        context.goauth_groups = set()
         response, content = user_client.get_group_list(my_roles=["manager","admin","member"])
         if response["status"] == "200":
-            group_ids = [g["id"] for g in content if g["my_status"] == "active"]
-        context.goauth_groups = set(group_ids)
+            for g in content:
+                if g["my_status"] == "active":
+                    context.goauth_groups.add(KeyedDict({ID : "g:" + g["id"],
+                                                         DISPLAY_NAME : g.get('name')}))
 
         if self.provider._client_exists(db, username):
             manager.clients.manage.update_noauthz(manager, context, username, db)
@@ -148,6 +152,28 @@ class GOAuthLogin(oauth2.OAuth2Login):
 
     def login_keywords(self, optional=False):
         return set()
+
+    def fill_context_from_userinfo(self, context, username, userinfo):
+        context.user[ID] = username
+        # try both openid connect userinfo claims and oauth token introspection claims
+        if context.user.get(DISPLAY_NAME) == None:
+            val = userinfo.get('preferred_username')
+            if val == None:
+                val = userinfo.get('username')
+                if val != None:
+                    context.user[DISPLAY_NAME] = val
+        
+        if context.user.get(FULL_NAME) == None:
+            val = userinfo.get('name')
+            if val == None:
+                val = userinfo.get('full_name')
+            if val != None:
+                context.user[FULL_NAME] = val
+
+        if context.user.get(EMAIL) == None:
+            val = userinfo.get('email')
+            if val != None:
+                context.user[EMAIL] = val
 
 
 class GOAuthPreauthProvider (oauth2.OAuth2PreauthProvider):
@@ -225,7 +251,7 @@ class GOAuthAttributeClient (AttributeClient):
 
     def set_msg_context(self, manager, context, db=None):
         if hasattr(context, 'goauth_groups'):
-            context.attributes.update(["g:" + group for group in context.goauth_groups])
+            context.attributes.update(group for group in context.goauth_groups)
 
 class GOAuthAttributeProvider (database.DatabaseAttributeProvider):
 
