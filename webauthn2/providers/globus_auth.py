@@ -70,9 +70,10 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
         web.debug("wallet: " + str(context.wallet))
         if group_token == None:
             return user_id
+        accepted_roles = ['admin', 'manager', 'member']
         group_args = {
             'include_identity_set_properties' : 'true',
-            'my_roles' : 'admin,manager,member',
+            'my_roles' : ','.join(accepted_roles),
             'my_statuses' : 'active',
             'for_all_identities' : 'true'
             }
@@ -82,11 +83,20 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
         u = self.open_url(token_request, "getting groups", False)
         groups = simplejson.load(u)
         u.close()
+        web.debug("groups: " + str(groups))
         context.globus_groups = set()
         for g in groups:
+            group = KeyedDict({ID : issuer + "/" + g["id"],
+                               DISPLAY_NAME : g.get('name')})
             if g["my_status"] == "active":
-                context.globus_groups.add(KeyedDict({ID : issuer + "/" + g["id"],
-                                           DISPLAY_NAME : g.get('name')}))
+                context.globus_groups.add(group)
+            else:
+                idprops = g.get("identity_set_properties")
+                if idprops != None:
+                    for props in idprops.values():
+                        if props.get("role") in accepted_roles and props.get("status") == "active":
+                            context.globus_groups.add(group)
+                            break
         return context.client
 
     def add_extra_token_request_headers(self, token_request):
