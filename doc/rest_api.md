@@ -24,20 +24,18 @@ Webauthn uses the following logic to determine what to set the HTTP status and `
 * If there is a valid session, the HTTP status is 200 and:
   * If the provider sets a redirect URL, that value is used for redirect_url.
   * If not, then
-     * If the "default_logout_path" configuration parameter is set to a relative URL (like "/chaise/search"), that's combined with the current protocol and hostname to create the redirect URL (e.g., "https://dev.isrd.isi.edu/chaise/search").
-     * If the "default_logout_url" configuration parameter is set to an absolute URL (like "https://remote.server.org/some/path", that value is used.
-  * If none of these is found, a ConfigurationError exception will be raised (and the user will see a 500 server error).
+     * If a "logout_url" argument is passed as an argument to the DELETE request, that value is used as the redirect url.
+     * Otherwise, if the "default_logout_path" configuration parameter is set, that value is used.
 * If there isn't a valid session, the HTTP status is set to 404 and:
-   * If the "logout_no_session_path" configuration parameter is set to a relative URL (like "/chaise/search"), that's combined with the current protocol and hostname to create the redirect URL (e.g., "https://dev.isrd.isi.edu/chaise/search").
-   * If the "logout_no_session_url" configuration parameter is set to an absolute URL (like "https://remote.server.org/some/path", that value is used.
-   * If the "default_logout_path" configuration parameter is set to a relative URL (like "/chaise/search"), that's combined with the current protocol and hostname to create the redirect URL (e.g., "https://dev.isrd.isi.edu/chaise/search").
-   * If the "default_logout_url" configuration parameter is set to an absolute URL (like "https://remote.server.org/some/path", that value is used.
-  * If none of these is found, a ConfigurationError exception will be raised (and the user will see a 500 server error).
+   * If the "logout_no_session_path" configuration parameter is set, that value is used for the redirect url
+   * Otherwise, if the "default_logout_path" configuration parameter is set, that value is used for the redirect url
+* If none of the above conditions holds, a ConfigurationError exception will be raised (and the user will see a 500 server Endpoints).
+
+All the "path" parameters above can be specified as relative URLs (e.g., "/chaise/search") or absolute URLs.
 
 
 
-
-## Endpoints used in a typical end-user session
+## error used in a typical end-user session
 ### /preauth
 #### GET /preauth
 **Arguments:**

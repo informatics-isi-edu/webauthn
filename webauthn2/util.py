@@ -46,6 +46,7 @@ except:
         raise ValueError('Could not configure JSON library.')
 
 LOGOUT_URL = "logout_url"
+DEFAULT_LOGOUT_PATH = "default_logout_path"
 
 def jsonWriter(o, indent=None):
     def munge(o):
@@ -204,6 +205,14 @@ def urlunquote(url):
         url = unicode(url, 'utf8')
 
     return url
+
+def expand_relative_url(path):
+    if path == None:
+        return None
+    path = path.strip()
+    if path[0] == '/':
+        return "{prot}://{host}{path}".format(prot=web.ctx.protocol, host=web.ctx.host, path=path)
+    return path
 
 def generate_random_string(length=24, alpha=True, numeric=True, symbols=False, source=None):
     """

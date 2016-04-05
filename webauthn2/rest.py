@@ -302,17 +302,20 @@ class RestHandlerFactory (object):
 
                 """
 
-                default_logout_url = self._make_url(self.manager.config.get('default_logout_url'),
-                                                    self.manager.config.get('default_logout_path'))
+                default_logout_url = expand_relative_url(self.manager.config.get(DEFAULT_LOGOUT_PATH))
 
                 def db_body(db):
                     self.context = Context(self.manager, False, db)
                     self._session_authz(sessionids)
                     rv = self.manager.sessions.terminate(self.manager, self.context, db)
                     if rv == None:
-                        if default_logout_url is None:
-                            raise ConfigurationError("No logout URL configured")
-                        rv = {LOGOUT_URL : default_logout_url}
+                        logout_url = web.input().get(LOGOUT_URL)
+                        if logout_url != None:
+                            rv = {LOGOUT_URL : default_logout_url}
+                        elif default_logout_url is None:
+                            raise ConfigurationError("No logout URL specified or configured")
+                        else:
+                            rv = {LOGOUT_URL : default_logout_url}
                     return rv
 
                 response = ''
@@ -321,8 +324,7 @@ class RestHandlerFactory (object):
                 try:
                     retval = self._db_wrapper(db_body)
                 except NotFound, ex:
-                    no_session_url = self._make_url(self.manager.config.get('logout_no_session_url'),
-                                                   self.manager.config.get('logout_no_session_path'))
+                    no_session_url = expand_relative_url(self.manager.config.get('logout_no_session_path'))
                     if no_session_url == None:
                         no_session_url = default_logout_url
                     if no_session_url == None:
@@ -339,13 +341,6 @@ class RestHandlerFactory (object):
                     else:
                         web.ctx.status = '204 No Content'
                 return response
-
-            @staticmethod
-            def _make_url(url, path):
-                if url != None:
-                    return url
-                if path != None:
-                    return "{prot}://{host}{path}".format(prot=web.ctx.protocol, host=web.ctx.host, path=path)
 
             def _login_get_or_post(self, storage):
                 for key in self.manager.clients.login.login_keywords():
