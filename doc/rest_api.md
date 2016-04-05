@@ -17,7 +17,25 @@ Webauthn's REST API supports these endpoints:
 **To log a user out**
 
 1. Send a DELETE /session request
-2. The request may return a JSON structure that includes a "redirect_url" parameter. If it does, redirect the end-user to that URL.
+2. The request will return a JSON structure that includes a "redirect_url" parameter. Redirect the end-user to that URL.
+
+Webauthn uses the following logic to determine what to set the HTTP status and `redirect_url` to:
+
+* If there is a valid session, the HTTP status is 200 and:
+  * If the provider sets a redirect URL, that value is used for redirect_url.
+  * If not, then
+     * If the "default_logout_path" configuration parameter is set to a relative URL (like "/chaise/search"), that's combined with the current protocol and hostname to create the redirect URL (e.g., "https://dev.isrd.isi.edu/chaise/search").
+     * If the "default_logout_url" configuration parameter is set to an absolute URL (like "https://remote.server.org/some/path", that value is used.
+  * If none of these is found, a ConfigurationError exception will be raised (and the user will see a 500 server error).
+* If there isn't a valid session, the HTTP status is set to 404 and:
+   * If the "logout_no_session_path" configuration parameter is set to a relative URL (like "/chaise/search"), that's combined with the current protocol and hostname to create the redirect URL (e.g., "https://dev.isrd.isi.edu/chaise/search").
+   * If the "logout_no_session_url" configuration parameter is set to an absolute URL (like "https://remote.server.org/some/path", that value is used.
+   * If the "default_logout_path" configuration parameter is set to a relative URL (like "/chaise/search"), that's combined with the current protocol and hostname to create the redirect URL (e.g., "https://dev.isrd.isi.edu/chaise/search").
+   * If the "default_logout_url" configuration parameter is set to an absolute URL (like "https://remote.server.org/some/path", that value is used.
+  * If none of these is found, a ConfigurationError exception will be raised (and the user will see a 500 server error).
+
+
+
 
 ## Endpoints used in a typical end-user session
 ### /preauth

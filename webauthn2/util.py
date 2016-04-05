@@ -45,6 +45,8 @@ except:
     else:
         raise ValueError('Could not configure JSON library.')
 
+LOGOUT_URL = "logout_url"
+
 def jsonWriter(o, indent=None):
     def munge(o):
         if isinstance(o, dict) or type(o) == web.Storage:

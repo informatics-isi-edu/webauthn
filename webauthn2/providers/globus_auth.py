@@ -199,5 +199,5 @@ class GlobusAuthSessionStateProvider(oauth2.OAuth2SessionStateProvider):
             args.pop(k, None)
         logout_url = logout_base + "?" + urllib.urlencode(args)
         retval = dict()
-        retval['logout_url'] = logout_url
+        retval[LOGOUT_URL] = logout_url
         return retval

@@ -302,23 +302,50 @@ class RestHandlerFactory (object):
 
                 """
 
+                default_logout_url = self._make_url(self.manager.config.get('default_logout_url'),
+                                                    self.manager.config.get('default_logout_path'))
+
                 def db_body(db):
                     self.context = Context(self.manager, False, db)
                     self._session_authz(sessionids)
-                    ex = None
-                    return self.manager.sessions.terminate(self.manager, self.context, db)
+                    rv = self.manager.sessions.terminate(self.manager, self.context, db)
+                    if rv == None:
+                        if default_logout_url is None:
+                            raise ConfigurationError("No logout URL configured")
+                        rv = {LOGOUT_URL : default_logout_url}
+                    return rv
 
                 response = ''
-                retval = self._db_wrapper(db_body)
+
+                status = "200 OK"
+                try:
+                    retval = self._db_wrapper(db_body)
+                except NotFound, ex:
+                    no_session_url = self._make_url(self.manager.config.get('logout_no_session_url'),
+                                                   self.manager.config.get('logout_no_session_path'))
+                    if no_session_url == None:
+                        no_session_url = default_logout_url
+                    if no_session_url == None:
+                        raise ConfigurationError("No logout URL configured")
+                    retval = {LOGOUT_URL : no_session_url}
+                    status = "404 Not Found"
+
                 if 'env' in web.ctx:
                     if isinstance(retval, dict):
                         response=jsonWriter(retval) + '\n'
-                        web.ctx.status = '200 OK'
+                        web.ctx.status = status
                         web.header('Content-Type', 'application/json')
                         web.header('Content-Length', len(response))
                     else:
                         web.ctx.status = '204 No Content'
                 return response
+
+            @staticmethod
+            def _make_url(url, path):
+                if url != None:
+                    return url
+                if path != None:
+                    return "{prot}://{host}{path}".format(prot=web.ctx.protocol, host=web.ctx.host, path=path)
 
             def _login_get_or_post(self, storage):
                 for key in self.manager.clients.login.login_keywords():
@@ -1221,3 +1248,5 @@ class RestHandlerFactory (object):
 
 
 
+class ConfigurationError(RuntimeError):
+    pass
