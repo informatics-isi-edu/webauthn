@@ -1308,6 +1308,7 @@ CREATE TABLE %(aatable)s (
 
 class DatabasePreauthProvider (PreauthProvider):
     key = 'database'
+    cookie_name = "webauthn2_referrer"
     
     def __init__(self, config):
         PreauthProvider.__init__(self, config)
@@ -1316,6 +1317,9 @@ class DatabasePreauthProvider (PreauthProvider):
 
 
     def preauth_info(self, manager, context, db):
+        referrer = web.input().get('referrer')
+        if referrer != None:
+            web.setcookie(self.cookie_name, referrer)
         if self.form_url != None:
             if self.form_url[0] == '/':
                 self.form_url = "{prot}://{host}{path}".format(prot=web.ctx.protocol, host=web.ctx.host, path=self.form_url)
@@ -1339,3 +1343,10 @@ class DatabasePreauthProvider (PreauthProvider):
 
         login_info[AUTHENTICATION_TYPE] = self.key
         return login_info
+
+    def preauth_referrer(self):
+        cookie = web.cookies().get(self.cookie_name)
+        # The cookie is only used for this login, so it can be removed. But give a little bit of a grace
+        # period in case they click more than once.
+        web.setcookie(self.cookie_name, cookie, expires=10, secure=True)
+        return cookie
