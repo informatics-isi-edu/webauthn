@@ -137,7 +137,9 @@ __all__ = [
     'AUTHENTICATION_TYPE',
     'COOKIE',
     'LOGIN_FORM',
-
+    'LAST_LOGIN',
+    'LAST_GROUP_UPDATE',
+    'LAST_SESSION_EXTENSION',
     'KeyedDict'
 
     ]
@@ -152,6 +154,9 @@ REDIRECT_NAME="redirect_name"
 AUTHENTICATION_TYPE="authentication_type"
 COOKIE="cookie"
 LOGIN_FORM="login_form"
+LAST_LOGIN="last_login"
+LAST_SESSION_EXTENSION="last_session_extension"
+LAST_GROUP_UPDATE="last_group_update"
 
 class Provider (object):
 

@@ -785,12 +785,18 @@ CREATE VIEW %(summary)s AS
                 db.query("""
 CREATE TABLE %(utable)s (
   uid serial PRIMARY KEY,
-  %(username)s text UNIQUE
+  %(username)s text UNIQUE NOT NULL,
+  %(last_login)s timestamp,
+  %(last_session_extension)s timestamp,
+  %(last_group_update)s timestamp
   %(extras)s
 );
 """
                          % dict(utable=self._table(self.client_storage_name),
                                 username=ID,
+                                last_login=LAST_LOGIN,
+                                last_session_extension=LAST_SESSION_EXTENSION,
+                                last_group_update=LAST_GROUP_UPDATE,
                                 extras=','.join(self.extra_client_columns and
                                                 [''] + ['%s %s' % ec for ec in self.extra_client_columns]))
                          )

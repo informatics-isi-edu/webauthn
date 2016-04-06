@@ -677,7 +677,10 @@ class OAuth2ClientProvider (database.DatabaseClientProvider):
 
     key = 'oauth2'
     client_storage_name = 'user'
-    extra_client_columns = [('id_token', 'json'),
+    extra_client_columns = [(DISPLAY_NAME, 'text'),
+                            (FULL_NAME, 'text'),
+                            (EMAIL, 'text'),
+                            ('id_token', 'json'),
                             ('userinfo', 'json'),
                             ('access_token', 'text'),
                             ('access_token_expiration', 'timestamp'),
@@ -726,29 +729,8 @@ CREATE VIEW %(summary)s AS
 
         """
         def db_body(db):
-            database.DatabaseConnection2.deploy(self)
+            database.DatabaseClientProvider.deploy(self)
             tables_added = False
-
-            if not self._table_exists(db, self.client_storage_name):
-                tables_added = True
-                db.query("""
-CREATE TABLE %(utable)s (
-  uid serial PRIMARY KEY,
-  %(username)s text UNIQUE NOT NULL,
-  %(display_username)s text,
-  %(name)s text,
-  %(email)s text
-  %(extras)s
-);
-"""
-                         % dict(utable=self._table(self.client_storage_name),
-                                username=ID,
-                                display_username=DISPLAY_NAME,
-                                name=FULL_NAME,
-                                email=EMAIL,
-                                extras=','.join(self.extra_client_columns and
-                                                [''] + ['%s %s' % ec for ec in self.extra_client_columns]))
-                         )
 
             if not self._table_exists(db, nonce_util.nonce_table):
                 tables_added = True
