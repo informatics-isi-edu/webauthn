@@ -237,11 +237,22 @@ class RestHandlerFactory (object):
                             return True
                     return False
 
-                if self.context.session is None:
-                    if self.manager.clients.login is not None:
-                        if self.manager.clients.login.accepts_login_get() and has_login_params():
+
+                if self.manager.clients.login != None:
+                    if self.manager.clients.login.accepts_login_get() and has_login_params():
+                        if self.context.session is None:
                             return self._login_get_or_post(web.input())
-                    
+                        else:
+                            # Horrible special case. The user has logged in via GET /session with arguments and then
+                            # hit the back button.
+                            if self.manager.preauth != None:
+                                preauth_referrer = self.manager.preauth.preauth_referrer()
+                                if preauth_referrer != None:
+                                    web.ctx.status = '303 See Other'
+                                    web.header('Location', preauth_referrer)
+                                    return ''
+
+                if self.context.session == None:
                     raise NotFound('No existing login session found.')
 
                 # do not include sessionids since we don't want to enable

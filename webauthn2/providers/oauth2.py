@@ -83,7 +83,6 @@ config_built_ins = web.storage(
     database_max_retries= 5,
     # OAuth-specific items
     oauth2_nonce_hard_timeout=3600,
-    oauth2_nonce_cookie_name='oauth2_auth_nonce',
     # File with parameters, including the shared secret, shared between the client and the OAuth provider
     oauth2_client_secret_file=None,
     oauth2_discovery_uri=None,
@@ -95,19 +94,27 @@ config_built_ins = web.storage(
 
 class nonce_util(database.DatabaseConnection2):
     algorithm=Crypto.Hash.SHA256
-    nonce_table='oauth2_nonce'
+    hash_key_table='oauth2_nonce'
+    referrer_table='oauth2_nonce_referrer'
+    default_referrer_timeout=3600
 
     def __init__(self, config):
         database.DatabaseConnection2.__init__(self, config)
+        referrer_timeout = config.get('oauth2_referrer_timeout')
+        if referrer_timeout == None or referrer_timeout < config.oauth2_nonce_hard_timeout:
+            referrer_timeout = config.oauth2_nonce_hard_timeout
+
         self.config_params = {'hard_timeout' : config.oauth2_nonce_hard_timeout,
                               'soft_timeout' : config.oauth2_nonce_hard_timeout / 2,
-                              'nonce_table' : config.database_schema + '.' + self.nonce_table}
+                              'hash_key_table' : config.database_schema + '.' + self.hash_key_table,
+                              'referrer_table' : config.database_schema + '.' + self.referrer_table,
+                              'referrer_timeout' : referrer_timeout}
         self.keys=[]
 
     def get_keys(self, db):
         self.update_timeout(db)
         def db_body(db):
-            return db.select(self.config_params['nonce_table'], what="timeout, key", order="timeout desc")
+            return db.select(self.config_params['hash_key_table'], what="timeout, key", order="timeout desc")
         
         if db:
             textkeys = db_body(db)
@@ -125,12 +132,13 @@ class nonce_util(database.DatabaseConnection2):
                 if datetime.now() + timedelta(0, self.config_params['soft_timeout']) < k[0]:
                     return
         def db_body(db):
-            db.query("delete from %(nonce_table)s where timeout < now()" % self.config_params)
+            db.query("delete from {referrer_table} where timeout < now()".format(referrer_table=self.config_params.get('referrer_table')))
+            db.query("delete from %(hash_key_table)s where timeout < now()" % self.config_params)
             db.query("""
-insert into %(nonce_table)s (key, timeout)
+insert into %(hash_key_table)s (key, timeout)
   select $new_key, now() + interval '%(hard_timeout)d seconds'
   where not exists
-    (select 1 from %(nonce_table)s where timeout - now() > interval '%(soft_timeout)d seconds')
+    (select 1 from %(hash_key_table)s where timeout - now() > interval '%(soft_timeout)d seconds')
 """ % self.config_params,
                      vars={'new_key' : self.keytotext(self.make_key())})
 
@@ -142,21 +150,34 @@ insert into %(nonce_table)s (key, timeout)
     def get_current_key(self, db):
         return self.get_keys(db)[0][1]
 
+    def log_referrer(self, nonce, referrer, db):
+        def db_body(db):
+            db.query("insert into {referrer_table}(nonce, referrer, timeout) select {nonce}, {referrer}, now() + interval '{referrer_timeout} seconds'"\
+                     .format(referrer_table=self.config_params.get('referrer_table'),
+                             nonce=sql_literal(nonce),
+                             referrer=sql_literal(referrer),
+                             referrer_timeout=self.config_params.get('referrer_timeout')))
+        if db:
+            db_body(db)
+        else:
+            self._db_wrapper(db_body)
+
+    def get_referrer(self, nonce):
+        def db_body(db):
+            return db.query("select referrer from {referrer_table} where nonce={nonce}".format(referrer_table=self.config_params.get('referrer_table'), nonce=sql_literal(nonce)))
+        
+        rows=self._db_wrapper(db_body)
+        if len(rows) != 1:
+            raise ValueError("Found referrer {x} rows for nonce {nonce}; expected 1".format(x=str(len(rows)), nonce=nonce))
+        referrer = rows[0].get('referrer')
+        if referrer == None:
+            web.debug("null referrer for nonce {nonce}".format(nonce=nonce))
+        return referrer
+
     @staticmethod
     def get_cookie_ts(cookie):
         return int(cookie.split('.')[0])
 
-    @staticmethod
-    def get_cookie_url(cookie):
-        url = base64.urlsafe_b64decode(cookie.split('.')[2])
-
-        # Debug for referrer tracing
-        web.debug("in get_cookie_url, cookie is '{cookie}', url is '{url}'".format(cookie=str(cookie), url=str(url)))
-
-        if url == '':
-            return None
-        return url
-    
     @staticmethod
     def keytotext(key):
         return base64.b64encode(key)
@@ -226,8 +247,6 @@ class OAuth2Login (ClientLogin):
             'auth_cookie_nonce' : web.cookies().get(self.provider.nonce_cookie_name)
             }
 
-        # Remove the nonce cookie, since they only need to use it once
-        web.setcookie(self.provider.nonce_cookie_name, "", expires=0, secure=True)
 
         if nonce_vals['auth_url_nonce'] == None:
             raise OAuth2ProtocolError("No authn_nonce in initial redirect")
@@ -546,9 +565,10 @@ class OAuth2PreauthProvider (PreauthProvider):
         Initiate a login (redirect to OAuth2 provider)
         """
         self.authentication_uri_args["redirect_uri"] = self.make_uri(str(self.cfg.get('oauth2_redirect_relative_uri')))
-        session = self.make_session(db, web.input().get('referrer'))
-        auth_request_args = self.make_auth_request_args(session)
+        session = self.make_session(db)
+        self.nonce_state.log_referrer(session.get('auth_url_nonce'), web.input().get('referrer'), db)
         web.setcookie(self.nonce_cookie_name, session.get('auth_cookie_nonce'), secure=True)
+        auth_request_args = self.make_auth_request_args(session)
         if do_redirect :
             web.debug("redirecting")
             raise web.seeother(self.make_redirect_uri(auth_request_args))
@@ -559,7 +579,10 @@ class OAuth2PreauthProvider (PreauthProvider):
         """
         Get the original referring URL (stored in the auth_nonce cookie)
         """
-        return nonce_util.get_cookie_url(web.cookies().get(self.nonce_cookie_name))
+        auth_url_nonce = web.input().get('state')
+        if auth_url_nonce == None:
+            raise OAuth2ProtocolError("No state argument")
+        return self.nonce_state.get_referrer(auth_url_nonce)
         
     def make_uri(self, relative_uri):
         return web.ctx.home + relative_uri
@@ -571,22 +594,18 @@ class OAuth2PreauthProvider (PreauthProvider):
         auth_request_args['state'] = session['auth_url_nonce']
         return auth_request_args
 
-    def make_session(self, db, referrer):
+    def make_session(self, db):
         session=dict()
         for key in self.authentication_uri_args.keys():
             session[key] = self.authentication_uri_args.get(key)
         session['session_id'] = str(uuid.uuid4())
-        session['auth_cookie_nonce'] = self.generate_nonce(referrer)
+        session['auth_cookie_nonce'] = self.generate_nonce()
         session['auth_url_nonce'] = self.nonce_state.encode(session['auth_cookie_nonce'], db)
         return session
 
     @staticmethod
-    def generate_nonce(referrer):
+    def generate_nonce():
       nonce = str(int(time.time())) + '.' + base64.urlsafe_b64encode(Random.get_random_bytes(30)) + '.'
-      if referrer != None:
-          nonce = nonce + base64.urlsafe_b64encode(referrer)
-      # Debug for referrer tracing
-      web.debug("in generate_nonce, referrer arg is {referrer}, generated nonce is {nonce}".format(referrer=str(referrer), nonce=str(nonce)))
       return nonce
 
     def make_redirect_uriargs(self, args):
@@ -732,7 +751,7 @@ CREATE VIEW %(summary)s AS
             database.DatabaseClientProvider.deploy(self)
             tables_added = False
 
-            if not self._table_exists(db, nonce_util.nonce_table):
+            if not self._table_exists(db, nonce_util.hash_key_table):
                 tables_added = True
                 db.query("""
 CREATE TABLE %(ntable)s (
@@ -740,7 +759,20 @@ CREATE TABLE %(ntable)s (
   timeout timestamp
 );
 """
-                         % dict(ntable=self._table(nonce_util.nonce_table))
+                         % dict(ntable=self._table(nonce_util.hash_key_table))
+                         )
+
+
+            if not self._table_exists(db, nonce_util.referrer_table):
+                tables_added = True
+                db.query("""
+CREATE TABLE %(rtable)s (
+  nonce text primary key,
+  referrer text,
+  timeout timestamp
+);
+"""
+                         % dict(rtable=self._table(nonce_util.referrer_table))
                          )
 
             self.deploy_guard(db, '_client')
