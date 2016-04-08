@@ -83,6 +83,7 @@ config_built_ins = web.storage(
     database_max_retries= 5,
     # OAuth-specific items
     oauth2_nonce_hard_timeout=3600,
+    oauth2_nonce_cookie_name='oauth2_auth_nonce',
     # File with parameters, including the shared secret, shared between the client and the OAuth provider
     oauth2_client_secret_file=None,
     oauth2_discovery_uri=None,
