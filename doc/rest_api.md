@@ -35,7 +35,7 @@ All the "path" parameters above can be specified as relative URLs (e.g., `/chais
 
 
 
-## error used in a typical end-user session
+## REST calls used in a typical end-user session
 ### /preauth
 #### GET /preauth
 **Arguments:**
