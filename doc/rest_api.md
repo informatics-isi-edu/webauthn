@@ -200,11 +200,8 @@ DELETE /session passes arguments to the underlying provider. Currently, these ar
 
 | Param | Description |
 | --- | --- |
-| redirect_path | A relative URL (e.g., "/chaise/logout") specifying the destination that the user should be redirected to (or that should be linked back to) by the remote IdP after the logout is complete. |
-| redirect_uri | An absolute URL (e.g., "https://my.host.com/chaise/logout") specifying the destination that the user should be redirected to (or that should be linked back to) by the remote IdP after the logout is complete. This should only be used if the desired destination is on a remote host; otherwise, redirect_path should be used instead. |
-| redirect_name | A user-friendly name for the destination that the user should be redirected to. Providers that provide links back use the redirect_name argument for the text to display with the link. Currently supported only by the globus_auth provider. |
-
-These arguments are currently only supported by the globus_auth provider. They can also be specified as global defaults in the configuration file, with names preceded by globus_auth_logout (e.g., globus_auth_logout_redirect_path).
+| logout_url | A URL specifying the destination that the user should be redirected to (or that should be linked back to) by the remote IdP after the logout is complete. A default value for this can be specified in the configuration file, with the name `default_logout_url` |
+| redirect_name | A user-friendly name for the destination that the user should be redirected to. Providers that provide links back use the redirect_name argument for the text to display with the link. This can also be specified in the configuration file and is currently supported only by the globus_auth provider. |
 
 **Responses**
 
