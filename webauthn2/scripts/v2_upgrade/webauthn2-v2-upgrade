@@ -1,0 +1,9 @@
+usage="Usage: $0 [--ermrest-only|--hatrac-only]"
+share=/usr/share/webauthn2/v2_upgrade
+
+if [ $# -gt 1 ]; then
+   echo $usage
+   exit 1
+fi
+
+python $share/webauthn2_v2_upgrade.py $*

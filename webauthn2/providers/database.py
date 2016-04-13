@@ -215,7 +215,7 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
     extra_columns = []  # list of (columnname, typestring) pairs
 
     # data storage format version
-    major = 1
+    major = 2
     minor = 0
 
     def __init__(self, config):
@@ -675,7 +675,7 @@ class DatabaseClientProvider (ClientProvider, DatabaseConnection2):
     summary_storage_name = 'usersummary'
     
     # data storage format version
-    major = 1
+    major = 2
     minor = 0
 
     def __init__(self, config, 
