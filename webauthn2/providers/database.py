@@ -786,9 +786,9 @@ CREATE VIEW %(summary)s AS
 CREATE TABLE %(utable)s (
   uid serial PRIMARY KEY,
   %(username)s text UNIQUE NOT NULL,
-  %(last_login)s timestamp,
-  %(last_session_extension)s timestamp,
-  %(last_group_update)s timestamp
+  %(last_login)s timestamptz,
+  %(last_session_extension)s timestamptz,
+  %(last_group_update)s timestamptz
   %(extras)s
 );
 """

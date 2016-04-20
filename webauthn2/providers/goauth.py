@@ -202,7 +202,7 @@ class GOAuthClientProvider (oauth2.OAuth2ClientProvider):
     client_storage_name = 'user'
     extra_client_columns = [('userinfo', 'json'),
                             ('access_token', 'text'),
-                            ('access_token_expiration', 'timestamp'),
+                            ('access_token_expiration', 'timestamptz'),
                             ('refresh_token', 'text')]  # list of (columnname, typestring) pairs
     summary_storage_name = 'usersummary'
     

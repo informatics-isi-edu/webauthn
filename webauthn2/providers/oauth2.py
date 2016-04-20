@@ -703,7 +703,7 @@ class OAuth2ClientProvider (database.DatabaseClientProvider):
                             ('id_token', 'json'),
                             ('userinfo', 'json'),
                             ('access_token', 'text'),
-                            ('access_token_expiration', 'timestamp'),
+                            ('access_token_expiration', 'timestamptz'),
                             ('refresh_token', 'text')]  # list of (columnname, typestring) pairs
     summary_storage_name = 'usersummary'
     
@@ -757,7 +757,7 @@ CREATE VIEW %(summary)s AS
                 db.query("""
 CREATE TABLE %(ntable)s (
   key text,
-  timeout timestamp
+  timeout timestamptz
 );
 """
                          % dict(ntable=self._table(nonce_util.hash_key_table))
@@ -770,7 +770,7 @@ CREATE TABLE %(ntable)s (
 CREATE TABLE %(rtable)s (
   nonce text primary key,
   referrer text,
-  timeout timestamp
+  timeout timestamptz
 );
 """
                          % dict(rtable=self._table(nonce_util.referrer_table))

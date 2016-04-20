@@ -25,16 +25,16 @@ begin
      create table "user" (
         uid serial primary key,
         id text unique not null,
-        last_login timestamp,
-        last_session_extension timestamp,
-        last_group_update timestamp,
+        last_login timestamptz,
+        last_session_extension timestamptz,
+        last_group_update timestamptz,
         display_name text,
         full_name text,
         email text,
         id_token json,
         userinfo json,
         access_token text,
-        access_token_expiration timestamp,
+        access_token_expiration timestamptz,
         refresh_token text
      );
 
@@ -95,9 +95,9 @@ begin
      create table "user" (
         uid serial primary key,
         id text unique not null,
-        last_login timestamp,
-        last_session_extension timestamp,
-        last_group_update timestamp
+        last_login timestamptz,
+        last_session_extension timestamptz,
+        last_group_update timestamptz
      );
      if partial_upgrade then
         insert into "user" (uid, id) select uid, id from pre_upgrade_user;
@@ -113,9 +113,9 @@ begin
   create table session (
      key text,
      key_old text,
-     since timestamp,
-     keysince timestamp,
-     expires timestamp,
+     since timestamptz,
+     keysince timestamptz,
+     expires timestamptz,
      client json,
      attributes json[],
      id text,
@@ -137,7 +137,7 @@ begin
      create table oauth2_nonce_referrer (
        nonce text primary key,
        referrer text,
-       timeout timestamp
+       timeout timestamptz
      );
   end if;
 
