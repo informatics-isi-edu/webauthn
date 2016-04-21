@@ -37,20 +37,20 @@ def find_webauthn_schema(filename):
     return webauthn_config.get('database_schema')
 
 
-def process(user, filename):
+def process(user, filename, db):
     file="{dir}/{file}".format(dir=expanduser("~{user}".format(user=user)),file=filename)
     schema=find_webauthn_schema(file)
     if schema == None:
         print("no webauthn schema found in {f}. Skipping...".format(f=file))
     else:
-        print("upgrading {user} schema {schema}...".format(user=user, schema=schema))
-        subprocess.call(["su", "-c", "psql -f {sharedir}/webauthn2_v2_upgrade.sql --variable=myschema={schema}".format(schema=schema, sharedir=SHAREDIR), user])
+        print("upgrading {user} schema {schema} in database {db}...".format(user=user, schema=schema, db=db))
+        subprocess.call(["su", "-c", "psql -f {sharedir}/webauthn2_v2_upgrade.sql --variable=myschema={schema} {db}".format(schema=schema, sharedir=SHAREDIR, db=db), user])
 
 if not ns.hatrac_only:
-    process('ermrest', 'ermrest_config.json')
+    process('ermrest', 'ermrest_config.json', 'ermrest')
     
 if not ns.ermrest_only:
-    process('hatrac', 'webauthn2_config.json')
+    process('hatrac', 'webauthn2_config.json', 'ermrest')
 
 
 
