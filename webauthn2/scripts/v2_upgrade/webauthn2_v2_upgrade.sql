@@ -125,11 +125,11 @@ begin
   );
   
   select constraint_name into pw_constraint_name
-  from information_schema.constraint_column_usage
-  where table_schema = myschema and table_name = 'password' and column_name = 'uid';
+  from information_schema.table_constraints
+  where table_schema = current_schema() and table_name = 'password' and constraint_type = 'FOREIGN KEY';
   
   if pw_constraint_name is not null then
-     alter table password drop constraint pw_constraint_name;
+     execute 'alter table password drop constraint ' || pw_constraint_name;
      alter table password add foreign key (uid) references "user"(uid);
   end if;
 
