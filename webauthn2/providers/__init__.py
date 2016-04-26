@@ -63,6 +63,7 @@ sessionids =      ProviderMap([ null.NullSessionIdProvider,
 
 sessionstates =   ProviderMap([ null.NullSessionStateProvider,
                                 database.DatabaseSessionStateProvider])
+                                
 
 clients =         ProviderMap([ null.NullClientProvider,
                                 database.DatabaseClientProvider,
@@ -76,7 +77,7 @@ attributes =      ProviderMap([ null.NullAttributeProvider,
                                 crowdrest1.CrowdREST1AttributeProvider,
                                 globusonline.GlobusOnlineAttributeProvider ])
 
-preauths =        ProviderMap([ null.NullPreauthProvider ])
+preauths =        ProviderMap([ null.NullPreauthProvider, database.DatabasePreauthProvider ])
 
 config_built_ins = web.storage()
 config_built_ins.update( globusonline.config_built_ins )
@@ -116,6 +117,7 @@ if _enable_goauth:
     config_built_ins.update( goauth.config_built_ins )
 
 
+
 try:
     # conditionalize oauth1 module since it has oddball dependencies
     import oauth1a
@@ -141,4 +143,5 @@ if _enable_globus_auth:
     clients.add(globus_auth.GlobusAuthClientProvider)
     preauths.add(globus_auth.GlobusAuthPreauthProvider)
     attributes.add(globus_auth.GlobusAuthAttributeProvider)
+    sessionstates.add(globus_auth.GlobusAuthSessionStateProvider)
     config_built_ins.update( globus_auth.config_built_ins )

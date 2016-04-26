@@ -1,0 +1,37 @@
+"webauthn2" : {
+  "require_client": true,
+  "require_attributes": true, 
+  "listusers_permit": ["admin"], 
+  "listattributes_permit": ["admin"], 
+  "manageusers_permit": ["admin"], 
+  "manageattributes_permit": ["admin"], 
+        
+  "session_expiration_minutes": 30, 
+  "def_passwd_len": 10, 
+  "hash_passwd_reps": 1000,
+        
+  "sessionids_provider": "webcookie", 
+  "sessionstates_provider": "oauth2", 
+  "clients_provider": "goauth", 
+  "preauth_provider": "goauth", 
+  "attributes_provider": "goauth", 
+        
+  "handler_uri_usersession": "/ermrest/authn/session", 
+        
+  "web_cookie_name": "ermrest", 
+  "web_cookie_path": "/", 
+  "web_cookie_secure": true, 
+  "setheader": false,
+
+  "database_schema": "webauthn2_goauth", 
+  "database_type": "postgres", 
+  "database_dsn": "dbname=", 
+  "database_max_retries": 5, 
+
+  "oauth2_nonce_hard_timeout" : 3600,
+  "oauth2_discovery_uri": "https://accounts.google.com/.well-known/openid-configuration",
+  "oauth2_redirect_relative_uri": "/authn/session",
+  "oauth2_client_secret_file": "/home/secrets/oauth2/client_secret_google.json",
+  "oauth2_scope": "openid email profile",
+  "oauth2_provider_sets_token_nonce": false
+},

@@ -97,21 +97,39 @@ class WebcookieSessionIdProvider (SessionIdProvider):
             cookie = ''
 
         if 'env' in web.ctx:
-            try:
-                # newer web.py needs path or defaults to current URL path
+            self.set_cookie(cookie)
+        else:
+            test_cookies[self.cookiename] = cookie
+
+    def set_cookie(self, cookie, expires=None):
+        try:
+            # newer web.py needs path or defaults to current URL path
+            if expires != None:
+                web.setcookie(self.cookiename,
+                              cookie,
+                              domain=None,
+                              secure=self.secure,
+                              path=self.path,
+                              expires=expires)
+            else:
                 web.setcookie(self.cookiename,
                               cookie,
                               domain=None,
                               secure=self.secure,
                               path=self.path)
-            except TypeError:
-                # old web.py doesn't support path keyword
+        except TypeError:
+            # old web.py doesn't support path keyword
+            if expires != None:
+                web.setcookie(self.cookiename,
+                              cookie,
+                              domain=None,
+                              secure=self.secure,
+                              expires=expires)
+            else:
                 web.setcookie(self.cookiename,
                               cookie,
                               domain=None,
                               secure=self.secure)
-        else:
-            test_cookies[self.cookiename] = cookie
 
     def get_http_vary(self):
         return set([ 'cookie' ])

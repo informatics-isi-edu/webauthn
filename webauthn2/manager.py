@@ -88,7 +88,7 @@ import web
 import util
 import providers
 
-from providers import Session
+from providers.providers import Session, ID
 
 source_checksum = None
 
@@ -108,9 +108,8 @@ class Context (object):
     Each request context includes these important fields:
 
         context.session     exposes session information or is None 
-        context.client      exposes client identity or None
+        context.client      exposes name-value pairs associated with the client
         context.attributes  exposes a set of client attributes
-        context.user        exposes name-value pairs associated with the client
 
     The non-None session object should always implement interfaces
     consistent with the Session class.  It may support additional
@@ -132,9 +131,8 @@ class Context (object):
 
         """
         self.session = None
-        self.client = None
         self.attributes = set()
-        self.user = dict()
+        self.client = None
 
         if manager:
             # look for existing session ID context in message
@@ -150,10 +148,11 @@ class Context (object):
 
             if manager.clients.msgauthn:
                 # look for embedded client identity
-                oldclient = self.client
+                oldclient = self.get_client_id()
+
                 manager.clients.msgauthn.set_msg_context(manager, self, db)
 
-                if oldclient != self.client and manager.attributes.client:
+                if oldclient != self.get_client_id() and manager.attributes.client:
                     # update attributes for newly modified client ID
                     self.attributes = set()
                     manager.attributes.client.set_msg_context(manager, self, db)
@@ -162,12 +161,16 @@ class Context (object):
                 # look for embedded client attributes
                 manager.attributes.msgauthn.set_msg_context(manager, self, db)
 
+    def get_client_id(self):
+        if self.client == None:
+            return None
+        else:
+            return self.client.get(ID)
 
     def __repr__(self):
         return '<%s %s>' % (type(self), dict(session=self.session,
                                              client=self.client,
-                                             attributes=self.attributes,
-                                             user=self.user))
+                                             attributes=self.attributes))
 
 config_built_ins = web.storage(
     require_client = True,
@@ -285,7 +288,7 @@ class Manager (util.DatabaseConnection):
         else:
             c = self._db_wrapper(lambda db: Context(self, setheader, db))
 
-        if require_client and c.client == None:
+        if require_client and c.get_client_id() == None:
             raise ValueError()
         if require_attributes and len(c.attributes) == 0:
             raise IndexError()

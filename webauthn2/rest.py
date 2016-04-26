@@ -184,7 +184,7 @@ class RestHandlerFactory (object):
                         # return as no-op and let caller deal with it
                         return
                     else:
-                        raise NotFound('existing session')
+                        raise NotFound('existing session not found')
 
                 if sessionids:
                     # format is /key,... so unpack
@@ -237,16 +237,30 @@ class RestHandlerFactory (object):
                             return True
                     return False
 
-                if self.context.session is None:
-                    if self.manager.clients.login is not None:
-                        if self.manager.clients.login.accepts_login_get() and has_login_params():
+
+                if self.manager.clients.login != None:
+                    if self.manager.clients.login.accepts_login_get() and has_login_params():
+                        if self.context.session is None:
                             return self._login_get_or_post(web.input())
-                    
+                        else:
+                            # Horrible special case. The user has logged in via GET /session with arguments and then
+                            # hit the back button.
+                            if self.manager.preauth != None:
+                                preauth_referrer = self.manager.preauth.preauth_referrer()
+                                if preauth_referrer != None:
+                                    web.ctx.status = '303 See Other'
+                                    web.header('Location', preauth_referrer)
+                                    return ''
+
+                if self.context.session == None:
                     raise NotFound('No existing login session found.')
 
                 # do not include sessionids since we don't want to enable
                 # any XSS attack where a hidden cookie can be turned into an 
                 # explicit session token by an untrusted AJAX client lib...?
+                return self._login_response()
+
+            def _login_response(self):
                 now = datetime.datetime.now(pytz.timezone('UTC'))
                 response = dict(
                     client=self.context.client,
@@ -298,15 +312,46 @@ class RestHandlerFactory (object):
                 extension with authz.
 
                 """
+
+                default_logout_url = expand_relative_url(self.manager.config.get(DEFAULT_LOGOUT_PATH))
+
                 def db_body(db):
                     self.context = Context(self.manager, False, db)
                     self._session_authz(sessionids)
-                    self.manager.sessions.terminate(self.manager, self.context, db)
+                    rv = self.manager.sessions.terminate(self.manager, self.context, db)
+                    if rv == None:
+                        logout_url = web.input().get(LOGOUT_URL)
+                        if logout_url != None:
+                            rv = {LOGOUT_URL : default_logout_url}
+                        elif default_logout_url is None:
+                            raise ConfigurationError("No logout URL specified or configured")
+                        else:
+                            rv = {LOGOUT_URL : default_logout_url}
+                    return rv
 
-                self._db_wrapper(db_body)
+                response = ''
+
+                status = "200 OK"
+                try:
+                    retval = self._db_wrapper(db_body)
+                except NotFound, ex:
+                    no_session_url = expand_relative_url(self.manager.config.get('logout_no_session_path'))
+                    if no_session_url == None:
+                        no_session_url = default_logout_url
+                    if no_session_url == None:
+                        raise ConfigurationError("No logout URL configured")
+                    retval = {LOGOUT_URL : no_session_url}
+                    status = "404 Not Found"
+
                 if 'env' in web.ctx:
-                    web.ctx.status = '204 No Content'
-                return ''
+                    if isinstance(retval, dict):
+                        response=jsonWriter(retval) + '\n'
+                        web.ctx.status = status
+                        web.header('Content-Type', 'application/json')
+                        web.header('Content-Length', len(response))
+                    else:
+                        web.ctx.status = '204 No Content'
+                return response
 
             def _login_get_or_post(self, storage):
                 for key in self.manager.clients.login.login_keywords():
@@ -316,7 +361,7 @@ class RestHandlerFactory (object):
                 def db_body(db):
                     self.context = Context(self.manager, False, db)
 
-                    if self.context.session or self.context.client:
+                    if self.context.session or self.context.get_client_id():
                         raise Conflict('Login request conflicts with current client authentication state.')
 
                     self.context.session = Session()
@@ -349,12 +394,6 @@ class RestHandlerFactory (object):
                 
                 # build response
                 self.manager.sessionids.set_request_sessionids(self.manager, self.context)
-                uri = self.session_uri
-                keys = ','.join([ urlquote(i) for i in self.context.session.keys ])
-                if uri:
-                    uri += '/' + keys
-                else:
-                    uri = keys
 
                 if self.manager.preauth != None:
                     preauth_referrer = self.manager.preauth.preauth_referrer()
@@ -363,12 +402,7 @@ class RestHandlerFactory (object):
                         web.header('Location', preauth_referrer)
                         return ''
 
-                if 'env' in web.ctx:
-                    web.ctx.status = '201 Created'
-                    web.header('Content-Type', 'text/uri-list')
-                    web.header('Content-Length', len(keys) + 1)
-                    web.header('Location', uri)
-                    return keys + '\n'
+                return self._login_response()
 
                
         class UserPassword (RestHandler):
@@ -395,8 +429,8 @@ class RestHandlerFactory (object):
                 if userids:
                     # format is /user,...
                     userids = set([ urlunquote(i) for i in userids[1:].split(',') ])
-                elif self.context.client:
-                    userids = [ self.context.client ]
+                elif self.context.get_client_id():
+                    userids = [ self.context.client.get_client_id() ]
                 else:
                     raise BadRequest('password management requires target userid')
 
@@ -546,14 +580,14 @@ class RestHandlerFactory (object):
 
                     if not self.manager.clients.search:
                         if not userids \
-                                or userids.difference( set([ c for c in [self.context.client] if c ]) ):
+                                or userids.difference( set([ c for c in [self.context.get_client_id()] if c ]) ):
                             raise Conflict('Server does not support listing of other client identities.')
 
                     if not userids:
                         # request without userids means list all users
                         clients = self.manager.clients.search.get_all_clients(self.manager, self.context)
                         response = clients and list(clients)
-                    elif userids.difference( set([ c for c in [self.context.client] if c ]) ):
+                    elif userids.difference( set([ c for c in [self.context.get_client_id()] if c ]) ):
                         # request with userids means list only specific users other than self
                         clients = self.manager.clients.search.get_all_clients(self.manager, self.context)
                         if clients and userids.difference( clients ):
@@ -562,8 +596,8 @@ class RestHandlerFactory (object):
                     else:
                         # request with userid equal to self.context.client can be answered without search API
                         assert len(userids) == 1
-                        assert userids[0] == self.context.client
-                        response = [ self.context.client ]
+                        assert userids[0] == self.context.get_client_id()
+                        response = [ self.context.get_client_id() ]
 
                     if response == None:
                         raise ValueError()
@@ -864,7 +898,7 @@ class RestHandlerFactory (object):
                         raise Unauthorized()
 
                     if not self.manager.attributes.assign:
-                        if userid != self.context.client:
+                        if userid != self.context.get_client_id():
                             raise Conflict('Server does not support listing of other user attributes.')
                         # fall back behavior only if provider API isn't available
                         allattrs = self.context.attributes
@@ -1175,49 +1209,37 @@ class RestHandlerFactory (object):
                 else:
                     self._db_wrapper(db_body)
 
-                response = self.manager.preauth.preauth_info(self.manager, self.context, db)
-                web.header('Content-Length', len(response))
-                return response
-
-            def POST(self, db=None):
-                """
-                Perform pre-authentication tasks (e.g., cache pre-authentication information)
-                """
-                def db_body(db):
-                    self.context = Context(self.manager, False, db)
-                    # Should probably fail or something if the user is logged in, but for now we won't bother
-
-                if db:
-                    db_body(db)
-                else:
-                    self._db_wrapper(db_body)
-
-                # note: this caller always raises a seeother exception with current implementation...
-                response = self.manager.preauth.preauth_initiate_login(self.manager, self.context, db)
-                web.header('Content-Length', len(response))
-                return response
-
-            def DELETE(self, db=None):
-                """
-                Perform pre-authentication tasks (e.g., cache pre-authentication information)
-                """
-                def db_body(db):
-                    self.context = Context(self.manager, False, db)
-                    # Should probably fail or something if the user is logged in, but for now we won't bother
-
-                if db:
-                    db_body(db)
-                else:
-                    self._db_wrapper(db_body)
-
                 try:
-                    self.manager.preauth.preauth_delete(self.manager, self.context, db)
+                    response = jsonWriter(self.manager.preauth.preauth_info(self.manager, self.context, db))
+
                 except NotImplementedError:
-                    raise NoMethod()
+                    raise NotFound()
 
                 if 'env' in web.ctx:
-                    web.ctx.status = '204 No Content'
-                return ''
+                    web.ctx.status = '200 OK'
+                    web.header('Content-Type', 'application/json')
+                    web.header('Content-Length', len(response))
+                return response
+
+        class DebugUserSession(UserSession):
+            """
+            This class should be used only for debugging, to provide a convenient interface for
+            DELETE /session. If you decide to register it use a web.py pattern like:
+
+               "your_session_prefix(/?)"
+               "your_session_prefix(/[^/]+)"
+
+            so its methods recieve one positional argument. Currently the only recognized argument
+            is "/logout", which will do the same as DELETE /session.
+            
+            """
+            def __init(self):
+                Resthandler.__init__(self)
+
+            def GET(self, sessionids, db=None):
+                return self.DELETE(sessionids)
+                
+
 
         # make these classes available from factory instance
         self.RestHandler = RestHandler
@@ -1228,6 +1250,9 @@ class RestHandlerFactory (object):
         self.AttrAssign = AttrAssign
         self.AttrNest = AttrNest
         self.Preauth = Preauth
+        self.DebugUserSession = DebugUserSession
 
 
 
+class ConfigurationError(RuntimeError):
+    pass

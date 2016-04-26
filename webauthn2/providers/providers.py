@@ -125,8 +125,38 @@ __all__ = [
 
     'PreauthProvider',
 
-    'config_built_ins'
+    'config_built_ins',
+
+    'ID',
+    'DISPLAY_NAME',
+    'FULL_NAME',
+    'EMAIL',
+    'REDIRECT_URL',
+    'REDIRECT_PATH',
+    'REDIRECT_NAME',
+    'AUTHENTICATION_TYPE',
+    'COOKIE',
+    'LOGIN_FORM',
+    'LAST_LOGIN',
+    'LAST_GROUP_UPDATE',
+    'LAST_SESSION_EXTENSION',
+    'KeyedDict'
+
     ]
+
+ID="id"
+DISPLAY_NAME="display_name"
+FULL_NAME="full_name"
+EMAIL="email"
+REDIRECT_URL="redirect_url"
+REDIRECT_PATH="redirect_path"
+REDIRECT_NAME="redirect_name"
+AUTHENTICATION_TYPE="authentication_type"
+COOKIE="cookie"
+LOGIN_FORM="login_form"
+LAST_LOGIN="last_login"
+LAST_SESSION_EXTENSION="last_session_extension"
+LAST_GROUP_UPDATE="last_group_update"
 
 class Provider (object):
 
@@ -241,34 +271,26 @@ class PreauthProvider(Provider):
 
     def preauth_info(self, manager, context, db=None):
         """
-        Present any required pre-authentication information (e.g., a web form with options).
+        Return a dict with any required pre-authentication information (e.g., a web form with options).
         """
-        pass
-
-    def preauth_initiate_login(self, manager, context, db=None):
-        """
-        Do any required pre-authentication tasks (e.g., redirect to an IdP).
-        
-        """
-        pass
+        raise NotImplementedError()
 
     def preauth_referrer(self):
         """
         If there's some special way of getting the original referrer, do it here.
         """
-
-    def preauth_delete(self, manager, context, db=None):
-        """
-        Delete any pre-authentication information from a partially-authenticated session
-        
-        """
-        raise NotImplementedError()
+        pass
 
 class ClientLogin (ProviderInterface):
     """
     ClientLogin interface for establishing client identity.
 
     """
+
+    # Standard names for context fields that a login client might support
+
+    standard_names = [ID, DISPLAY_NAME, FULL_NAME, EMAIL]
+
     def __init__(self, provider):
         ProviderInterface.__init__(self, provider)
 
@@ -661,3 +683,6 @@ class AttributeProvider (Provider):
 
 
     
+class KeyedDict(dict):
+    def __hash__(self):
+        return (self.get(ID)).__hash__()

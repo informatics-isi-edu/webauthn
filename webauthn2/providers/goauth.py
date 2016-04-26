@@ -85,7 +85,7 @@ class GOAuth (database.DatabaseConnection2):
     def __init__(self, config):
         database.DatabaseConnection2.__init__(self, config)
 
-class GOAuthLogin(ClientLogin):
+class GOAuthLogin(oauth2.OAuth2Login):
     def __init__(self, provider):
         ClientLogin.__init__(self, provider)
 
@@ -111,6 +111,7 @@ class GOAuthLogin(ClientLogin):
         # Temporary for Kyle -- print access token
         web.debug("Globus access token: '{access_token}'".format(access_token=access_token))
         username, client_id, server = go.goauth_validate_token(access_token)
+        context.user = dict()
         context.user['access_token'] = access_token
         context.user['refresh_token'] = refresh_token
         context.user['access_token_expiration'] = base_timestamp + timedelta(seconds=int(expires_in))
@@ -120,26 +121,59 @@ class GOAuthLogin(ClientLogin):
         user_client = GlobusOnlineRestClient(config=user_config)
         userinfo = user_client.get_user(username)
         context.user['userinfo'] =  simplejson.dumps(userinfo, separators=(',', ':'))
+        if isinstance(userinfo, list) or isinstance(userinfo, tuple):
+            for u in userinfo:
+                self.fill_context_from_userinfo(context, username, u)
+        else:
+            self.fill_context_from_userinfo(context, username, u)
         
-        group_ids = []
+        context.goauth_groups = set()
         response, content = user_client.get_group_list(my_roles=["manager","admin","member"])
         if response["status"] == "200":
-            group_ids = [g["id"] for g in content if g["my_status"] == "active"]
-        context.goauth_groups = set(group_ids)
+            for g in content:
+                if g["my_status"] == "active":
+                    context.goauth_groups.add(KeyedDict({ID : "g:" + g["id"],
+                                                         DISPLAY_NAME : g.get('name')}))
 
         if self.provider._client_exists(db, username):
             manager.clients.manage.update_noauthz(manager, context, username, db)
         else:
-            context.user['username'] = username
+            context.user[ID] = username
             manager.clients.manage.create_noauthz(manager, context, username, db)
 
-        return username
+        context.client = KeyedDict()
+        for key in ClientLogin.standard_names:
+            if context.user.get(key) != None:
+                context.client[key] = context.user.get(key)
+        return context.client
 
     def accepts_login_get(self):
         return True
 
     def login_keywords(self, optional=False):
         return set()
+
+    def fill_context_from_userinfo(self, context, username, userinfo):
+        context.user[ID] = username
+        # try both openid connect userinfo claims and oauth token introspection claims
+        if context.user.get(DISPLAY_NAME) == None:
+            val = userinfo.get('preferred_username')
+            if val == None:
+                val = userinfo.get('username')
+                if val != None:
+                    context.user[DISPLAY_NAME] = val
+        
+        if context.user.get(FULL_NAME) == None:
+            val = userinfo.get('name')
+            if val == None:
+                val = userinfo.get('full_name')
+            if val != None:
+                context.user[FULL_NAME] = val
+
+        if context.user.get(EMAIL) == None:
+            val = userinfo.get('email')
+            if val != None:
+                context.user[EMAIL] = val
 
 
 class GOAuthPreauthProvider (oauth2.OAuth2PreauthProvider):
@@ -168,7 +202,7 @@ class GOAuthClientProvider (oauth2.OAuth2ClientProvider):
     client_storage_name = 'user'
     extra_client_columns = [('userinfo', 'json'),
                             ('access_token', 'text'),
-                            ('access_token_expiration', 'timestamp'),
+                            ('access_token_expiration', 'timestamptz'),
                             ('refresh_token', 'text')]  # list of (columnname, typestring) pairs
     summary_storage_name = 'usersummary'
     
@@ -217,7 +251,9 @@ class GOAuthAttributeClient (AttributeClient):
 
     def set_msg_context(self, manager, context, db=None):
         if hasattr(context, 'goauth_groups'):
-            context.attributes.update(["g:" + group for group in context.goauth_groups])
+            context.attributes.update(group for group in context.goauth_groups)
+        if hasattr(context, 'client'):
+            context.attributes.add(context.client)
 
 class GOAuthAttributeProvider (database.DatabaseAttributeProvider):
 

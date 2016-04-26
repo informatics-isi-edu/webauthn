@@ -1,0 +1,32 @@
+"webauthn2" : {
+  "require_client": true,
+  "require_attributes": true, 
+  "listusers_permit": ["admin"], 
+  "listattributes_permit": ["admin"], 
+  "manageusers_permit": ["admin"], 
+  "manageattributes_permit": ["admin"], 
+        
+  "session_expiration_minutes": 30, 
+  "def_passwd_len": 10, 
+  "hash_passwd_reps": 1000,
+        
+  "sessionids_provider": "webcookie", 
+  "sessionstates_provider": "database", 
+  "clients_provider": "database", 
+  "attributes_provider": "database", 
+  "preauth_provider": "database",
+  "default_logout_path": "/my/landing/page",
+        
+  "handler_uri_usersession": "/ermrest/authn/session", 
+        
+  "web_cookie_name": "ermrest", 
+  "web_cookie_path": "/ermrest", 
+  "web_cookie_secure": true, 
+  "setheader": false,
+
+  "database_schema": "webauthn2_db", 
+  "database_type": "postgres", 
+  "database_dsn": "dbname=", 
+  "database_max_retries": 5, 
+  "database_login_form" : "/login_form.html",
+}

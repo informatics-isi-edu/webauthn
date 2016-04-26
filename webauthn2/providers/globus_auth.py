@@ -47,17 +47,19 @@ class GlobusAuth (database.DatabaseConnection2):
 
 class GlobusAuthLogin(oauth2.OAuth2Login):
     def login(self, manager, context, db, **kwargs):
-        username = oauth2.OAuth2Login.login(self, manager, context, db, **kwargs)
+        user_id = oauth2.OAuth2Login.login(self, manager, context, db, **kwargs)
         other_tokens = self.payload.get('other_tokens')
         if other_tokens == None:
-            return username
+            return user_id
         group_token = None
-        context.globus_identities = set([username])
+        context.globus_identities = set()
+        context.globus_identities.add(user_id)
         identity_set = self.userinfo.get('identities_set')
         issuer = self.id_token.get('iss')
         if identity_set != None:
             for id in identity_set:
-                context.globus_identities.add(issuer + '/' + id)
+                context.globus_identities.add(KeyedDict({ID : issuer + '/' + id}))
+
         for token in other_tokens:
             scope = token.get('scope')
             if scope is not None:
@@ -67,10 +69,11 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
                 break
         web.debug("wallet: " + str(context.wallet))
         if group_token == None:
-            return username
+            return user_id
+        accepted_roles = ['admin', 'manager', 'member']
         group_args = {
             'include_identity_set_properties' : 'true',
-            'my_roles' : 'admin,manager,member',
+            'my_roles' : ','.join(accepted_roles),
             'my_statuses' : 'active',
             'for_all_identities' : 'true'
             }
@@ -80,21 +83,28 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
         u = self.open_url(token_request, "getting groups", False)
         groups = simplejson.load(u)
         u.close()
+        web.debug("groups: " + str(groups))
         context.globus_groups = set()
         for g in groups:
+            group = KeyedDict({ID : issuer + "/" + g["id"],
+                               DISPLAY_NAME : g.get('name')})
             if g["my_status"] == "active":
-                context.globus_groups.add(issuer + "/" + g["id"])
-        for g in groups:
-            if g.get('identity_set_properties') != None:
-                for k in g.get('identity_set_properties').keys():
-                    context.globus_identities.add(issuer + '/' +  k)
-        return username
+                context.globus_groups.add(group)
+            else:
+                idprops = g.get("identity_set_properties")
+                if idprops != None:
+                    for props in idprops.values():
+                        if props.get("role") in accepted_roles and props.get("status") == "active":
+                            context.globus_groups.add(group)
+                            break
+        return context.client
 
     def add_extra_token_request_headers(self, token_request):
         client_id = self.provider.cfg.get('client_id')
         client_secret = self.provider.cfg.get('client_secret')
         basic_auth_token = base64.b64encode(client_id + ':' + client_secret)
         token_request.add_header('Authorization', 'Basic ' + basic_auth_token)
+
     def make_userinfo_request(self, endpoint, access_token):
         req = urllib2.Request(endpoint)
         req.add_data(urllib.urlencode({'token' : access_token, 'include' : 'identities_set'}))
@@ -145,13 +155,47 @@ class GlobusAuthAttributeClient (AttributeClient):
 
     def set_msg_context(self, manager, context, db=None):
         if hasattr(context, 'globus_groups'):
-            context.attributes.update([group for group in context.globus_groups])
+            context.attributes.update(group for group in context.globus_groups)
         context.attributes.update(identity for identity in context.globus_identities)
 
 class GlobusAuthAttributeProvider (database.DatabaseAttributeProvider):
+    """
+    Globus groups and multiple identities
+    """
 
     key = 'globus_auth'
 
     def __init__(self, config):
         database.DatabaseAttributeProvider.__init__(self, config)
         self.client = GlobusAuthAttributeClient(self)
+
+class GlobusAuthSessionStateProvider(oauth2.OAuth2SessionStateProvider):
+    """
+    OAuth2 session state plus Globus logout
+    """
+
+    key = 'globus_auth'
+
+    def terminate(self, manager, context, db=None):
+        globus_args = ['client_id', 'redirect_name']
+        oauth2.OAuth2SessionStateProvider.terminate(self, manager, context, db)
+        logout_base = self.cfg.get('revocation_endpoint')
+        if logout_base == None:
+            raise oauth2.OAuth2ConfigurationError("No revocation endpoint configured")
+        rest_args = web.input()
+        args=dict()
+        for key in globus_args:
+            val=rest_args.get('logout_' + key)
+            if val == None:
+                val = self.cfg.get(self.key + '_logout_' + key)
+            if val != None:
+                args[key] = val
+        logout_url = rest_args.get(LOGOUT_URL)
+        if logout_url == None:
+            logout_url = self.cfg.get(DEFAULT_LOGOUT_PATH)
+        if logout_url != None:
+            args['redirect_uri'] = expand_relative_url(logout_url)
+        globus_logout_url = logout_base + "?" + urllib.urlencode(args)
+        retval = dict()
+        retval[LOGOUT_URL] = globus_logout_url
+        return retval
