@@ -9,6 +9,7 @@ declare
   myschema text;
   oauth_based boolean;
   partial_upgrade boolean;
+  user_sequence text;
 begin
   select current_schema() into myschema;
   select major into major_version from webauthn2_version_client;
@@ -106,7 +107,11 @@ begin
      end if;
   end if;
 
-  perform setval('user_uid_seq', (select max(uid) from "user"));
+  select substring(column_default from '''.*''') into user_sequence
+  from information_schema.columns
+  where table_schema = current_schema() and column_name = 'uid' and table_name = 'user';
+
+  execute 'select setval(' || user_sequence || ', (select max(uid) from "user"))';
 
   alter table session rename to pre_upgrade_session;
 
