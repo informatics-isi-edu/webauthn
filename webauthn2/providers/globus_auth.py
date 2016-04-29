@@ -39,7 +39,7 @@ __all__ = [
 class GlobusAuth (database.DatabaseConnection2):
 
     # this is the storage format version, not the software version
-    major = 1
+    major = 2
     minor = 0
 
     def __init__(self, config):
