@@ -207,7 +207,7 @@ class GOAuthClientProvider (oauth2.OAuth2ClientProvider):
     summary_storage_name = 'usersummary'
     
     # data storage format version
-    major = 1
+    major = 2
     minor = 0
 
     def __init__(self, config, 
