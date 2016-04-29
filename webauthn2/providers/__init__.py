@@ -22,12 +22,10 @@ import providers
 import null
 import webcookie
 import database
-import crowd2
-import crowdrest1
 import globusonline
 import web
 
-__doc__ += null.__doc__ + webcookie.__doc__ + database.__doc__ + crowd2.__doc__
+__doc__ += null.__doc__ + webcookie.__doc__ + database.__doc__
 
 from providers import Session
 
@@ -67,22 +65,16 @@ sessionstates =   ProviderMap([ null.NullSessionStateProvider,
 
 clients =         ProviderMap([ null.NullClientProvider,
                                 database.DatabaseClientProvider,
-                                crowd2.Crowd2ClientProvider,
-                                crowdrest1.CrowdREST1ClientProvider,
                                 globusonline.GlobusOnlineClientProvider ])
 
 attributes =      ProviderMap([ null.NullAttributeProvider,
                                 database.DatabaseAttributeProvider,
-                                crowd2.Crowd2AttributeProvider,
-                                crowdrest1.CrowdREST1AttributeProvider,
                                 globusonline.GlobusOnlineAttributeProvider ])
 
 preauths =        ProviderMap([ null.NullPreauthProvider, database.DatabasePreauthProvider ])
 
 config_built_ins = web.storage()
 config_built_ins.update( globusonline.config_built_ins )
-config_built_ins.update( crowd2.config_built_ins )
-config_built_ins.update( crowdrest1.config_built_ins )
 config_built_ins.update( database.config_built_ins )
 config_built_ins.update( webcookie.config_built_ins )
 config_built_ins.update( null.config_built_ins )

@@ -27,13 +27,6 @@
   "database_name": "", 
   "database_max_retries": 5, 
 
-  "crowd_home_uri": null, 
-  "crowd_app_name": null, 
-  "crowd_app_passwd": null, 
-  "crowd_max_retries": 5, 
-  "crowd_listusers_scope": [],
-  "crowd_listgroups_scope": [],
-  
   "oauth2_nonce_hard_timeout" : 3600,
   "oauth2_discovery_uri": "https://accounts.google.com/.well-known/openid-configuration",
   "oauth2_redirect_relative_uri": "/authn/session",

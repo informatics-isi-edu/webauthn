@@ -14,8 +14,6 @@ INSTALL_PYTHON_FILES= \
 	webauthn2/util.py \
 	webauthn2/exc.py \
 	webauthn2/providers/__init__.py \
-	webauthn2/providers/crowd2.py \
-	webauthn2/providers/crowdrest1.py \
 	webauthn2/providers/database.py \
 	webauthn2/providers/goauth.py \
 	webauthn2/providers/null.py \
