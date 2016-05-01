@@ -72,6 +72,7 @@ from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_v1_5
 import json
 from datetime import datetime, timedelta
+import pytz
 import webauthn2.providers
 import collections
 
@@ -130,7 +131,7 @@ class nonce_util(database.DatabaseConnection2):
     def update_timeout(self, db, force=False):
         if not force:
             for k in self.keys:
-                if datetime.now() + timedelta(0, self.config_params['soft_timeout']) < k[0]:
+                if datetime.now(pytz.timezone('UTC')) + timedelta(0, self.config_params['soft_timeout']) < k[0]:
                     return
         def db_body(db):
             db.query("delete from {referrer_table} where timeout < now()".format(referrer_table=self.config_params.get('referrer_table')))
@@ -278,7 +279,7 @@ class OAuth2Login (ClientLogin):
             'redirect_uri' : web.ctx.home + web.ctx.path,
             'nonce' : nonce_vals['auth_url_nonce'],
             'grant_type' : 'authorization_code'}
-        base_timestamp = datetime.now()
+        base_timestamp = datetime.now(pytz.timezone('UTC'))
         token_request = urllib2.Request(self.provider.cfg.get('token_endpoint'), urllib.urlencode(token_args))
         self.add_extra_token_request_headers(token_request)
         u = self.open_url(token_request, "getting token", repeatable)
