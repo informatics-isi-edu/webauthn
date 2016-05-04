@@ -115,12 +115,12 @@ This is the current state of the structure returned by /preauth. It assumes that
 #### POST /session
 Authenticates the user and creates a login session.
 
-**Parameters**
+##### Parameters
 
 Login parameters are different for each provider. However, the preauth process should create a form or redirect URL that will result in the correct parameters being passed to the POST /session request.
 
 
-**Responses**
+##### Responses
 
 | Condition | HTTP Header | Value |
 | --- | --- | --- |
@@ -132,20 +132,20 @@ Login parameters are different for each provider. However, the preauth process s
 #### GET /Session
 Gets information about the current session (or, under certain circumstances, behaves exactly like POST /session)
 
-**Parameters**
+##### Parameters
 
 If the currently-configured login provider accepts GET requests for login, and parameters are specified, then the request will be treated as if it were a POST /session request with the same parameters.
 
 Otherwise, GET /session takes no parameters.
 
-**Responses**
+##### Responses
 
 | Condition | HTTP Header | Response |
 | --- | --- | --- |
 | Called from within a valid session | `200 OK` | JSON object described below |
 | Not called from within a valid session | `404 Not Found` | No existing login session found. |
 
-**JSON return structure**
+##### JSON return structure
 
 ```json
 {
@@ -188,7 +188,7 @@ Otherwise, GET /session takes no parameters.
 Ends a current user session, logging the user out and, if applicable, returning a URL that the user should be redirected to in order to complete the logout process at the third-party identity provicer.
 
 
-**Arguments**
+##### Arguments
 
 DELETE /session passes arguments to the underlying provider. Currently, these are used only by the globus_auth provider.
 
@@ -197,7 +197,7 @@ DELETE /session passes arguments to the underlying provider. Currently, these ar
 | `logout_url` | A URL specifying the destination that the user should be redirected to (or that should be linked back to) by the remote IdP after the logout is complete. A default value for this can be specified in the configuration file, with the name `default_logout_path` |
 | `redirect_name` | A user-friendly name for the destination that the user should be redirected to. Providers that provide links back use the redirect_name argument for the text to display with the link. This can also be specified in the configuration file and is currently supported only by the `globus_auth` provider. |
 
-**Responses**
+##### Responses
 
 | Condition | HTTP Header | Value |
 | --- | --- | --- |
