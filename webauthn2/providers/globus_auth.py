@@ -83,7 +83,7 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
         u = self.open_url(token_request, "getting groups", False)
         groups = simplejson.load(u)
         u.close()
-        web.debug("groups: " + str(groups))
+#        web.debug("groups: " + str(groups))
         context.globus_groups = set()
         for g in groups:
             group = KeyedDict({ID : issuer + "/" + g["id"],
