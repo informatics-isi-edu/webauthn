@@ -136,8 +136,11 @@ def merge_config(overrides=None, defaults=None, jsonFileName=None, built_ins={})
     
     """
     if defaults is None and jsonFileName is not None:
-        homedir = os.environ.get('HOME', './')
-        fname = '%s/%s' % (homedir, jsonFileName)
+        if jsonFileName[0:1] == '/':
+            fname = jsonFileName
+        else:
+            homedir = os.environ.get('HOME', './')
+            fname = '%s/%s' % (homedir, jsonFileName)
         f = open(fname)
         s = f.read()
         f.close()
