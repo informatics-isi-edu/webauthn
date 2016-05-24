@@ -19,14 +19,14 @@
         
   "handler_uri_usersession": "/ermrest/authn/session", 
         
-  "web_cookie_name": "ermrest", 
+  "web_cookie_name": "webauthn", 
   "web_cookie_path": "/", 
   "web_cookie_secure": true, 
   "setheader": false,
 
   "database_schema": "webauthn2_db", 
   "database_type": "postgres", 
-  "database_dsn": "dbname=", 
+  "database_dsn": "dbname=webauthn", 
   "database_max_retries": 5, 
   "database_login_form" : "/login_form.html"
 }
