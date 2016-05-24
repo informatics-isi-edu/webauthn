@@ -1,4 +1,4 @@
-"webauthn2" : {
+{
   "require_client": true,
   "require_attributes": true, 
   "listusers_permit": ["admin"], 
@@ -20,7 +20,7 @@
   "handler_uri_usersession": "/ermrest/authn/session", 
         
   "web_cookie_name": "ermrest", 
-  "web_cookie_path": "/ermrest", 
+  "web_cookie_path": "/", 
   "web_cookie_secure": true, 
   "setheader": false,
 
@@ -28,5 +28,5 @@
   "database_type": "postgres", 
   "database_dsn": "dbname=", 
   "database_max_retries": 5, 
-  "database_login_form" : "/login_form.html",
+  "database_login_form" : "/login_form.html"
 }

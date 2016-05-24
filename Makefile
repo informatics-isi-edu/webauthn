@@ -1,98 +1,55 @@
-RELEASE=$(shell svn info  | grep "Revision:" | awk  '{print $$2}')
 
-# arguments that can be set via make target params or environment?
-PLATFORM=centos6
+SYSPREFIX=$(shell python -c 'import sys;print sys.prefix')
+PYLIBDIR=$(shell python -c 'import distutils.sysconfig;print distutils.sysconfig.get_python_lib()')
 
-# get platform-specific variable bindings
-include config/make-vars-$(PLATFORM)
+CONFDIR=/etc
+SHAREDIR=$(SYSPREFIX)/share/webauthn2
 
-# catalog of all the files/dirs we manage via make targets below
-INSTALL_PYTHON_FILES= \
-	webauthn2/__init__.py \
-	webauthn2/manager.py \
-	webauthn2/rest.py \
-	webauthn2/util.py \
-	webauthn2/exc.py \
-	webauthn2/providers/__init__.py \
-	webauthn2/providers/database.py \
-	webauthn2/providers/goauth.py \
-	webauthn2/providers/null.py \
-	webauthn2/providers/oauth1a.py \
-	webauthn2/providers/oauth2.py \
-	webauthn2/providers/providers.py \
-	webauthn2/providers/webcookie.py \
-	webauthn2/providers/globusonline.py \
-	webauthn2/providers/globus_auth.py \
-	webauthn2/providers/verified_https.py
+ifeq ($(wildcard /etc/httpd/conf.d),/etc/httpd/conf.d)
+	HTTPSVC=httpd
+else
+	HTTPSVC=apache2
+endif
 
-INSTALL_PYTHON_DIRS= \
-	webauthn2/providers 
-
-EDIT_FILES= \
-	Makefile \
-	samples/webauthn2_config.json \
-	$(INSTALL_PYTHON_FILES)
-
-CLEAN_FILES= \
-	$(EDIT_FILES:%=%~) \
-	$(INSTALL_PYTHON_FILES:%=%c) \
-	$(INSTALL_PYTHON_FILES:%=%o) \
-	config/*~
-
-# these are the install target contents... actual system file paths
-INSTALL_FILES= \
-	$(INSTALL_PYTHON_FILES:%=$(PYLIBDIR)/%) \
-	$(SHAREDIR)/samples/database/webauthn2_config.json \
-	$(SHAREDIR)/samples/globus_auth/webauthn2_config.json \
-	$(SHAREDIR)/samples/globus_auth/client_secret_globus.json \
-	$(SHAREDIR)/samples/globus_auth/discovery_globus.json \
-	$(SHAREDIR)/samples/goauth/go_config.yml \
-	$(SHAREDIR)/samples/goauth/README-goauth \
-	$(SHAREDIR)/samples/goauth/webauthn2_config.json \
-	$(SHAREDIR)/v2_upgrade/webauthn2_v2_upgrade.sql \
-	$(SHAREDIR)/v2_upgrade/webauthn2_v2_upgrade.py \
-        $(SBINDIR)/webauthn2-v2-upgrade
-
-INSTALL_DIRS= \
-	$(INSTALL_PYTHON_DIRS:%=$(PYLIBDIR)/%)
-
-# bump the revision when changing predeploy side-effects
-PREINSTALL=$(VARLIBDIR)/preinstall.r4143
+HTTPDCONFDIR=/etc/$(HTTPSVC)/conf.d
+WSGISOCKETPREFIX=/var/run/$(HTTPSVC)/wsgi
+DAEMONUSER=webauthn
 
 # turn off annoying built-ins
 .SUFFIXES:
 
+INSTALL_SCRIPT=./install-script
+
+UNINSTALL_DIRS=$(PYLIBDIR)/webauthn \
+	$(PYLIBDIR)/webauthn/providers \
+	$(SHAREDIR) \
+	$(VARLIBDIR)
+
+UNINSTALL=$(UNINSTALL_DIRS) \
+	$(BINDIR)/webauthn-db-init \
+	$(BINDIR)/webauthn-manage
+
 # make this the default target
-install: $(INSTALL_FILES) $(PREINSTALL)
+install: samples/wsgi_webauthn2.conf force
+	python ./setup.py install
 
+deploy: install
+	webauthn2-deploy
+	service httpd restart
+
+samples/wsgi_webauthn2.conf: samples/wsgi_webauthn2.conf.in
+	./install-script -M sed -R @PYLIBDIR@=$(PYLIBDIR) @WSGISOCKETPREFIX@=$(WSGISOCKETPREFIX) @DAEMONUSER@=$(DAEMONUSER) -o root -g root -m a+r -p -D $< $@
+
+# HACK: distutils doesn't have an uninstaller...
 uninstall: force
-	rm -f $(INSTALL_FILES)
-	rmdir --ignore-fail-on-non-empty -p $(INSTALL_DIRS) $(SHAREDIR)
+	rm -rf $(UNINSTALL)
+	rmdir --ignore-fail-on-non-empty -p $(UNINSTALL_DIRS)
 
-# get platform-specific rules (e.g. actual predeploy recipe)
-include config/make-rules-$(PLATFORM)
+preinstall_centos: force
+	yum -y install python python-psycopg2 python-dateutil python-webpy pytz
 
-$(SHAREDIR)/samples/%: ./samples/%
-	install -o root -g root -m u=rw,g=r,o=r -p -D $< $@
-
-$(SHAREDIR)/v2_upgrade/%: ./webauthn2/scripts/v2_upgrade/%
-	install -o root -g root -m u=rw,g=r,o=r -p -D $< $@
-
-$(PYLIBDIR)/%: ./%
-	install -o root -g root -m u=rw,g=r,o=r -p -D $< $@
-
-$(SBINDIR)/webauthn2-v2-upgrade : ./webauthn2/scripts/v2_upgrade/webauthn2-v2-upgrade
-	install -o root -g root -m ugo=rx -p -D $< $@
-
-preinstall: $(PREDEPLOY)
-
-unpreinstall: force
-	rm -f $(VARLIBDIR)/preinstall.r*
-
-clean: force
-	rm -f $(CLEAN_FILES)
-
-cleanhost: force uninstall unpreinstall
+preinstall_ubuntu: force
+	apt-get -y install python python-psycopg2 python-dateutil python-webpy python-tz
 
 force:
 

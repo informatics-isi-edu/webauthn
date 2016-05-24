@@ -10,16 +10,12 @@ onto an end-user system.  The experience should be roughly:
 
   2. install webauthn2 package
 
-  3. install/deploy some application that uses webauthn2
+  3. configure and deploy webauthn2
+
+  4. install some application that uses webauthn2
 
 The first two steps might be merged with a smarter native
 package/repository tool.
-
-Because webauthn2 is just a library used by other applications and
-services, there is no "deployment" step for the library itself.
-Instead, the dependent software must import webauthn2, provide a set
-of configuration values, instantiate a Manager object, and run the
-Manager.deploy() method if using any database providers.
 
 
 Makefile driven installation
@@ -33,13 +29,12 @@ Logical Installation Layout
 ----------------------------
 
 ${PYTHONLIBDIR}/site-packages/webauthn2/
-  -- Python module
+  - Python module
+
+${BINDIR}/
 
 ${SHARE}/webauthn2/webauthn2_config.json
-  -- Example configuration input
-
-${VARLIB}/webauthn2/...
-  -- predeploy.rXYZ marker used only by Makefile installations
+  - Example configuration input
 
 
 RHEL/CentOS Layout and Issues
@@ -55,13 +50,5 @@ RHEL/CentOS Layout and Issues
    -- database access from WSGI app
    -- access to daemon home directory for default JSON config input
    -- the exact booleans vary between releases
-
-
-CentOS 6.x:
-
-  PYTHONLIBDIR=/usr/lib/python2.6
-  SHARE=/usr/share
-  VARLIB=/var/lib
-
 
 
