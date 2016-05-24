@@ -19,9 +19,7 @@ import sys
 import webauthn2
 import web
 
-webauthn2_config = webauthn2.merge_config(jsonFileName='webauthn2_config.json')
-
-webauthn2_manager = webauthn2.Manager(overrides=webauthn2_config)
+webauthn2_manager = webauthn2.Manager()
 
 # expose webauthn REST APIs
 webauthn2_handler_factory = webauthn2.RestHandlerFactory(manager=webauthn2_manager)
