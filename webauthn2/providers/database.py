@@ -246,8 +246,16 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
                                       srow.since,
                                       srow.expires)
 
-            context.client = srow.get('client')
-            context.attributes = srow.get('attributes')
+            def json_check(v):
+                # just in case web.database did not deserialize JSON for us...
+                # such as on ancient Travis CI Ubuntu
+                if type(v) in [ str, unicode ] and v[0] in ['{', '[']:
+                    return json.loads(v)
+                else:
+                    return v
+            
+            context.client = json_check(srow.get('client'))
+            context.attributes = json_check(srow.get('attributes'))
 
             return srow
 
