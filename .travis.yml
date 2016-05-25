@@ -22,6 +22,7 @@ before_install:
   - sudo chkconfig apache2 on
 
 install:
+  - sudo which python
   - sudo /usr/bin/env python -c 'import sys;print sys.prefix'
   - sudo /usr/bin/env python -c 'import distutils.sysconfig;print distutils.sysconfig.get_python_lib()'
   - sudo make install
