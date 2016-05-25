@@ -39,6 +39,8 @@ RESPONSE_HEADERS=/tmp/${RUNKEY}-response-headers
 RESPONSE_CONTENT=/tmp/${RUNKEY}-response-content
 TEST_DATA=/tmp/${RUNKEY}-test-data
 
+HTTPD_ERROR_LOG=${HTTPD_ERROR_LOG:-/var/log/httpd/ssl_error_log}
+
 cleanup()
 {
     rm -f ${RESPONSE_HEADERS} ${RESPONSE_CONTENT} ${TEST_DATA}
@@ -123,6 +125,17 @@ dotest()
     if [[ "$summary" = $errorpattern ]]
     then
 	logtest FAILED "$@"
+
+	if [[ -r "${HTTPD_ERROR_LOG}" ]]
+	then
+	    cat >&2 <<EOF
+
+Excerpt from ${HTTPD_ERROR_LOG}:
+
+EOF
+	    tail -100 "${HTTPD_ERROR_LOG}" | sed -e 's/^/    /' >&2
+	fi
+	
 	error terminating on internal server error
     fi
     
