@@ -7,7 +7,7 @@ addons:
 env:
   global:
     - COOKIES=~/cookies
-    - VERBOSE=true
+    - VERBOSE=brief
     - HTTPD_ERROR_LOG=/var/log/apache2/error.log
 
 before_install:
@@ -40,5 +40,4 @@ script:
   - sudo -H -u webauthn webauthn2-manage adduser test2
   - sudo -H -u webauthn webauthn2-manage passwd test2 dummypassword2
   - sudo bash ./test/rest-tests.sh test1 dummypassword1
-  - sudo ls -lR /var/log/apache2
 
