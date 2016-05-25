@@ -19,9 +19,6 @@ import distutils.sysconfig
 from distutils.core import setup
 import sys
 
-print sys.prefix
-print distutils.sysconfig.get_python_lib()
-
 # this will be relative to sys.prefix e.g. /usr/share/webauthn2
 datadir = 'share/webauthn2'
 

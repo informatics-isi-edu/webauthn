@@ -22,8 +22,8 @@ before_install:
   - sudo chkconfig apache2 on
 
 install:
-  - sudo python -c 'import sys;print sys.prefix'
-  - sudo python -c 'import distutils.sysconfig;print distutils.sysconfig.get_python_lib()'
+  - sudo /usr/bin/env python -c 'import sys;print sys.prefix'
+  - sudo /usr/bin/env python -c 'import distutils.sysconfig;print distutils.sysconfig.get_python_lib()'
   - sudo make install
   - sudo make deploy
   - sudo service apache2 restart
