@@ -178,7 +178,7 @@ def sql_literal(v):
         return 'NULL'
 
 def is_authorized(context, acl):
-    return set( acl ).intersection( context.attributes.union( set('*') ) ) \
+    return set( acl ).intersection( set([a['id'] for a in context.attributes]).union( set('*') ) ) \
         and True \
         or False
 
