@@ -11,14 +11,21 @@ env:
 before_install:
   - sudo apt-get update
   - sudo service postgresql stop
+  - sudo apt-get purge postgresql-9.1 postgresql-9.2 postgresql-9.3
   - sudo service postgresql start 9.4
+  - sudo apt-get -y install libpq-dev postgresql-server-dev-9.4 python-dev
+  - sudo apt-get -y install chkconfig apach2 ssl-cert libapache2-mod-wsgi python python-dateutil python-webpy python-tz
   - sudo make preinstall_ubuntu
   - sudo a2enmod ssl
   - sudo a2ensite default-ssl
+  - sudo chkconfig apache2 on
 
 install:
   - sudo make install
   - sudo make deploy
+  - sudo service apache2 restart
+  - sudo ls -l /etc/apache2/conf.d
+  - sudo ls -lR /var/run/apache2
 
 script:
   - sudo -H -u webauthn webauthn2-manage adduser test1
