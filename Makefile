@@ -1,6 +1,8 @@
 
-SYSPREFIX=$(shell python -c 'import sys;print sys.prefix')
-PYLIBDIR=$(shell python -c 'import distutils.sysconfig;print distutils.sysconfig.get_python_lib()')
+
+# this ugly hack necessitated by Ubuntu... grrr...
+SYSPREFIX=$(shell python -c 'import site;print site.getsitepackages()[0]' | sed -e 's|/[^/]\+/[^/]\+/[^/]\+$$||')
+PYLIBDIR=$(shell python -c 'import site;print site.getsitepackages()[0]')
 
 CONFDIR=/etc
 SHAREDIR=$(SYSPREFIX)/share/webauthn2
@@ -32,6 +34,15 @@ UNINSTALL=$(UNINSTALL_DIRS) \
 # make this the default target
 install: samples/wsgi_webauthn2.conf force
 	python ./setup.py install
+
+testvars: force
+	@echo DAEMONUSER=$(DAEMONUSER)
+	@echo CONFDIR=$(CONFDIR)
+	@echo SYSPREFIX=$(SYSPREFIX)
+	@echo SHAREDIR=$(SHAREDIR)
+	@echo HTTPDCONFDIR=$(HTTPDCONFDIR)
+	@echo WSGISOCKETPREFIX=$(WSGISOCKETPREFIX)
+	@echo PYLIBDIR=$(PYLIBDIR)
 
 deploy: install
 	env SHAREDIR=$(SHAREDIR) HTTPDCONFDIR=$(HTTPDCONFDIR) webauthn2-deploy

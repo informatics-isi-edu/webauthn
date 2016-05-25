@@ -30,7 +30,7 @@ fi
 
 # paths set for installation
 SHAREDIR=${SHAREDIR:-/usr/share/webauthn2}
-HTTPCONFDIR=${HTTPCONFDIR:-/etc/httpd/conf.d}
+HTTPDCONFDIR=${HTTPDCONFDIR:-/etc/httpd/conf.d}
 SU=su
 
 # named parameters that can be set by caller or on command-line above to override defaults...
@@ -98,7 +98,7 @@ then
     setsebool -P httpd_enable_homedirs on
 fi
 
-[[ ! -r ${HTTPCONFDIR}/wsgi_webauthn2.conf ]] && cp ${SHAREDIR}/wsgi_webauthn2.conf ${HTTPCONFDIR}/.
+[[ ! -r ${HTTPDCONFDIR}/wsgi_webauthn2.conf ]] && cp ${SHAREDIR}/wsgi_webauthn2.conf ${HTTPDCONFDIR}/.
 
 # prevent overwrites
 [[ -r /home/${DAEMONUSER}/webauthn2_config.json ]] || $SU -c "cp -a ${SHAREDIR}/database/webauthn2_config.json ." - "${DAEMONUSER}"
