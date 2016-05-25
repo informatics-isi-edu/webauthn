@@ -1,0 +1,31 @@
+
+language: python
+
+addons:
+  postgresq: "9.4"
+
+env:
+  global:
+    - COOKIES=~/cookies
+
+before_install:
+  - sudo apt-get update
+  - sudo service postgresql stop
+  - sudo service postgresql start 9.4
+  - sudo make preinstall_ubuntu
+  - sudo a2enmod ssl
+  - sudo a2ensite default-ssl
+
+install:
+  - sudo make install
+  - sudo make deploy
+
+script:
+  - sudo -H -u webauthn webauthn2-manage adduser test1
+  - sudo -H -u webauthn webauthn2-manage passwd test1 dummypassword1
+  - sudo -H -u webauthn webauthn2-manage addattr admin
+  - sudo -H -u webauthn webauthn2-manage assign test1 admin
+  - sudo -H -u webauthn webauthn2-manage adduser test2
+  - sudo -H -u webauthn webauthn2-manage passwd test2 dummypassword2
+  - bash ./test/rest-tests.sh test1 dummypassword1 test2 dummypassword2
+
