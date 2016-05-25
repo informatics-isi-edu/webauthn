@@ -38,6 +38,6 @@ script:
   - sudo -H -u webauthn webauthn2-manage assign test1 admin
   - sudo -H -u webauthn webauthn2-manage adduser test2
   - sudo -H -u webauthn webauthn2-manage passwd test2 dummypassword2
-  - bash ./test/rest-tests.sh test1 dummypassword1
+  - sudo bash ./test/rest-tests.sh test1 dummypassword1
   - sudo ls -lR /var/log/apache2
 
