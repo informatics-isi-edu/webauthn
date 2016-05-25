@@ -250,7 +250,10 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
                 # just in case web.database did not deserialize JSON for us...
                 # such as on ancient Travis CI Ubuntu
                 if type(v) in [ str, unicode ] and v[0] in ['{', '[']:
-                    return json.loads(v)
+                    try:
+                        return json.loads(v)
+                    except Exception, te:
+                        raise ValueError("Error %s on value %s" % (te, v))
                 else:
                     return v
             
