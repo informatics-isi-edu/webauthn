@@ -29,6 +29,11 @@ import os
 import sys
 import traceback
 
+psycopg2.extensions.register_type(psycopg2.extensions.JSON)
+psycopg2.extensions.register_type(psycopg2.extensions.JSONARRAY)
+psycopg2.extensions.register_type(psycopg2.extensions.JSONB)
+psycopg2.extensions.register_type(psycopg2.extensions.JSONBARRAY)
+
 try:
     import simplejson
     

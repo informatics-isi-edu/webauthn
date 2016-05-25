@@ -246,19 +246,8 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
                                       srow.since,
                                       srow.expires)
 
-            def json_check(v):
-                # just in case web.database did not deserialize JSON for us...
-                # such as on ancient Travis CI Ubuntu
-                if type(v) in [ str, unicode ] and v[0] in ['{', '[']:
-                    try:
-                        return json.loads(v)
-                    except Exception, te:
-                        raise ValueError("Error %s on value %s" % (te, v))
-                else:
-                    return v
-            
-            context.client = json_check(srow.get('client'))
-            context.attributes = json_check(srow.get('attributes'))
+            context.client = srow.get('client')
+            context.attributes = srow.get('attributes')
 
             return srow
 
