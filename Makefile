@@ -34,8 +34,7 @@ install: samples/wsgi_webauthn2.conf force
 	python ./setup.py install
 
 deploy: install
-	webauthn2-deploy
-	service httpd restart
+	env SHAREDIR=$(SHAREDIR) HTTPDCONFDIR=$(HTTPDCONFDIR) webauthn2-deploy
 
 samples/wsgi_webauthn2.conf: samples/wsgi_webauthn2.conf.in
 	./install-script -M sed -R @PYLIBDIR@=$(PYLIBDIR) @WSGISOCKETPREFIX@=$(WSGISOCKETPREFIX) @DAEMONUSER@=$(DAEMONUSER) -o root -g root -m a+r -p -D $< $@
