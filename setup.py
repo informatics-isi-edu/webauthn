@@ -33,11 +33,15 @@ setup(
     },
     data_files=[
         (datadir, [
-            "samples/webauthn2_config.json",
             "samples/wsgi_webauthn2.conf",
         ]),
         (datadir + '/database', [
             "samples/database/webauthn2_config.json",
+        ]),
+        (datadir + '/globus_auth', [
+            "samples/globus_auth/webauthn2_config.json",
+            "samples/globus_auth/client_secret_globus.json",
+            "samples/globus_auth/discovery_globus.json",
         ])
     ],
     requires=["web.py", "pytz", "psycopg2", "oauth", "oauth2client", "pyjwkest"],

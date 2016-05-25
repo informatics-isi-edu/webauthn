@@ -22,7 +22,6 @@ import providers
 import null
 import webcookie
 import database
-import globusonline
 import web
 
 __doc__ += null.__doc__ + webcookie.__doc__ + database.__doc__
@@ -64,17 +63,14 @@ sessionstates =   ProviderMap([ null.NullSessionStateProvider,
                                 
 
 clients =         ProviderMap([ null.NullClientProvider,
-                                database.DatabaseClientProvider,
-                                globusonline.GlobusOnlineClientProvider ])
+                                database.DatabaseClientProvider ])
 
 attributes =      ProviderMap([ null.NullAttributeProvider,
-                                database.DatabaseAttributeProvider,
-                                globusonline.GlobusOnlineAttributeProvider ])
+                                database.DatabaseAttributeProvider ])
 
 preauths =        ProviderMap([ null.NullPreauthProvider, database.DatabasePreauthProvider ])
 
 config_built_ins = web.storage()
-config_built_ins.update( globusonline.config_built_ins )
 config_built_ins.update( database.config_built_ins )
 config_built_ins.update( webcookie.config_built_ins )
 config_built_ins.update( null.config_built_ins )
@@ -93,22 +89,6 @@ if _enable_oauth2:
     clients.add(oauth2.OAuth2ClientProvider)
     preauths.add(oauth2.OAuth2PreauthProvider)
     config_built_ins.update( oauth2.config_built_ins )
-
-try:
-    # conditionalize goauth module since it has oddball dependencies
-    import goauth
-    _enable_goauth = True
-except:
-    _enable_goauth = False
-    
-if _enable_goauth:
-    __doc__ += goauth.__doc__
-    clients.add(goauth.GOAuthClientProvider)
-    preauths.add(goauth.GOAuthPreauthProvider)
-    attributes.add(goauth.GOAuthAttributeProvider)
-    config_built_ins.update( goauth.config_built_ins )
-
-
 
 try:
     # conditionalize oauth1 module since it has oddball dependencies

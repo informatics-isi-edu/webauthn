@@ -103,15 +103,12 @@ deployed:
 4. Globus groups provider
   - Custom Globus workflows to establish client group memberships as attributes
 
-With the Globus providers, there are several variants corresponding to
-integration with different service and protocol versions.
-
 #### 2016 Globus Providers
 
-The new Globus identity establishment workflow is expected to be
-OpenID Connect compliant, and a generic OpenID Connect provider is
-under development to use this feature natively. Once integration has
-been validated, this alternate configuration will be documented here.
+The new Globus identity establishment workflow is OpenID Connect
+compliant, and a generic OpenID Connect provider is under development
+to use this feature natively. Once integration has been validated,
+this alternate configuration will be documented here.
 
 Support for the new Globus Groups service will also be documented here
 once available.
@@ -147,7 +144,7 @@ The pertinent webauthn data for the JSON configuration file would be:
 
   "database_schema": "webauthn2_oauth2", 
   "database_type": "postgres", 
-  "database_dsn": "dbname=", 
+  "database_dsn": "dbname=webauthn", 
   "database_max_retries": 5, 
 
   "oauth2_nonce_hard_timeout" : 3600,
@@ -186,12 +183,10 @@ current session status:
     Content-Length: 180
 	Content-Type: application/json
 
-    {"attributes": ["group1", "testuser"], "seconds_remaining": 1792, "since": "2016-02-02 17:23:42.260959-08:00", "expires": "2016-02-02 17:53:42.260959-08:00", "client": "testuser"}
+    {"attributes": [{"id": "group1", "display_name": "group1"}, {"id": "testuser", "display_name": "testuser"}], "seconds_remaining": 1792, "since": "2016-02-02 17:23:42.260959-08:00", "expires": "2016-02-02 17:53:42.260959-08:00", "client": {"id": "testuser", "display_name": "testuser"}}
 
-The exact formatting of user identity or group attributes depends on
-the configured providers. For example, with `goauth` providers the
-user names are prefixed with `u:` and the group IDs are prefixed with
-`g:` to forcibly protect against collisions.
+The exact content of user identity or group attribute objects depends on
+the configured providers.
 
 Typical error responses:
 
@@ -222,7 +217,7 @@ current session status following the adjustment of the expiration time:
     Content-Length: 180
 	Content-Type: application/json
 
-    {"attributes": ["group1", "testuser"], "seconds_remaining": 1799, "since": "2016-02-02 17:23:42.260959-08:00", "expires": "2016-02-02 18:05:44.533946-08:00", "client": "testuser"}
+    {"attributes": [{"id": "group1", "display_name": "group1"}, {"id": "testuser", "display_name": "testuser"}], "seconds_remaining": 1799, "since": "2016-02-02 17:23:42.260959-08:00", "expires": "2016-02-02 18:05:44.533946-08:00", "client": {"id": "testuser", "display_name": "testuser"}}
 
 Typical error responses:
 
@@ -252,7 +247,7 @@ operation may be futile or confusing:
 1. The DELETE method destroys the session state in webauthn.
 2. An AJAX application or other request attempts service access without security context.
 3. The AJAX application or service redirects the client to the session establishment workflow.
-4. When using GOAuth or other OpenID Connect providers, the user may automatically login without further user interaction.
+4. When using Globus Auth or other OpenID Connect providers, the user may automatically login without further user interaction.
   - The user is still authenticated with the external Globus or OpenID Connect identity provider, e.g. via cookies that are not controlled by webauthn.
   - The user has previously selected a choice in the identity provider to remember their decision to grant access to the webauthn-enabled web server.
 5. The user is again faced with an active session after having requested logout.
