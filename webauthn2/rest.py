@@ -1196,6 +1196,7 @@ class RestHandlerFactory (object):
                 """
                 referrer_arg = str(web.input().get('referrer'))
                 referer_header = str(web.ctx.env.get('HTTP_REFERER'))
+                do_redirect = (str(web.input().get('do_redirect')) == 'true')
                 web.debug("in GET /preauth, user agent is '{user_agent}'".format(user_agent=str(web.ctx.env.get('HTTP_USER_AGENT'))))
                 web.debug("in GET /preauth, referrer arg is '{referrer_arg}', Referrer header is '{referer_header}'"\
                           .format(referrer_arg=referrer_arg, referer_header=referer_header))
@@ -1210,7 +1211,12 @@ class RestHandlerFactory (object):
                     self._db_wrapper(db_body)
 
                 try:
-                    response = jsonWriter(self.manager.preauth.preauth_info(self.manager, self.context, db))
+                    preauth_info = self.manager.preauth.preauth_info(self.manager, self.context, db)
+                    if preauth_info == None:
+                        raise NotFound()
+                    if do_redirect:
+                        raise web.seeother(preauth_info.get('redirect_url'))
+                    response = jsonWriter(preauth_info)
 
                 except NotImplementedError:
                     raise NotFound()

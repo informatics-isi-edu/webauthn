@@ -5,12 +5,13 @@
 #include <http_log.h>
 #include <mod_auth.h>
 #include <ap_hooks.h>
-#include <apr-1/apr.h>
-#include <apr-1/apr_strings.h>
-#include <apr-1/apr_uri.h>
-#include <apr-1/apr_tables.h>
-#include <apr-1/apr_pools.h>
+#include <apr.h>
+#include <apr_strings.h>
+#include <apr_uri.h>
+#include <apr_tables.h>
+#include <apr_pools.h>
 #include <apr_thread_rwlock.h>
+#include <apr_base64.h>
 #include <curl/curl.h>
 #include <json/json.h>
 #include <httpd/util_cookies.h>
@@ -18,9 +19,13 @@
 #include <unistd.h>
 
 #define WEBAUTHN_GROUP "webauthn-group"
+#define WEBAUTHN_SESSION_BASE64 "WEBAUTHN_SESSION_BASE64"
 /* These next two are defined by curl */
 #define VERIFY_SSL_HOST_OFF 0
 #define VERIFY_SSL_HOST_ON 2
+
+#define WEBAUTHN_DEFAULT_CACHE_SECONDS -1
+
 
 static void register_hooks(apr_pool_t *pool);
 static int webauthn_check_user_id(request_rec * r);
@@ -32,10 +37,10 @@ static int webauthn_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *
 static size_t webauthn_curl_write_callback(char *indata, size_t size, size_t nitems, void *buffer);
 static void *create_local_conf(apr_pool_t *pool, char *context);
 void *merge_local_conf(apr_pool_t *pool, void *parent_conf, void *child_conf);
-static void *create_server_conf(apr_pool_t *pool, server_rec *rec);
 static CURLcode do_simple_perform(CURL *curl);
 static authz_status webauthn_group_check_authorization(request_rec *r, const char *require_args, const void *parsed_require_args);
 static const char *webauthn_set_required_groups(cmd_parms *cmd, void *cfg, int argc, char *const argv[]);
+const char *webauthn_set_max_cache_seconds(cmd_parms *cmd, void *cfg, const char *arg);
 
 typedef struct {
   char *session_path;
@@ -44,6 +49,7 @@ typedef struct {
   apr_hash_t *session_hash;
   apr_pool_t *hash_pool_parent;
   apr_thread_rwlock_t *hash_lock;
+  int max_cache_seconds;
   int verify_ssl_host;
 } webauthn_config;
 
@@ -92,15 +98,16 @@ typedef struct {
   webauthn_user *user;
   webauthn_group *groups;
   apr_pool_t *pool;
+  const char *base64_session_string;
 } session_info;
 
 static session_info *get_cached_session_info(const char *sessionid);
-static session_info *make_session_info(apr_pool_t *parent_pool, const char *sessionid, int server_seconds, webauthn_user *user, webauthn_group *groups, request_rec *r);
+static session_info *make_session_info(request_rec *r, apr_pool_t *parent_pool, const char *sessionid, char *json_string);
 static session_info *webauthn_make_session_info_from_scratch(request_rec * r, webauthn_local_config *local_config);
 static void cache_sessioninfo(session_info *sinfo);
 static int valid_unexpired_session(session_info *sinfo);
 static void delete_cached_session_info(session_info *sinfo);
-
+static void set_request_vals(request_rec *r, session_info *sinfo);
 
 static void curl_add_put_nothing_opts(request_rec *r, CURL *curl, const char *sessionid);
 
@@ -117,6 +124,7 @@ static const command_rec webauthn_directives[] =
     AP_INIT_TAKE1("WebauthnCookieName", webauthn_set_cookie_name, NULL, RSRC_CONF, "Webauthn cookie name"),
     AP_INIT_TAKE1("WebauthnSessionPath", webauthn_set_session_path, NULL, RSRC_CONF, "Relative url for session query"),
     AP_INIT_TAKE1("WebauthnVerifySslHost", webauthn_set_verify_ssl_host, NULL, RSRC_CONF, "Flag to validate ssl hostname for login/session urls"),
+    AP_INIT_TAKE1("WebauthnMaxCacheSeconds", webauthn_set_max_cache_seconds, NULL, RSRC_CONF, "Maximum number of seconds to cache session info before querying webauthn"),
     AP_INIT_TAKE_ARGV("Require", webauthn_set_required_groups, NULL, (ACCESS_CONF | OR_AUTHCFG), "Required groups"),
     { NULL }
   };
@@ -126,8 +134,8 @@ module AP_MODULE_DECLARE_DATA webauthn_module =
     STANDARD20_MODULE_STUFF,
     create_local_conf,
     merge_local_conf,
-    create_server_conf,
-    merge_local_conf,    
+    NULL,
+    NULL,
     webauthn_directives,
     register_hooks   /* Our hook registering function */
   };
@@ -154,18 +162,26 @@ static void register_hooks(apr_pool_t *pool)
 
 static int webauthn_check_user_id(request_rec * r)
 {
+  int retval = HTTP_UNAUTHORIZED;
   webauthn_local_config *local_config = (webauthn_local_config *) ap_get_module_config(r->per_dir_config, &webauthn_module);
   session_info *sinfo = webauthn_make_session_info_from_scratch(r, local_config);
-  int retval = HTTP_UNAUTHORIZED;
   
   if (sinfo) {
-      if (sinfo->user) {
-	cache_sessioninfo(sinfo);
-	r->user = apr_pstrdup(r->pool, sinfo->user->id);
-	retval = OK;
-      }
-    }
+    set_request_vals(r, sinfo);
+    retval = OK;
+  }
   return(retval);
+}
+
+static void set_request_vals(request_rec *r, session_info *sinfo) {
+  if (sinfo->user) {
+    cache_sessioninfo(sinfo);
+    r->user = apr_pstrdup(r->pool, sinfo->user->id);
+    if (r->subprocess_env == NULL) {
+      r->subprocess_env = apr_table_make(r->pool, 1);
+    }
+    apr_table_set(r->subprocess_env, WEBAUTHN_SESSION_BASE64, apr_pstrdup(r->pool, sinfo->base64_session_string));
+  }
 }
 
 static size_t webauthn_read_noop(char *buffer, size_t size, size_t nitems, void *instream) {
@@ -182,15 +198,7 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
   session_info *sinfo = 0;
 
   const char *session_uri=apr_psprintf(r->pool, "https://%s%s", r->hostname, config.session_path);
-  /*  const char *login_uri=apr_psprintf(r->pool, "https://%s%s?referrer=%s",
-				     r->hostname, config.login_path,
-				     ap_escape_uri(r->pool,
-						    apr_psprintf(r->pool, "%s:%s%s",
-								 r->server->server_scheme,
-								 r->hostname,
-								 r->unparsed_uri)));
-  */
-  const char *login_uri=apr_psprintf(r->pool, "https://%s%s?referrer=%s",
+  const char *login_uri=apr_psprintf(r->pool, "https://%s%s?do_redirect=true&referrer=%s",
 				     r->hostname, config.login_path,
 				     ap_escape_uri(r->pool, r->unparsed_uri));
   const char *sessionid = 0;
@@ -199,7 +207,6 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
   apr_time_t now = apr_time_now();
   char time_string[APR_CTIME_LEN];
   apr_ctime(time_string, now);
-  ap_rprintf(r, "%s\n", time_string);
   CURL *session_curl = 0;
 
   if (sessionid == NULL) {	/* no session cookie */
@@ -219,39 +226,28 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
     } else {
       multi_codes *curl_codes = do_multi_perform(session_curl, r);
       if (curl_codes->mcode != CURLM_OK) {
-	ap_rprintf(r, "multi_perform failed: %s\n", curl_multi_strerror(curl_codes->mcode));
+	ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+		      "multi_perform (%s) failed: %s\n",
+		      session_uri, curl_multi_strerror(curl_codes->mcode));
 	goto end;
       }
       ccode = curl_codes->ccode;
     }
     if (ccode != CURLE_OK) {
-	ap_rprintf(r, "easy_perform failed: %s\n", (*errbuf ? errbuf : curl_easy_strerror(ccode)));
+	ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+		      "easy_perform (%s) failed: %s\n",
+		      session_uri, (*errbuf ? errbuf : curl_easy_strerror(ccode)));
 	goto end;
     }
 
     long http_code;
     curl_easy_getinfo (session_curl, CURLINFO_RESPONSE_CODE, &http_code);
-    ap_rprintf(r, "http response code: %ld\n", http_code);
     if (http_code != HTTP_OK) {
       goto end;
     }
 
     char *json_string = consolidate_segments(data);
-    json_object *jobj = json_tokener_parse(json_string);
-    webauthn_group *groups = 0;
-    int session_seconds = 0;
-    webauthn_user *temp_user = 0; /* values not allocated in session_info pool */
-    json_object_object_foreach(jobj, key, val) {
-      if ((strcmp(key, "attributes") == 0) && json_object_is_type(val, json_type_array)) {
-	groups = get_groups_from_json_array(val, r);
-      } else if (strcmp(key, "client") == 0) {
-	temp_user = make_temp_user_from_json(val, r);
-      } else if ((strcmp(key, "seconds_remaining") == 0) && json_object_is_type(val, json_type_int)) {
-	session_seconds = json_object_get_int(val);
-      }
-    }
-    ap_rprintf(r, "Session seconds: %d\n", session_seconds);
-    sinfo = make_session_info(config.hash_pool_parent, sessionid, session_seconds, temp_user, groups, r);
+    sinfo = make_session_info(r, config.hash_pool_parent, sessionid, json_string);
   }
  end:
   if (session_curl) {
@@ -305,25 +301,54 @@ static webauthn_user *clone_user(apr_pool_t *pool, webauthn_user *user) {
   return(new_user);
 }
 
+apr_time_t make_session_timeout(int server_seconds) {
+  int secs = server_seconds / 2;
+  if ((config.max_cache_seconds != WEBAUTHN_DEFAULT_CACHE_SECONDS) && (secs > config.max_cache_seconds)) {
+    secs = config.max_cache_seconds;
+  }
 
-static session_info *make_session_info(apr_pool_t *parent_pool, const char *sessionid, int timeout_seconds, webauthn_user *user, webauthn_group *groups, request_rec *r) {
+  if (config.max_cache_seconds == 0) {
+    secs = 0;
+  } else {
+    secs += apr_time_sec(apr_time_now());
+  }
+    return apr_time_from_sec(secs);
+}
+static session_info *make_session_info(request_rec *r, apr_pool_t *parent_pool, const char *sessionid, char *json_string)
+{
   /*
    * If we're caching, the session info can't go into the request's pool (because that's subject to being
    * freed when the request is done) and shouldn't go into the config pool (because clearing a pool is
    * all-or-nothing; you can't say "clear the part of the pool associated with this deleted hash entry, but
    * leave the rest of the pool alone"). So we make a new pool for each hash entry.
    */
+
   apr_pool_t *pool = 0;
   apr_pool_create(&pool, parent_pool);
   session_info *sess = apr_pcalloc(pool, sizeof(session_info));
   sess->pool = pool;
   sess->sessionid = apr_pstrdup(pool, sessionid);
+  sess->base64_session_string = ap_pbase64encode(pool, json_string);
 
-  if (user) {
-    sess->user = clone_user(pool, user);
+  json_object *jobj = json_tokener_parse(json_string);
+  webauthn_group *groups = 0;
+  int session_seconds = 0;
+  webauthn_user *temp_user = 0; /* values not allocated in session_info pool */
+  json_object_object_foreach(jobj, key, val) {
+    if ((strcmp(key, "attributes") == 0) && json_object_is_type(val, json_type_array)) {
+      groups = get_groups_from_json_array(val, r);
+    } else if (strcmp(key, "client") == 0) {
+      temp_user = make_temp_user_from_json(val, r);
+    } else if ((strcmp(key, "seconds_remaining") == 0) && json_object_is_type(val, json_type_int)) {
+      session_seconds = json_object_get_int(val);
+    }
   }
 
-  sess->timeout = apr_time_from_sec(apr_time_sec(apr_time_now()) + timeout_seconds);
+  if (temp_user) {
+    sess->user = clone_user(pool, temp_user);
+  }
+
+  sess->timeout = make_session_timeout(session_seconds);
   int len = 0;
   if (groups) {
     while (groups[len].id) {
@@ -366,6 +391,13 @@ const char *webauthn_set_verify_ssl_host(cmd_parms *cmd, void *cfg, const char *
   return NULL;
 }
 
+const char *webauthn_set_max_cache_seconds(cmd_parms *cmd, void *cfg, const char *arg)
+{
+  config.max_cache_seconds = atoi(arg);
+  return NULL;
+}
+
+
 static int webauthn_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *ptemp)
 {
   config.session_path = NULL;
@@ -376,6 +408,7 @@ static int webauthn_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *
   config.session_hash = apr_hash_make(pconf);
   config.hash_pool_parent = pconf;
   apr_thread_rwlock_create(&config.hash_lock, pconf);
+  config.max_cache_seconds = -1;
   return OK;
 }
 
@@ -458,10 +491,6 @@ static void *create_local_conf(apr_pool_t *pool, char *context) {
   return cfg;
 }
 
-static void *create_server_conf(apr_pool_t *pool, server_rec *rec) {
-  return create_local_conf(pool, "server");
-}
-
 void *merge_local_conf(apr_pool_t *pool, void *parent_conf, void *child_conf) {
   webauthn_local_config *parent = (webauthn_local_config *) parent_conf;
   webauthn_local_config *child = (webauthn_local_config *) child_conf;
@@ -482,13 +511,11 @@ static multi_codes *do_multi_perform(CURL *curl, request_rec *r)
     int numfds;
     codes->mcode = curl_multi_perform(multi, &still_running);
     if (codes->mcode != CURLM_OK) {
-      ap_rprintf(r, "curl_multi_perform failed");
       goto end;
     }
     
     codes->mcode = curl_multi_wait(multi, NULL, 0, 1000, &numfds);
     if (codes->mcode != CURLM_OK) {
-      ap_rprintf(r, "curl_multi_wait failed");
       goto end;
     }
     
@@ -540,7 +567,6 @@ static authz_status webauthn_group_check_authorization(request_rec *r, const cha
   char time_string[APR_CTIME_LEN];
   apr_time_t now = apr_time_now();
   apr_ctime(time_string, now);
-  ap_rprintf(r, "%s\n", time_string);
   ap_cookie_read(r, config.cookie_name, &sessionid, 0);
   if (sessionid != NULL) {
     sinfo = get_cached_session_info(sessionid);
@@ -555,13 +581,13 @@ static authz_status webauthn_group_check_authorization(request_rec *r, const cha
     sinfo = webauthn_make_session_info_from_scratch(r, local_config);
     
     if (sinfo && sinfo->user) {
-      cache_sessioninfo(sinfo);
-      char ts[APR_CTIME_LEN];
-      apr_ctime(ts, sinfo->timeout);
-      r->user = apr_pstrdup(r->pool, sinfo->user->id);
+      set_request_vals(r, sinfo);
     }
   }
-
+  if (sinfo) {
+    char ts[APR_CTIME_LEN];
+    apr_ctime(ts, sinfo->timeout);
+  }
   if (sinfo && local_config->required_groups) {
     for (int i = 0; local_config->required_groups[i]; i++) {
       if (in_id_list(local_config->required_groups[i], sinfo->groups)) {
@@ -583,9 +609,11 @@ static session_info *get_cached_session_info(const char *sessionid)
 
 static void cache_sessioninfo(session_info *sinfo)
 {
-  apr_thread_rwlock_wrlock(config.hash_lock);
-  apr_hash_set(config.session_hash, sinfo->sessionid, APR_HASH_KEY_STRING, sinfo);
-  apr_thread_rwlock_unlock(config.hash_lock);
+  if (config.max_cache_seconds) {
+    apr_thread_rwlock_wrlock(config.hash_lock);
+    apr_hash_set(config.session_hash, sinfo->sessionid, APR_HASH_KEY_STRING, sinfo);
+    apr_thread_rwlock_unlock(config.hash_lock);
+  }
 }
 
 static int valid_unexpired_session(session_info *sinfo)
@@ -625,7 +653,7 @@ static const char *webauthn_set_required_groups(cmd_parms *cmd, void *cfg, int a
 
   }
   if (local_config->required_groups) {
-    ap_log_perror(APLOG_MARK, APLOG_ERR, APR_BADARG, local_config->pool,
+    ap_log_perror(APLOG_MARK, APLOG_ERR, 0, local_config->pool,
 		  "More than one 'Require %s' directive specified %s",
 		  WEBAUTHN_GROUP,
 		  where);
