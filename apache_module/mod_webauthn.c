@@ -12,6 +12,7 @@
 #include <apr_pools.h>
 #include <apr_thread_rwlock.h>
 #include <apr_base64.h>
+#include <ap_expr.h>
 #include <curl/curl.h>
 #include <json/json.h>
 #include <httpd/util_cookies.h>
@@ -36,11 +37,10 @@ const char *webauthn_set_cookie_name(cmd_parms *cmd, void *cfg, const char *arg)
 static int webauthn_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *ptemp);
 static size_t webauthn_curl_write_callback(char *indata, size_t size, size_t nitems, void *buffer);
 static void *create_local_conf(apr_pool_t *pool, char *context);
-void *merge_local_conf(apr_pool_t *pool, void *parent_conf, void *child_conf);
 static CURLcode do_simple_perform(CURL *curl);
 static authz_status webauthn_group_check_authorization(request_rec *r, const char *require_args, const void *parsed_require_args);
-static const char *webauthn_set_required_groups(cmd_parms *cmd, void *cfg, int argc, char *const argv[]);
 const char *webauthn_set_max_cache_seconds(cmd_parms *cmd, void *cfg, const char *arg);
+static const char *webauthn_parse_config(cmd_parms *cmd, const char *require_line, const void **parsed_require_line);
 
 typedef struct {
   char *session_path;
@@ -58,7 +58,6 @@ static webauthn_config config;
 
 typedef struct {
   char *context;
-  const char **required_groups;
   apr_pool_t *pool;
 } webauthn_local_config;
 
@@ -125,7 +124,6 @@ static const command_rec webauthn_directives[] =
     AP_INIT_TAKE1("WebauthnSessionPath", webauthn_set_session_path, NULL, RSRC_CONF, "Relative url for session query"),
     AP_INIT_TAKE1("WebauthnVerifySslHost", webauthn_set_verify_ssl_host, NULL, RSRC_CONF, "Flag to validate ssl hostname for login/session urls"),
     AP_INIT_TAKE1("WebauthnMaxCacheSeconds", webauthn_set_max_cache_seconds, NULL, RSRC_CONF, "Maximum number of seconds to cache session info before querying webauthn"),
-    AP_INIT_TAKE_ARGV("Require", webauthn_set_required_groups, NULL, (ACCESS_CONF | OR_AUTHCFG), "Required groups"),
     { NULL }
   };
 
@@ -133,7 +131,7 @@ module AP_MODULE_DECLARE_DATA webauthn_module =
   {
     STANDARD20_MODULE_STUFF,
     create_local_conf,
-    merge_local_conf,
+    NULL,
     NULL,
     NULL,
     webauthn_directives,
@@ -143,7 +141,7 @@ module AP_MODULE_DECLARE_DATA webauthn_module =
 static const authz_provider authz_webauthn_group_provider =
   {
     &webauthn_group_check_authorization,
-    NULL,
+    &webauthn_parse_config
   };
 
 
@@ -486,20 +484,9 @@ static void *create_local_conf(apr_pool_t *pool, char *context) {
   context = context ? context : "(undefined context)";
   webauthn_local_config *cfg = apr_pcalloc(pool, sizeof(webauthn_local_config));
   cfg->context = apr_pstrdup(pool, context);
-  cfg->required_groups = 0;
   cfg->pool = pool;
   return cfg;
 }
-
-void *merge_local_conf(apr_pool_t *pool, void *parent_conf, void *child_conf) {
-  webauthn_local_config *parent = (webauthn_local_config *) parent_conf;
-  webauthn_local_config *child = (webauthn_local_config *) child_conf;
-  webauthn_local_config *merged = (webauthn_local_config *) create_local_conf(pool, "Merged configuration");
-
-  merged->required_groups = (child->required_groups ? child->required_groups : parent->required_groups);
-  return merged;
-}
-
 
 static multi_codes *do_multi_perform(CURL *curl, request_rec *r)
 {
@@ -562,6 +549,7 @@ static int in_id_list(const char *id, webauthn_group *ids) {
 static authz_status webauthn_group_check_authorization(request_rec *r, const char *require_args, const void *parsed_require_args)
 {
   webauthn_local_config *local_config = (webauthn_local_config *) ap_get_module_config(r->per_dir_config, &webauthn_module);
+  ap_expr_info_t *expr = (ap_expr_info_t *)parsed_require_args;
   const char *sessionid = 0;
   session_info *sinfo = 0;
   char time_string[APR_CTIME_LEN];
@@ -588,9 +576,16 @@ static authz_status webauthn_group_check_authorization(request_rec *r, const cha
     char ts[APR_CTIME_LEN];
     apr_ctime(ts, sinfo->timeout);
   }
-  if (sinfo && local_config->required_groups) {
-    for (int i = 0; local_config->required_groups[i]; i++) {
-      if (in_id_list(local_config->required_groups[i], sinfo->groups)) {
+  const char *err = NULL;
+  const char *groups_string = ap_expr_str_exec(r, expr, &err);
+
+  if (sinfo) {
+    int i = 0;
+    const char *group = NULL;
+    while ((group = ap_getword_conf(r->pool, &groups_string)) && group[0]) {
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "checking group %d: %s", i, group);
+      i++;
+      if (in_id_list(group, sinfo->groups)) {
 	return(AUTHZ_GRANTED);
       }
     }
@@ -631,38 +626,21 @@ static void delete_cached_session_info(session_info *sinfo)
   }
 }
 
-static const char *webauthn_set_required_groups(cmd_parms *cmd, void *cfg, int argc, char *const argv[])
+static const char *webauthn_parse_config(cmd_parms *cmd, const char *require_line,
+					 const void **parsed_require_line)
 {
-  webauthn_local_config *local_config = (webauthn_local_config *)cfg;
-
-  if (local_config == 0) {
-    return NULL;
-  }
-  if (strcmp(argv[0], WEBAUTHN_GROUP)) {
-    return NULL;
-  }
-  char *where = "";
-  if (cmd && cmd->config_file && cmd->config_file->name) {
-    where = apr_psprintf(local_config->pool, "at %s line %d", cmd->config_file->name, cmd->config_file->line_number);
-  }
-  if (argc < 2) {
-    ap_log_perror(APLOG_MARK, APLOG_ERR, APR_BADARG, local_config->pool,
-		  "No group specified in 'Require %s' directive %s",
-		  WEBAUTHN_GROUP, where);
-    return NULL;
-
-  }
-  if (local_config->required_groups) {
-    ap_log_perror(APLOG_MARK, APLOG_ERR, 0, local_config->pool,
-		  "More than one 'Require %s' directive specified %s",
-		  WEBAUTHN_GROUP,
-		  where);
-    return NULL;
-  }
-
-  local_config->required_groups = (const char **)apr_pcalloc(local_config->pool, (argc)*sizeof(char *));
-  for (int i = 1; i < argc; i++) { /* argv[0] is "webauthn-group" */
-    local_config->required_groups[i-1] = apr_pstrdup(local_config->pool, argv[i]);
-  }
+  const char *expr_err = NULL;
+  ap_expr_info_t *expr;
+  
+  expr = ap_expr_parse_cmd(cmd, require_line, AP_EXPR_FLAG_STRING_RESULT,
+			   &expr_err, NULL);
+  
+  if (expr_err)
+    return apr_pstrcat(cmd->temp_pool,
+		       "Cannot parse expression in require line: ",
+		       expr_err, NULL);
+  
+  *parsed_require_line = expr;
+  
   return NULL;
 }

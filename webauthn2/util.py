@@ -28,6 +28,7 @@ import itertools
 import os
 import sys
 import traceback
+import base64
 
 try:
     import simplejson
@@ -236,6 +237,23 @@ def generate_random_string(length=24, alpha=True, numeric=True, symbols=False, s
 
     return ''.join([ source[random.randrange(0, len(source))]
                      for i in range(0, length) ])
+
+def session_from_environment():
+    """
+    Get and decode session details from the environment set by the http server (with mod_webauthn).
+    Returns a dictionary on success, None if the environment variable is unset (or blank).
+    Throws TypeError if the base64 decode fails and ValueError if json decode fails
+    """
+    b64_session_string = None
+    try:
+        b64_session_string = web.ctx.env('WEBAUTHN_SESSION_BASE64')
+    except:
+        b64_session_string = os.environ.get('WEBAUTHN_SESSION_BASE64')
+
+    if b64_session_string == None or b64_session_string.strip() == '':
+        return None
+    session_string=base64.standard_b64decode(b64_session_string)
+    return jsonReader(session_string)
 
 class NoMethod(web.HTTPError):
     """`405 Method Not Allowed` error."""
