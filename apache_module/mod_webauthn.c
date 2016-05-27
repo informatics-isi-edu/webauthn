@@ -24,10 +24,9 @@
 /* These next two are defined by curl */
 #define VERIFY_SSL_HOST_OFF 0
 #define VERIFY_SSL_HOST_ON 2
+#define MULTI_WAIT_USECS 100000
 
 #define WEBAUTHN_DEFAULT_CACHE_SECONDS -1
-
-
 static void register_hooks(apr_pool_t *pool);
 static int webauthn_check_user_id(request_rec * r);
 const char *webauthn_set_login_path(cmd_parms *cmd, void *cfg, const char *arg);
@@ -494,13 +493,14 @@ static multi_codes *do_multi_perform(CURL *curl, request_rec *r)
   curl_multi_add_handle(multi, curl);
   int still_running = 1;
   multi_codes *codes = apr_pcalloc(r->pool, sizeof(multi_codes));
+
   do {
     int numfds;
     codes->mcode = curl_multi_perform(multi, &still_running);
     if (codes->mcode != CURLM_OK) {
       goto end;
     }
-    
+
     codes->mcode = curl_multi_wait(multi, NULL, 0, 1000, &numfds);
     if (codes->mcode != CURLM_OK) {
       goto end;
@@ -508,7 +508,7 @@ static multi_codes *do_multi_perform(CURL *curl, request_rec *r)
     
     /* 'numfds' being zero means either a timeout or no file descriptors to
        wait for. */
-    
+
     if(!numfds) {
 	usleep(100000); /* sleep 100 milliseconds */ 
     }
@@ -566,11 +566,7 @@ static authz_status webauthn_group_check_authorization(request_rec *r, const cha
   }
 
   if (sinfo == NULL) {
-    sinfo = webauthn_make_session_info_from_scratch(r, local_config);
-    
-    if (sinfo && sinfo->user) {
-      set_request_vals(r, sinfo);
-    }
+    sinfo = webauthn_make_session_info_from_scratch(r, local_config);    
   }
   if (sinfo) {
     char ts[APR_CTIME_LEN];
@@ -580,11 +576,11 @@ static authz_status webauthn_group_check_authorization(request_rec *r, const cha
   const char *groups_string = ap_expr_str_exec(r, expr, &err);
 
   if (sinfo) {
-    int i = 0;
+    if (sinfo->user) {
+      set_request_vals(r, sinfo);
+    }
     const char *group = NULL;
     while ((group = ap_getword_conf(r->pool, &groups_string)) && group[0]) {
-      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "checking group %d: %s", i, group);
-      i++;
       if (in_id_list(group, sinfo->groups)) {
 	return(AUTHZ_GRANTED);
       }
