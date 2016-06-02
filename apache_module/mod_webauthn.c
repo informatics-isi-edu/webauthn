@@ -26,28 +26,43 @@
 #define VERIFY_SSL_HOST_ON 2
 #define MULTI_WAIT_USECS 100000
 
+#define VERIFY_STRING "verify"
+#define NOVERIFY_STRING "noverify"
+
 #define WEBAUTHN_DEFAULT_CACHE_SECONDS -1
 static void register_hooks(apr_pool_t *pool);
 static int webauthn_check_user_id(request_rec * r);
-const char *webauthn_set_login_path(cmd_parms *cmd, void *cfg, const char *arg);
-const char *webauthn_set_session_path(cmd_parms *cmd, void *cfg, const char *arg);
-const char *webauthn_set_verify_ssl_host(cmd_parms *cmd, void *cfg, const char *arg);
-const char *webauthn_set_cookie_name(cmd_parms *cmd, void *cfg, const char *arg);
+static const char *webauthn_set_login_path(cmd_parms *cmd, void *cfg, const char *arg);
+static const char *webauthn_set_session_path(cmd_parms *cmd, void *cfg, const char *arg);
+static const char *webauthn_set_verify_ssl_host(cmd_parms *cmd, void *cfg, const char *arg);
+static const char *webauthn_set_cookie_name(cmd_parms *cmd, void *cfg, const char *arg);
 static int webauthn_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *ptemp);
 static size_t webauthn_curl_write_callback(char *indata, size_t size, size_t nitems, void *buffer);
 static void *create_local_conf(apr_pool_t *pool, char *context);
 static CURLcode do_simple_perform(CURL *curl);
 static authz_status webauthn_group_check_authorization(request_rec *r, const char *require_args, const void *parsed_require_args);
-const char *webauthn_set_max_cache_seconds(cmd_parms *cmd, void *cfg, const char *arg);
+static const char *webauthn_set_max_cache_seconds(cmd_parms *cmd, void *cfg, const char *arg);
 static const char *webauthn_parse_config(cmd_parms *cmd, const char *require_line, const void **parsed_require_line);
+static const char *webauthn_add_group_alias(cmd_parms *cmd, void *cfg, const char *alias, const char *group, const char *verify);
+static void *merge_local_conf(apr_pool_t *pool, void *parent_cfg, void *child_cfg);
+
+typedef struct {
+  apr_hash_t *hash;
+  apr_pool_t *hash_pool_parent;
+  apr_thread_rwlock_t *hash_lock;
+} managed_hash;
+
+static void *get_managed_hash_entry(managed_hash *mhash, const char *key);
+static void add_managed_hash_entry(managed_hash *mhash, const char *key, void *data);
+static void delete_managed_hash_entry(managed_hash *mhash, const char *key, apr_pool_t *data_pool);
+static managed_hash *create_managed_hash(apr_pool_t *pool);
 
 typedef struct {
   char *session_path;
   char *login_path;
   char *cookie_name;
-  apr_hash_t *session_hash;
-  apr_pool_t *hash_pool_parent;
-  apr_thread_rwlock_t *hash_lock;
+  managed_hash *session_hash;
+  managed_hash *alias_hash;
   int max_cache_seconds;
   int verify_ssl_host;
 } webauthn_config;
@@ -58,6 +73,7 @@ static webauthn_config config;
 typedef struct {
   char *context;
   apr_pool_t *pool;
+  managed_hash *alias_hash;
 } webauthn_local_config;
 
 typedef struct {
@@ -99,6 +115,14 @@ typedef struct {
   const char *base64_session_string;
 } session_info;
 
+typedef struct {
+  const char *alias;
+  const char *group;
+  int verify;
+} group_alias;
+
+
+static group_alias *clone_group_alias(apr_pool_t *pool, const group_alias *old);
 static session_info *get_cached_session_info(const char *sessionid);
 static session_info *make_session_info(request_rec *r, apr_pool_t *parent_pool, const char *sessionid, char *json_string);
 static session_info *webauthn_make_session_info_from_scratch(request_rec * r, webauthn_local_config *local_config);
@@ -123,6 +147,7 @@ static const command_rec webauthn_directives[] =
     AP_INIT_TAKE1("WebauthnSessionPath", webauthn_set_session_path, NULL, RSRC_CONF, "Relative url for session query"),
     AP_INIT_TAKE1("WebauthnVerifySslHost", webauthn_set_verify_ssl_host, NULL, RSRC_CONF, "Flag to validate ssl hostname for login/session urls"),
     AP_INIT_TAKE1("WebauthnMaxCacheSeconds", webauthn_set_max_cache_seconds, NULL, RSRC_CONF, "Maximum number of seconds to cache session info before querying webauthn"),
+    AP_INIT_TAKE23("WebauthnAddGroupAlias", webauthn_add_group_alias, NULL, (RSRC_CONF | OR_AUTHCFG), "Create an alias that can be used in 'Require webauthn-group' directives."),
     { NULL }
   };
 
@@ -130,7 +155,7 @@ module AP_MODULE_DECLARE_DATA webauthn_module =
   {
     STANDARD20_MODULE_STUFF,
     create_local_conf,
-    NULL,
+    merge_local_conf,
     NULL,
     NULL,
     webauthn_directives,
@@ -244,7 +269,7 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
     }
 
     char *json_string = consolidate_segments(data);
-    sinfo = make_session_info(r, config.hash_pool_parent, sessionid, json_string);
+    sinfo = make_session_info(r, config.session_hash->hash_pool_parent, sessionid, json_string);
   }
  end:
   if (session_curl) {
@@ -354,7 +379,7 @@ static session_info *make_session_info(request_rec *r, apr_pool_t *parent_pool, 
     sess->groups = apr_pcalloc(pool, (len+1) * sizeof(webauthn_group));
     for (int i=0; i<len; i++) {
       sess->groups[i].id = apr_pstrdup(pool, groups[i].id);
-      if (sess->groups[i].display_name) {
+      if (groups[i].display_name) {
 	sess->groups[i].display_name = apr_pstrdup(pool, groups[i].display_name);
       }
     }
@@ -362,36 +387,108 @@ static session_info *make_session_info(request_rec *r, apr_pool_t *parent_pool, 
   return(sess);
 }
 
-const char *webauthn_set_login_path(cmd_parms *cmd, void *cfg, const char *arg)
+static const char *webauthn_set_login_path(cmd_parms *cmd, void *cfg, const char *arg)
 {
-  config.login_path = strdup(arg);
+  config.login_path = apr_pstrdup(cmd->pool, arg);
   return NULL;
 }
 
-const char *webauthn_set_cookie_name(cmd_parms *cmd, void *cfg, const char *arg)
+static const char *webauthn_set_cookie_name(cmd_parms *cmd, void *cfg, const char *arg)
 {
-  config.cookie_name = strdup(arg);
+  config.cookie_name = apr_pstrdup(cmd->pool, arg);
   return NULL;
 }
 
 
-const char *webauthn_set_session_path(cmd_parms *cmd, void *cfg, const char *arg)
+static const char *webauthn_set_session_path(cmd_parms *cmd, void *cfg, const char *arg)
 {
-  config.session_path = strdup(arg);
+  config.session_path = apr_pstrdup(cmd->pool, arg);
   return NULL;
 }
 
-const char *webauthn_set_verify_ssl_host(cmd_parms *cmd, void *cfg, const char *arg)
+static const char *webauthn_set_verify_ssl_host(cmd_parms *cmd, void *cfg, const char *arg)
 {
   /* In curl: 2 means verify hostname matches, 0 means don't */
   config.verify_ssl_host = ((strcasecmp(arg, "off") == 0) ? VERIFY_SSL_HOST_OFF : VERIFY_SSL_HOST_ON);
   return NULL;
 }
 
-const char *webauthn_set_max_cache_seconds(cmd_parms *cmd, void *cfg, const char *arg)
+static const char *webauthn_set_max_cache_seconds(cmd_parms *cmd, void *cfg, const char *arg)
 {
   config.max_cache_seconds = atoi(arg);
   return NULL;
+}
+
+static group_alias *clone_group_alias(apr_pool_t *pool, const group_alias *old) {
+  group_alias *new = (group_alias *)apr_pcalloc(pool, sizeof(group_alias));
+  new->alias = apr_pstrdup(pool, old->alias);
+  new->group = apr_pstrdup(pool, old->group);
+  new->verify = old->verify;
+  return new;
+}
+						
+
+static const char *webauthn_add_group_alias(cmd_parms *cmd, void *cfg, const char *alias, const char *group, const char *verify)
+{
+  ap_log_error(APLOG_MARK, APLOG_ERR, 0, cmd->server, "in webauthn_add_group_alias, cfg is %x", cfg);
+  group_alias *new_alias = (group_alias *)apr_pcalloc(cmd->pool, sizeof(group_alias));
+  new_alias->verify = 1;
+  if (verify) {
+    if (apr_strnatcasecmp(verify, NOVERIFY_STRING) == 0) {
+      new_alias->verify = 0;
+    } else if (apr_strnatcasecmp(verify, VERIFY_STRING) != 0) {
+      ap_log_error(APLOG_MARK, APLOG_ERR, 0, cmd->server,
+		   "Not adding group alias: unexpected parameter '%s' (expecting '%s' or '%s') in file %s, line %u",
+		   verify, VERIFY_STRING, NOVERIFY_STRING, cmd->config_file->name, cmd->config_file->line_number);
+      return NULL;
+    }
+  }
+  new_alias->alias = apr_pstrdup(cmd->pool, alias);
+  new_alias->group = apr_pstrdup(cmd->pool, group);
+  ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, cmd->server, "in webauthn_add_group_alias, adding alias for %s", new_alias->alias);
+  if (cfg == NULL) {
+    add_managed_hash_entry(config.alias_hash, new_alias->alias, new_alias);
+  } else {
+    webauthn_local_config *lcfg = (webauthn_local_config *)cfg;
+    add_managed_hash_entry(lcfg->alias_hash, new_alias->alias, new_alias);    
+  }
+  return NULL;
+}
+
+static managed_hash *create_managed_hash(apr_pool_t *pool)
+{
+  managed_hash *mhash = (managed_hash *)apr_pcalloc(pool, sizeof(managed_hash));
+  mhash->hash = apr_hash_make(pool);
+  mhash->hash_pool_parent = pool;
+  apr_thread_rwlock_create(&(mhash->hash_lock), pool);
+  return mhash;
+}
+
+static managed_hash *create_alias_overlay(apr_pool_t *pool, apr_hash_t *overlay, apr_hash_t *base)
+{
+  managed_hash *mhash = (managed_hash *)apr_pcalloc(pool, sizeof(managed_hash));
+  mhash->hash = apr_hash_make(pool);
+  char *key;
+  const group_alias *value;
+  apr_hash_index_t *entry;
+
+  /* Add all "overlay" entries */
+  for (entry = apr_hash_first(pool, overlay); entry; entry = apr_hash_next(entry)) {
+    apr_hash_this(entry, (void *)&key, NULL, (void *)&value);
+    group_alias *alias = clone_group_alias(pool, value);
+    apr_hash_set(mhash->hash, alias->alias, APR_HASH_KEY_STRING, alias);
+  }
+  /* Add "base" entries whose key hasn't already been added */
+  for (entry = apr_hash_first(pool, base); entry; entry = apr_hash_next(entry)) {
+    apr_hash_this(entry, (void *)&key, NULL, (void *)&value);
+    if (apr_hash_get(mhash->hash, key, APR_HASH_KEY_STRING) == NULL) {
+      group_alias *alias = clone_group_alias(pool, value);
+      apr_hash_set(mhash->hash, alias->alias, APR_HASH_KEY_STRING, alias);
+    }
+  }
+  mhash->hash_pool_parent = pool;
+  apr_thread_rwlock_create(&(mhash->hash_lock), pool);
+  return mhash;
 }
 
 
@@ -402,9 +499,8 @@ static int webauthn_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *
   config.verify_ssl_host = VERIFY_SSL_HOST_ON;
   config.cookie_name = "ermrest";
   curl_global_init(CURL_GLOBAL_SSL);
-  config.session_hash = apr_hash_make(pconf);
-  config.hash_pool_parent = pconf;
-  apr_thread_rwlock_create(&config.hash_lock, pconf);
+  config.session_hash = create_managed_hash(pconf);
+  config.alias_hash = create_managed_hash(pconf);
   config.max_cache_seconds = -1;
   return OK;
 }
@@ -484,8 +580,20 @@ static void *create_local_conf(apr_pool_t *pool, char *context) {
   webauthn_local_config *cfg = apr_pcalloc(pool, sizeof(webauthn_local_config));
   cfg->context = apr_pstrdup(pool, context);
   cfg->pool = pool;
+  cfg->alias_hash = create_managed_hash(pool);
   return cfg;
 }
+
+static void *merge_local_conf(apr_pool_t *pool, void *parent_cfg, void *child_cfg) {
+  webauthn_local_config *parent = (webauthn_local_config *)parent_cfg;
+  webauthn_local_config *child = (webauthn_local_config *)child_cfg;
+  webauthn_local_config *merged = apr_pcalloc(pool, sizeof(webauthn_local_config));
+  merged->context = "merged configuration";
+  merged->pool = pool;
+  merged->alias_hash = create_alias_overlay(pool, child->alias_hash->hash, parent->alias_hash->hash);
+  return merged;
+}
+
 
 static multi_codes *do_multi_perform(CURL *curl, request_rec *r)
 {
@@ -533,13 +641,13 @@ static CURLcode do_simple_perform(CURL *curl) {
 };
 
 
-static int in_id_list(const char *id, webauthn_group *ids) {
+static webauthn_group *group_from_list(const char *id, webauthn_group *ids) {
   if (id == 0 || ids == 0) {
     return(0);
   }
   for (int i = 0; ids[i].id; i++) {
     if (strcmp(id, ids[i].id) == 0) {
-      return(1);
+      return(&(ids[i]));
     }
   }
   return(0);
@@ -575,35 +683,66 @@ static authz_status webauthn_group_check_authorization(request_rec *r, const cha
   const char *err = NULL;
   const char *groups_string = ap_expr_str_exec(r, expr, &err);
 
+  managed_hash *group_alias_hash = local_config->alias_hash;
+
   if (sinfo) {
     if (sinfo->user) {
       set_request_vals(r, sinfo);
     }
-    const char *group = NULL;
-    while ((group = ap_getword_conf(r->pool, &groups_string)) && group[0]) {
-      if (in_id_list(group, sinfo->groups)) {
+    const char *desired_group = NULL;
+    while ((desired_group = ap_getword_conf(r->pool, &groups_string)) && desired_group[0]) {
+      if (group_from_list(desired_group, sinfo->groups)) {
 	return(AUTHZ_GRANTED);
+      }
+
+      group_alias *aliased_group;
+      ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+		    "checking possible group alias '%s'", desired_group);
+      if ((aliased_group = get_managed_hash_entry(group_alias_hash, desired_group)) != 0) {
+	ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
+		      "alias for '%s' is '%s'", desired_group, aliased_group->group);
+	webauthn_group *found_group;
+	if ((found_group = group_from_list(aliased_group->group, sinfo->groups)) != 0) {
+	  if (! aliased_group->verify) {
+	    return(AUTHZ_GRANTED);
+	  }
+	  if (found_group->display_name && (strcmp(aliased_group->alias, found_group->display_name) == 0)) {
+	    return(AUTHZ_GRANTED);
+	  } else {
+	    ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r,
+			  "Group alias verify failed: display_name for '%s' was '%s' in credential, not '%s'",
+			  found_group->id, (found_group->display_name ? found_group->display_name : "(null)"), aliased_group->alias);
+	  }
+	}
       }
     }
   }
 
   return(AUTHZ_DENIED);
 }
+
+static void *get_managed_hash_entry(managed_hash *mhash, const char *key) {
+  apr_thread_rwlock_rdlock(mhash->hash_lock);
+  void *data = (session_info *)apr_hash_get(mhash->hash, key, APR_HASH_KEY_STRING);
+  apr_thread_rwlock_unlock(mhash->hash_lock);
+  return(data);
+}  
     
 static session_info *get_cached_session_info(const char *sessionid)
 {
-  apr_thread_rwlock_rdlock(config.hash_lock);
-  session_info *sinfo = (session_info *)apr_hash_get(config.session_hash, sessionid, APR_HASH_KEY_STRING);
-  apr_thread_rwlock_unlock(config.hash_lock);
-  return(sinfo);
+  return (session_info *)get_managed_hash_entry(config.session_hash, sessionid);
+}
+
+static void add_managed_hash_entry(managed_hash *mhash, const char *key, void *data) {
+    apr_thread_rwlock_wrlock(mhash->hash_lock);
+    apr_hash_set(mhash->hash, key, APR_HASH_KEY_STRING, data);
+    apr_thread_rwlock_unlock(mhash->hash_lock);
 }
 
 static void cache_sessioninfo(session_info *sinfo)
 {
   if (config.max_cache_seconds) {
-    apr_thread_rwlock_wrlock(config.hash_lock);
-    apr_hash_set(config.session_hash, sinfo->sessionid, APR_HASH_KEY_STRING, sinfo);
-    apr_thread_rwlock_unlock(config.hash_lock);
+    add_managed_hash_entry(config.session_hash, sinfo->sessionid, sinfo);
   }
 }
 
@@ -612,13 +751,17 @@ static int valid_unexpired_session(session_info *sinfo)
   return (sinfo && (apr_time_now() < sinfo->timeout));
 }
 
+static void delete_managed_hash_entry(managed_hash *mhash, const char *key, apr_pool_t *data_pool) {
+    apr_thread_rwlock_wrlock(mhash->hash_lock);
+    apr_hash_set(mhash->hash, key, APR_HASH_KEY_STRING, NULL);
+    apr_thread_rwlock_unlock(mhash->hash_lock);
+    apr_pool_destroy(data_pool);
+}
+
 static void delete_cached_session_info(session_info *sinfo)
 {
   if (sinfo) {
-    apr_thread_rwlock_wrlock(config.hash_lock);
-    apr_hash_set(config.session_hash, sinfo->sessionid, APR_HASH_KEY_STRING, NULL);
-    apr_thread_rwlock_unlock(config.hash_lock);
-    apr_pool_destroy(sinfo->pool);
+    delete_managed_hash_entry(config.session_hash, sinfo->sessionid, sinfo->pool);
   }
 }
 
