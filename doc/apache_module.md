@@ -13,6 +13,7 @@ LoadModule webauthn_module    /usr/lib64/httpd/modules/mod_webauthn.so
 WebauthnLoginPath /ermrest/authn/preauth
 WebauthnSessionPath /ermrest/authn/session
 ```
+
 In each `Directory` or `Location` section (or `.htaccess` file) in which you want to use the module, you'll need this line to tell httpd to use webauthn for authentication within that directory/location:
 
 ```
@@ -29,7 +30,8 @@ These do pretty much what you'd expect, using the webauthn service to log the us
 ```
 Require webauthn-group https://auth.globus.org/176baec4-ed26-11e5-8e88-22000ab4b42b
 ```
-checks that the user's session includes a group with the id `https://auth.globus.org/176baec4-ed26-11e5-8e88-22000ab4b42b`
+
+This checks that the user's session includes a group with the id `https://auth.globus.org/176baec4-ed26-11e5-8e88-22000ab4b42b`
 
 As a convenience, you can also specify group aliases:
 
@@ -37,7 +39,8 @@ As a convenience, you can also specify group aliases:
 WebauthnAddGroupAlias isrd-staff https://auth.globus.org/176baec4-ed26-11e5-8e88-22000ab4b42b
 Require webauthn-group isrd-staff
 ```
-checks that the user's session includes a group whose `id` is `https://auth.globus.org/176baec4-ed26-11e5-8e88-22000ab4b42b` __and__ whose `display_name` is `isrd-staff`. The `display_name` check is a safeguard against someone cutting and pasting the wrong group id into a configuration file; it can be disabled for an alias by adding `noverify` as a third argument to `WebauthnAddGroupAlias`.
+
+This checks that the user's session includes a group whose `id` is `https://auth.globus.org/176baec4-ed26-11e5-8e88-22000ab4b42b` __and__ whose `display_name` is `isrd-staff`. The `display_name` check is a safeguard against someone cutting and pasting the wrong group id into a configuration file; it can be disabled for an alias by adding `noverify` as a third argument to `WebauthnAddGroupAlias`.
 
 The `WebauthnAddGroupAlias` directive can appear in the resource section or in `Directory` or `Location` sections or `.htaccess` files.
 
@@ -65,3 +68,14 @@ This will only authorize users who are:
 - in `my-made-up-alias`
 
 In addition, the `isrd-staff`, `isrd-systems`, and `kidney-users` statements will cause webauthn to check both the `id` and `display_name` for each group, but the `my-made-up-alias` statemetn will cause webauthn to check only the `id`.
+
+## Environment Variables Set by the Module
+
+After a successful authentication, these environment variables will be set:
+
+variable | Value
+-------- | -----
+REMOTE_USER | The user id of the authenticated user
+WEBAUTHN_SESSION_BASE64 | A base64-encoded version of a JSON representation of the user's session data.
+
+In addition, the utillity function `webauthn.util.session_from_environment()` can be used to read the user's session context from the environment and return it in dictionary form.
