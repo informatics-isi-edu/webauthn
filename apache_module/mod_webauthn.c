@@ -21,6 +21,7 @@
 
 #define WEBAUTHN_GROUP "webauthn-group"
 #define WEBAUTHN_SESSION_BASE64 "WEBAUTHN_SESSION_BASE64"
+#define USER_DISPLAY_NAME "USER_DISPLAY_NAME"
 /* These next two are defined by curl */
 #define VERIFY_SSL_HOST_OFF 0
 #define VERIFY_SSL_HOST_ON 2
@@ -203,6 +204,9 @@ static void set_request_vals(request_rec *r, session_info *sinfo) {
       r->subprocess_env = apr_table_make(r->pool, 1);
     }
     apr_table_set(r->subprocess_env, WEBAUTHN_SESSION_BASE64, apr_pstrdup(r->pool, sinfo->base64_session_string));
+    if (sinfo->user->display_name) {
+      apr_table_set(r->subprocess_env, USER_DISPLAY_NAME, apr_pstrdup(r->pool, sinfo->user->display_name));
+    }
   }
 }
 
@@ -323,7 +327,7 @@ static webauthn_user *clone_user(apr_pool_t *pool, webauthn_user *user) {
   return(new_user);
 }
 
-apr_time_t make_session_timeout(int server_seconds) {
+static apr_time_t make_session_timeout(int server_seconds) {
   int secs = server_seconds / 2;
   if ((config.max_cache_seconds != WEBAUTHN_DEFAULT_CACHE_SECONDS) && (secs > config.max_cache_seconds)) {
     secs = config.max_cache_seconds;
@@ -430,7 +434,6 @@ static group_alias *clone_group_alias(apr_pool_t *pool, const group_alias *old) 
 
 static const char *webauthn_add_group_alias(cmd_parms *cmd, void *cfg, const char *alias, const char *group, const char *verify)
 {
-  ap_log_error(APLOG_MARK, APLOG_ERR, 0, cmd->server, "in webauthn_add_group_alias, cfg is %x", cfg);
   group_alias *new_alias = (group_alias *)apr_pcalloc(cmd->pool, sizeof(group_alias));
   new_alias->verify = 1;
   if (verify) {
@@ -445,7 +448,6 @@ static const char *webauthn_add_group_alias(cmd_parms *cmd, void *cfg, const cha
   }
   new_alias->alias = apr_pstrdup(cmd->pool, alias);
   new_alias->group = apr_pstrdup(cmd->pool, group);
-  ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, cmd->server, "in webauthn_add_group_alias, adding alias for %s", new_alias->alias);
   if (cfg == NULL) {
     add_managed_hash_entry(config.alias_hash, new_alias->alias, new_alias);
   } else {
@@ -696,11 +698,7 @@ static authz_status webauthn_group_check_authorization(request_rec *r, const cha
       }
 
       group_alias *aliased_group;
-      ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
-		    "checking possible group alias '%s'", desired_group);
       if ((aliased_group = get_managed_hash_entry(group_alias_hash, desired_group)) != 0) {
-	ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
-		      "alias for '%s' is '%s'", desired_group, aliased_group->group);
 	webauthn_group *found_group;
 	if ((found_group = group_from_list(aliased_group->group, sinfo->groups)) != 0) {
 	  if (! aliased_group->verify) {
