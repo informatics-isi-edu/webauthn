@@ -75,7 +75,7 @@ After a successful authentication, these environment variables will be set:
 
 variable | Value
 -------- | -----
-REMOTE_USER | The user id of the authenticated user
-WEBAUTHN_SESSION_BASE64 | A base64-encoded version of a JSON representation of the user's session data.
+`REMOTE_USER` | The user id of the authenticated user
+`WEBAUTHN_SESSION_BASE64` | A base64-encoded version of a JSON representation of the user's session data.
 
 In addition, the utillity function `webauthn.util.session_from_environment()` can be used to read the user's session context from the environment and return it in dictionary form.
