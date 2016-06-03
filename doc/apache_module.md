@@ -75,7 +75,30 @@ After a successful authentication, these environment variables will be set:
 
 variable | Value
 -------- | -----
-`REMOTE_USER` | The user id of the authenticated user
+`REMOTE_USER` | The user `id` of the authenticated user
+`USER_DISPLAY_NAME` | The `display_name` of the authenticated user
 `WEBAUTHN_SESSION_BASE64` | A base64-encoded version of a JSON representation of the user's session data.
 
 In addition, the utillity function `webauthn.util.session_from_environment()` can be used to read the user's session context from the environment and return it in dictionary form.
+
+## Logging
+
+By default, httpd logs the user's `id` with each authenticated request. This is a standard `ssl_access_log` entry:
+
+```
+128.9.136.72 - https://auth.globus.org/a4e03698-d274-11e5-9a48-8b6f49eb5587 [02/Jun/2016:19:40:13 -0700] "GET /static/hello.txt HTTP/1.1" 200 6
+```
+
+You can add `%{USER_DISPLAY_NAME}e` to a LogFormat directive to log the user's display_name:
+
+```
+128.9.136.72 - https://auth.globus.org/a4e03698-d274-11e5-9a48-8b6f49eb5587 [02/Jun/2016:19:40:13 -0700] "GET /static/hello.txt HTTP/1.1" 200 6 laura@globusid.org
+```
+
+Note: the format for `ssl_access_log` needs to be specified in `/etc/httpd/conf.d/ssl.conf` The log message above was produced by adding:
+
+```
+LogFormat "%h %l %u %t \"%r\" %>s %b %{USER_DISPLAY_NAME}e"
+```
+
+to `ssl.conf`.
