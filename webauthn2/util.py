@@ -246,7 +246,7 @@ def session_from_environment():
     """
     b64_session_string = None
     try:
-        b64_session_string = web.ctx.env('WEBAUTHN_SESSION_BASE64')
+        b64_session_string = web.ctx.env['WEBAUTHN_SESSION_BASE64']
     except:
         b64_session_string = os.environ.get('WEBAUTHN_SESSION_BASE64')
 
