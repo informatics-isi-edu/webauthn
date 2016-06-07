@@ -22,6 +22,7 @@
 #define WEBAUTHN_GROUP "webauthn-group"
 #define WEBAUTHN_SESSION_BASE64 "WEBAUTHN_SESSION_BASE64"
 #define USER_DISPLAY_NAME "USER_DISPLAY_NAME"
+#define VARY_HEADERS = "WEBAUTHN_VARY_HEADERS"
 /* These next two are defined by curl */
 #define VERIFY_SSL_HOST_OFF 0
 #define VERIFY_SSL_HOST_ON 2
@@ -127,7 +128,7 @@ static group_alias *clone_group_alias(apr_pool_t *pool, const group_alias *old);
 static session_info *get_cached_session_info(const char *sessionid);
 static session_info *make_session_info(request_rec *r, apr_pool_t *parent_pool, const char *sessionid, char *json_string);
 static session_info *webauthn_make_session_info_from_scratch(request_rec * r, webauthn_local_config *local_config);
-static void cache_sessioninfo(session_info *sinfo);
+static void cache_sessioninfo(session_info *sinfo, request_rec *r);
 static int valid_unexpired_session(session_info *sinfo);
 static void delete_cached_session_info(session_info *sinfo);
 static void set_request_vals(request_rec *r, session_info *sinfo);
@@ -198,7 +199,6 @@ static int webauthn_check_user_id(request_rec * r)
 
 static void set_request_vals(request_rec *r, session_info *sinfo) {
   if (sinfo->user) {
-    cache_sessioninfo(sinfo);
     r->user = apr_pstrdup(r->pool, sinfo->user->id);
     if (r->subprocess_env == NULL) {
       r->subprocess_env = apr_table_make(r->pool, 1);
@@ -671,16 +671,21 @@ static authz_status webauthn_group_check_authorization(request_rec *r, const cha
   }
 
   if (! valid_unexpired_session(sinfo)) {
-    delete_cached_session_info(sinfo);
-    sinfo = 0;
+    if (sinfo) {
+      char ts[APR_CTIME_LEN];
+      apr_ctime(ts, sinfo->timeout);
+      ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, r->server, "cache entry for session %s expired at %s, deleting", sinfo->sessionid, ts);
+      delete_cached_session_info(sinfo);
+      sinfo = 0;
+    } else {
+      ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, r->server, "cache entry for session %s not found", sessionid);
+    }
   }
 
   if (sinfo == NULL) {
-    sinfo = webauthn_make_session_info_from_scratch(r, local_config);    
-  }
-  if (sinfo) {
-    char ts[APR_CTIME_LEN];
-    apr_ctime(ts, sinfo->timeout);
+    if ((sinfo = webauthn_make_session_info_from_scratch(r, local_config)) != NULL) {
+      cache_sessioninfo(sinfo, r);
+    }
   }
   const char *err = NULL;
   const char *groups_string = ap_expr_str_exec(r, expr, &err);
@@ -732,15 +737,20 @@ static session_info *get_cached_session_info(const char *sessionid)
 }
 
 static void add_managed_hash_entry(managed_hash *mhash, const char *key, void *data) {
-    apr_thread_rwlock_wrlock(mhash->hash_lock);
-    apr_hash_set(mhash->hash, key, APR_HASH_KEY_STRING, data);
-    apr_thread_rwlock_unlock(mhash->hash_lock);
+  apr_thread_rwlock_wrlock(mhash->hash_lock);
+  apr_hash_set(mhash->hash, key, APR_HASH_KEY_STRING, data);
+  apr_thread_rwlock_unlock(mhash->hash_lock);
 }
 
-static void cache_sessioninfo(session_info *sinfo)
+static void cache_sessioninfo(session_info *sinfo, request_rec *r)
 {
   if (config.max_cache_seconds) {
-    add_managed_hash_entry(config.session_hash, sinfo->sessionid, sinfo);
+    if (sinfo) {
+      char ts[APR_CTIME_LEN];
+      apr_ctime(ts, sinfo->timeout);
+      ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, r->server, "cache: adding session %s wih timeout %s", sinfo->sessionid, ts);
+      add_managed_hash_entry(config.session_hash, sinfo->sessionid, sinfo);
+    }
   }
 }
 
@@ -750,10 +760,10 @@ static int valid_unexpired_session(session_info *sinfo)
 }
 
 static void delete_managed_hash_entry(managed_hash *mhash, const char *key, apr_pool_t *data_pool) {
-    apr_thread_rwlock_wrlock(mhash->hash_lock);
-    apr_hash_set(mhash->hash, key, APR_HASH_KEY_STRING, NULL);
-    apr_thread_rwlock_unlock(mhash->hash_lock);
-    apr_pool_destroy(data_pool);
+  apr_thread_rwlock_wrlock(mhash->hash_lock);
+  apr_hash_set(mhash->hash, key, APR_HASH_KEY_STRING, NULL);
+  apr_thread_rwlock_unlock(mhash->hash_lock);
+  apr_pool_destroy(data_pool);
 }
 
 static void delete_cached_session_info(session_info *sinfo)
