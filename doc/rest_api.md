@@ -182,6 +182,7 @@ Otherwise, GET /session takes no parameters.
 | `seconds_remaining` | yes | The number of seconds remaining (when the response was created) for the current user session. |
 | `since` | yes | The time the session was initiated. |
 | `expires` | yes | The time the session expires. |
+| `vary_headers` | yes | the list of webauthn-managed HTTP headers that may affect request content. |
 
 #### DELETE /session
 
