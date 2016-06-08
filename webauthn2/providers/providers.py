@@ -250,7 +250,7 @@ class SessionStateProvider (Provider):
         """
         raise NotImplementedError()
 
-    def terminate(self, manager, context, db=None):
+    def terminate(self, manager, context, db=None, preferred_final_url=None):
         """
         Destroy any persistent session mirroring context.
 

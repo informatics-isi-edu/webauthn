@@ -20,19 +20,22 @@ Webauthn's REST API supports these endpoints:
 2. The request will return a JSON structure that includes a `redirect_url` parameter. Redirect the end-user to that URL.
 
 Webauthn uses the following logic to determine what to set the HTTP status and `redirect_url` to:
+1. Determine the `preferred_final_url`:
+* If the `logout_url` request parameter is specified, `preferred_final_url` will have that value.
+* Otherwise, if the `default_logout_path` configuration parameter is specified, `preferred_final_value` will have that value.
+* Otherwise, `preferred_final_value` will be None.
 
-* If there is a valid session, the HTTP status is 200 and:
-  * If the provider sets a redirect URL, that value is used for `redirect_url`.
-  * If not, then
-     * If a `logout_url` argument is passed as an argument to the DELETE request, that value is used as the redirect url.
-     * Otherwise, if the `default_logout_path` configuration parameter is set, that value is used.
-* If there isn't a valid session, the HTTP status is set to 404 and:
-   * If the `logout_no_session_path` configuration parameter is set, that value is used for the redirect url
-   * Otherwise, if the `default_logout_path` configuration parameter is set, that value is used for the redirect url
-* If none of the above conditions holds, a `ConfigurationError` exception will be raised (and the user will see a 500 server Endpoints).
+2. Pass the `preferred_final_url` to the provider.
 
-All the "path" parameters above can be specified as relative URLs (e.g., `/chaise/search`) or absolute URLs.
+3. Determine the value for `logout_url` in the response:
+* If there's no valid session, and the `logout_no_session_path` configuration parameter is set, use that value.
+* Otherwise, if the provider returned a non-null value, use that.
+* Otherwise, use the value of `preferred_final_url` (which may be null).
 
+4. Finally, return results to the caller. If there was a valid session, set the HTTP status to 200; if not, set it to 404. Either way,
+return the JSON structure constructed in steps 1-3.
+
+Note: all the path/url parameters above can be specified as relative URLs (e.g., `/chaise/search`) or absolute URLs.
 
 
 ## REST calls used in a typical end-user session
