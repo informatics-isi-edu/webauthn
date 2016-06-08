@@ -168,7 +168,10 @@ Otherwise, GET /session takes no parameters.
             "id" : "https://auth.globus.org/3938e0d0-ed35-11e5-8641-22000ab4b42b"
         }
       ...
-  ]
+     ],
+     "vary_headers": [
+        "cookie"
+     ]
 }
 ```
 | Field | Always present? | Meaning |
