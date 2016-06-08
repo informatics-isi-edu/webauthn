@@ -85,21 +85,51 @@ In addition, the utillity function `webauthn.util.session_from_environment()` ca
 >>> from webauthn2 import util
 >>> sess=util.session_from_environment()
 >>> sess
-{'seconds_remaining': 1755, 'since': '2016-06-07 17:25:18.670424-07:00', 'expires': '2016-06-07 17:55:18.670424-07:00', 'client': {'display_name': 'laura@globusid.org', 'id': 'https://auth.globus.org/a4e03698-d274-11e5-9a48-8b6f49eb5587', 'full_name': 'Laura Pearlman', 'email': 'laura@isi.edu'}, 'attributes': [{'display_name': 'birn-steering', 'id': 'https://auth.globus.org/00e4fbe0-881e-11e1-aeb3-1231380dcd5a'}, {'display_name': 'birn-developers', 'id': 'https://auth.globus.org/02659628-881e-11e1-aeb3-1231380dcd5a'}, {'display_name': 'birn-sec-task-force', 'id': 'https://auth.globus.org/07940620-881e-11e1-aeb3-1231380dcd5a'}, {'display_name': 'gpcr_academia_readers', 'id': 'https://auth.globus.org/6489c7d4-b5bf-11e5-b1f4-22000aef184d'}, {'display_name': 'BIRN Community', 'id': 'https://auth.globus.org/e34a302c-7f3b-11e1-aeb3-1231380dcd5a'}, {'display_name': 'isrd-test-4', 'id': 'https://auth.globus.org/62807020-fa9b-11e5-b07b-22000ab80e73'}, {'display_name': 'isrd-systems', 'id': 'https://auth.globus.org/3938e0d0-ed35-11e5-8641-22000ab4b42b'}, {'id': 'https://auth.globus.org/a4e08a76-d274-11e5-9a49-4bb61ffc9a24'}, {'display_name': 'nhprc-drafts', 'id': 'https://auth.globus.org/06e19382-881e-11e1-aeb3-1231380dcd5a'}, {'display_name': 'isrd-test-3', 'id': 'https://auth.globus.org/dd427e4e-fa9a-11e5-86bd-22000aef184d'}, {'display_name': 'BIRNCC', 'id': 'https://auth.globus.org/003a0a78-881e-11e1-aeb3-1231380dcd5a'}, {'display_name': 'confluence-users-birn', 'id': 'https://auth.globus.org/fedee52c-881d-11e1-aeb3-1231380dcd5a'}, {'display_name': 'birnpath_django_devel_base', 'id': 'https://auth.globus.org/05e271cc-881e-11e1-aeb3-1231380dcd5a'}, {'display_name': 'FaceBase Users', 'id': 'https://auth.globus.org/143f5bdc-c127-11e4-ab32-22000a1dd033'}, {'display_name': 'isrd-staff', 'id': 'https://auth.globus.org/176baec4-ed26-11e5-8e88-22000ab4b42b'}, {'display_name': 'laura@globusid.org', 'id': 'https://auth.globus.org/a4e03698-d274-11e5-9a48-8b6f49eb5587', 'full_name': 'Laura Pearlman', 'email': 'laura@isi.edu'}, {'display_name': 'isrd-test-2', 'id': 'https://auth.globus.org/0e1d35e8-fa93-11e5-86bd-22000aef184d'}, {'id': 'https://auth.globus.org/a4e03698-d274-11e5-9a48-8b6f49eb5587'}, {'display_name': 'cirm-usc', 'id': 'https://auth.globus.org/55299de4-b47e-11e3-ad4b-12313d2d6e7f'}, {'display_name': 'isrd-test-group', 'id': 'https://auth.globus.org/12c0b92c-f862-11e5-98ed-22000ab80e73'}, {'display_name': 'kidney-users', 'id': 'https://auth.globus.org/ff766864-a03f-11e5-b097-22000aef184d'}, {'display_name': 'nhprc-svn', 'id': 'https://auth.globus.org/086e724c-881e-11e1-aeb3-1231380dcd5a'}, {'id': 'https://auth.globus.org/1bb1f136-e665-11e5-b417-23b1699a1b15'}, {'display_name': 'confluence-administrators', 'id': 'https://auth.globus.org/2d3188bc-88b9-11e1-98d4-1231380dcd5a'}], 'vary_headers': ['cookie']}
+
+{'seconds_remaining': 1755, 'since': '2016-06-07 17:25:18.670424-07:00', 'expires': '2016-06-07 17:55:18.670424-07:00',
+'client': {'display_name': 'laura@globusid.org', 'id': 'https://auth.globus.org/a4e03698-d274-11e5-9a48-8b6f49eb5587',
+'full_name': 'Laura Pearlman', 'email': 'laura@isi.edu'},
+'attributes': [{'display_name': 'gpcr_academia_readers', 'id': 'https://auth.globus.org/6489c7d4-b5bf-11e5-b1f4-22000aef184d'},
+{'display_name': 'isrd-systems', 'id': 'https://auth.globus.org/3938e0d0-ed35-11e5-8641-22000ab4b42b'},
+{'display_name': 'FaceBase Users', 'id': 'https://auth.globus.org/143f5bdc-c127-11e4-ab32-22000a1dd033'},
+{'display_name': 'isrd-staff', 'id': 'https://auth.globus.org/176baec4-ed26-11e5-8e88-22000ab4b42b'},
+{'display_name': 'laura@globusid.org', 'id': 'https://auth.globus.org/a4e03698-d274-11e5-9a48-8b6f49eb5587',
+'full_name': 'Laura Pearlman', 'email': 'laura@isi.edu'},
+{'display_name': 'isrd-test-group', 'id': 'https://auth.globus.org/12c0b92c-f862-11e5-98ed-22000ab80e73'},
+{'display_name': 'kidney-users', 'id': 'https://auth.globus.org/ff766864-a03f-11e5-b097-22000aef184d'}],
+'vary_headers': ['cookie']}
+
 ```
 
 ## Logging
 
-By default, httpd logs the user's `id` with each authenticated request. This is a standard `ssl_access_log` entry:
+By default, httpd logs the user's `id` with each authenticated request. This is a standard `ssl_access_log` entry (with line wrapping added for readability):
 
 ```
-128.9.136.72 - https://auth.globus.org/a4e03698-d274-11e5-9a48-8b6f49eb5587 [02/Jun/2016:19:40:13 -0700] "GET /static/hello.txt HTTP/1.1" 200 6
+128.9.136.72 - https://auth.globus.org/a4e03698-d274-11e5-9a48-8b6f49eb5587 [02/Jun/2016:19:40:13 -0700]
+    "GET /static/hello.txt HTTP/1.1" 200 6
 ```
 
-You can add `%{USER_DISPLAY_NAME}e` to a LogFormat directive to log the user's display_name:
+The format for `ssl_access_log` needs to be specified in `/etc/httpd/conf.d/ssl.conf`, or (in our current default deployment) the format will default to:
 
 ```
-128.9.136.72 - https://auth.globus.org/a4e03698-d274-11e5-9a48-8b6f49eb5587 [02/Jun/2016:19:40:13 -0700] "GET /static/hello.txt HTTP/1.1" 200 6 laura@globusid.org
+LogFormat "%h %l %u %t \"%r\" %>s %b"
+```
+
+to `ssl.conf`.
+
+You can use `%{USER_DISPLAY_NAME}e` to log the user's display name. This format line logs the user's display name in place of the id, and moves the id to the end of the log entry:
+
+```
+LogFormat "%h %l %{USER_DISPLAY_NAME}e %t \"%r\" %>s %b %u"
+```
+
+The final log entry looks like this (again, with line wrap for readability):
+
+```
+128.9.136.72 - laura@globusid.org [07/Jun/2016:16:30:49 -0700]
+    "GET /static/hello.txt HTTP/1.1" 200 6 https://auth.globus.org/a4e03698-d274-11e5-9a48-8b6f49eb5587
+
 ```
 
 Note: the format for `ssl_access_log` needs to be specified in `/etc/httpd/conf.d/ssl.conf` The log message above was produced by adding:
