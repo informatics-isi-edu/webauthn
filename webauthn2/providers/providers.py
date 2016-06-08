@@ -200,6 +200,13 @@ class SessionIdProvider (Provider):
     def set_request_sessionids(self, manager, context):
         pass
 
+    def terminate(self, manager, context, db=None):
+        """
+        Destroy any persistent session id context.
+        """
+        raise NotImplementedError()
+
+
 class SessionStateProvider (Provider):
 
     def __init__(self, config):

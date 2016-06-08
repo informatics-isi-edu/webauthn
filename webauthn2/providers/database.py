@@ -361,6 +361,7 @@ DELETE FROM %(stable)s WHERE key = %(key)s ;
                             key=sql_literal(srow.key))
 
                      )
+            web.setcookie(DatabasePreauthProvider.cookie_name, "", expires=-1)
             return None
 
         if db:

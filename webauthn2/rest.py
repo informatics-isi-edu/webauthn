@@ -331,6 +331,7 @@ class RestHandlerFactory (object):
                     self.context = Context(self.manager, False, db)
                     self._session_authz(sessionids)
                     rv = self.manager.sessions.terminate(self.manager, self.context, db, preferred_final_url)
+                    rv = self.manager.sessionids.terminate(self.manager, self.context, db)
                     if rv == None:
                         rv = {LOGOUT_URL : preferred_final_url}
                     return rv
