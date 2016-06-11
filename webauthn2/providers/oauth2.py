@@ -687,12 +687,17 @@ class OAuth2SessionStateProvider(database.DatabaseSessionStateProvider):
         database.DatabaseSessionStateProvider.__init__(self, config)
         self.cfg = OAuth2Config(config)
         self.oauth_context = dict()
+        self.nonce_cookie_name = config.oauth2_nonce_cookie_name
 
     def set_oauth_context_val(self, key, value):
         self.oauth_context[key] = value
 
     def set_oauth_context_val(self, key):
         return self.oauth_context.get(key)
+
+    def terminate(self, manager, context, db=None, preferred_final_url=None):
+        database.DatabaseSessionStateProvider.terminate(self, manager, context, db, preferred_final_url)
+        web.setcookie(self.nonce_cookie_name, "", expires=-1)
 
 class OAuth2ClientProvider (database.DatabaseClientProvider):
 

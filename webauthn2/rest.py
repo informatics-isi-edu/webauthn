@@ -1,4 +1,3 @@
-
 # 
 # Copyright 2012 University of Southern California
 # 
@@ -65,7 +64,7 @@ just use the Manager instance directly in its own message handlers:
 
 """
 
-
+from __future__ import print_function
 from util import *
 from manager import Manager, Context
 from providers import Session
@@ -73,6 +72,7 @@ import re
 
 import web
 import traceback
+import sys
 
 class RestHandlerFactory (object):
     """
@@ -267,7 +267,8 @@ class RestHandlerFactory (object):
                     attributes=list(self.context.attributes),
                     since=self.context.session.since,
                     expires=self.context.session.expires,
-                    seconds_remaining=self.context.session.expires and (self.context.session.expires - now).seconds
+                    seconds_remaining=self.context.session.expires and (self.context.session.expires - now).seconds,
+                    vary_headers=list(self.manager.get_http_vary())
                     )
                 response = jsonWriter(response) + '\n'
                 if 'env' in web.ctx:
@@ -313,20 +314,26 @@ class RestHandlerFactory (object):
 
                 """
 
-                default_logout_url = expand_relative_url(self.manager.config.get(DEFAULT_LOGOUT_PATH))
+                preferred_final_url =  web.input().get(LOGOUT_URL)
+                if preferred_final_url == None:
+                    preferred_final_url = expand_relative_url(self.manager.config.get(DEFAULT_LOGOUT_PATH))
+
+                if preferred_final_url == None:
+                    # Should probably have a real logging facility
+                    logfile=None
+                    if 'env' in web.ctx:
+                        logfile=web.ctx.env.get('wsgi.errors')
+                    if logfile == None:
+                        logfile=sys.stderr
+                    print("Warning: Configuration error: no logout URL specified or configured", file=logfile)
 
                 def db_body(db):
                     self.context = Context(self.manager, False, db)
                     self._session_authz(sessionids)
-                    rv = self.manager.sessions.terminate(self.manager, self.context, db)
+                    rv = self.manager.sessions.terminate(self.manager, self.context, db, preferred_final_url)
+                    self.manager.sessionids.terminate(self.manager, self.context, db)
                     if rv == None:
-                        logout_url = web.input().get(LOGOUT_URL)
-                        if logout_url != None:
-                            rv = {LOGOUT_URL : default_logout_url}
-                        elif default_logout_url is None:
-                            raise ConfigurationError("No logout URL specified or configured")
-                        else:
-                            rv = {LOGOUT_URL : default_logout_url}
+                        rv = {LOGOUT_URL : preferred_final_url}
                     return rv
 
                 response = ''
@@ -337,9 +344,7 @@ class RestHandlerFactory (object):
                 except NotFound, ex:
                     no_session_url = expand_relative_url(self.manager.config.get('logout_no_session_path'))
                     if no_session_url == None:
-                        no_session_url = default_logout_url
-                    if no_session_url == None:
-                        raise ConfigurationError("No logout URL configured")
+                        no_session_url = preferred_final_url
                     retval = {LOGOUT_URL : no_session_url}
                     status = "404 Not Found"
 
@@ -349,8 +354,7 @@ class RestHandlerFactory (object):
                         web.ctx.status = status
                         web.header('Content-Type', 'application/json')
                         web.header('Content-Length', len(response))
-                    else:
-                        web.ctx.status = '204 No Content'
+
                 return response
 
             def _login_get_or_post(self, storage):
@@ -1196,6 +1200,7 @@ class RestHandlerFactory (object):
                 """
                 referrer_arg = str(web.input().get('referrer'))
                 referer_header = str(web.ctx.env.get('HTTP_REFERER'))
+                do_redirect = (str(web.input().get('do_redirect')) == 'true')
                 web.debug("in GET /preauth, user agent is '{user_agent}'".format(user_agent=str(web.ctx.env.get('HTTP_USER_AGENT'))))
                 web.debug("in GET /preauth, referrer arg is '{referrer_arg}', Referrer header is '{referer_header}'"\
                           .format(referrer_arg=referrer_arg, referer_header=referer_header))
@@ -1210,7 +1215,12 @@ class RestHandlerFactory (object):
                     self._db_wrapper(db_body)
 
                 try:
-                    response = jsonWriter(self.manager.preauth.preauth_info(self.manager, self.context, db))
+                    preauth_info = self.manager.preauth.preauth_info(self.manager, self.context, db)
+                    if preauth_info == None:
+                        raise NotFound()
+                    if do_redirect:
+                        raise web.seeother(preauth_info.get('redirect_url'))
+                    response = jsonWriter(preauth_info)
 
                 except NotImplementedError:
                     raise NotFound()

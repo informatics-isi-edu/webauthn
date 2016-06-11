@@ -200,6 +200,13 @@ class SessionIdProvider (Provider):
     def set_request_sessionids(self, manager, context):
         pass
 
+    def terminate(self, manager, context, db=None):
+        """
+        Destroy any persistent session id context.
+        """
+        raise NotImplementedError()
+
+
 class SessionStateProvider (Provider):
 
     def __init__(self, config):
@@ -250,7 +257,7 @@ class SessionStateProvider (Provider):
         """
         raise NotImplementedError()
 
-    def terminate(self, manager, context, db=None):
+    def terminate(self, manager, context, db=None, preferred_final_url=None):
         """
         Destroy any persistent session mirroring context.
 

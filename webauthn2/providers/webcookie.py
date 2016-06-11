@@ -131,6 +131,10 @@ class WebcookieSessionIdProvider (SessionIdProvider):
                               domain=None,
                               secure=self.secure)
 
+    def terminate(self, manager, context, db=None):
+        self.set_cookie("", -1)
+
+
     def get_http_vary(self):
         return set([ 'cookie' ])
 

@@ -61,6 +61,7 @@ import datetime
 import pytz
 import urllib
 import re
+import sys
 
 config_built_ins = web.storage(
     database_type= 'postgres',
@@ -346,7 +347,7 @@ UPDATE %(stable)s SET expires = %(expires)s WHERE key = %(key)s AND %(expires)s 
         else:
             return self._db_wrapper(db_body)
 
-    def terminate(self, manager, context, db=None):
+    def terminate(self, manager, context, db=None, preferred_final_url=None):
         """
         Destroy any persistent session mirroring context.
 
@@ -360,6 +361,8 @@ DELETE FROM %(stable)s WHERE key = %(key)s ;
                             key=sql_literal(srow.key))
 
                      )
+            web.setcookie(DatabasePreauthProvider.cookie_name, "", expires=-1)
+            return None
 
         if db:
             return db_body(db)
