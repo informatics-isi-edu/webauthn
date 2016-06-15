@@ -1,0 +1,8 @@
+
+# Recipes for Fedora 23+
+
+$(PREINSTALL):
+	dnf -y --setopt=strict=0 install python{,-psycopg2,-webpy,-dateutil,-json,-simplejson,-httplib2} pytz || true
+	mkdir -p $(VARLIBDIR)
+	touch $(PREINSTALL)
+
