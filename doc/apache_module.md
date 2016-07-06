@@ -110,13 +110,11 @@ By default, httpd logs the user's `id` with each authenticated request. This is 
     "GET /static/hello.txt HTTP/1.1" 200 6
 ```
 
-The format for `ssl_access_log` needs to be specified in `/etc/httpd/conf.d/ssl.conf`, or (in our current default deployment) the format will default to:
+The format for `ssl_access_log` needs to be specified in `/etc/httpd/conf.d/ssl.conf`. The `ssl.conf` entry in our current deployment has no `LogFormat` entry, which is equivalent to:
 
 ```
 LogFormat "%h %l %u %t \"%r\" %>s %b"
 ```
-
-to `ssl.conf`.
 
 You can use `%{USER_DISPLAY_NAME}e` to log the user's display name. This format line logs the user's display name in place of the id, and moves the id to the end of the log entry:
 
@@ -132,10 +130,3 @@ The final log entry looks like this (again, with line wrap for readability):
 
 ```
 
-Note: the format for `ssl_access_log` needs to be specified in `/etc/httpd/conf.d/ssl.conf` The log message above was produced by adding:
-
-```
-LogFormat "%h %l %u %t \"%r\" %>s %b %{USER_DISPLAY_NAME}e"
-```
-
-to `ssl.conf`.
