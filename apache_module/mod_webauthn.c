@@ -58,6 +58,7 @@ static void *get_managed_hash_entry(managed_hash *mhash, const char *key);
 static void add_managed_hash_entry(managed_hash *mhash, const char *key, void *data);
 static void delete_managed_hash_entry(managed_hash *mhash, const char *key, apr_pool_t *data_pool);
 static managed_hash *create_managed_hash(apr_pool_t *pool);
+static const char *webauthn_set_if_unauthn(cmd_parms *cmd, void *cfg, const char *arg);
 
 typedef struct {
   char *session_path;
@@ -72,10 +73,20 @@ typedef struct {
 
 static webauthn_config config;
 
+typedef enum {
+  ua_redirect,
+  ua_json,
+  ua_fail,
+  ua_unset
+} unauthn_response;
+
+const static unauthn_response DEFAULT_UNAUTHN_RESPONSE = ua_fail;
+
 typedef struct {
   char *context;
   apr_pool_t *pool;
   managed_hash *alias_hash;
+  unauthn_response if_unauthn;
 } webauthn_local_config;
 
 typedef struct {
@@ -132,6 +143,7 @@ static void cache_sessioninfo(session_info *sinfo, request_rec *r);
 static int valid_unexpired_session(session_info *sinfo);
 static void delete_cached_session_info(session_info *sinfo);
 static void set_request_vals(request_rec *r, session_info *sinfo);
+static session_info *find_or_create_session_info(request_rec *r, webauthn_local_config *local_config);
 
 static void curl_add_put_nothing_opts(request_rec *r, CURL *curl, const char *sessionid);
 
@@ -150,6 +162,7 @@ static const command_rec webauthn_directives[] =
     AP_INIT_TAKE1("WebauthnVerifySslHost", webauthn_set_verify_ssl_host, NULL, RSRC_CONF, "Flag to validate ssl hostname for login/session urls"),
     AP_INIT_TAKE1("WebauthnMaxCacheSeconds", webauthn_set_max_cache_seconds, NULL, RSRC_CONF, "Maximum number of seconds to cache session info before querying webauthn"),
     AP_INIT_TAKE23("WebauthnAddGroupAlias", webauthn_add_group_alias, NULL, (RSRC_CONF | OR_AUTHCFG), "Create an alias that can be used in 'Require webauthn-group' directives."),
+    AP_INIT_TAKE1("WebauthnIfUnauthenticated", webauthn_set_if_unauthn, NULL, RSRC_CONF | OR_AUTHCFG, "Action to take (redirect, json, or fail) if the user isn't logged in"),
     { NULL }
   };
 
@@ -184,11 +197,40 @@ static void register_hooks(apr_pool_t *pool)
 
 }
 
-static int webauthn_check_user_id(request_rec * r)
+
+static session_info *find_or_create_session_info(request_rec *r, webauthn_local_config *local_config) {
+  const char *sessionid = 0;
+  session_info *sinfo = 0;
+  ap_cookie_read(r, config.cookie_name, &sessionid, 0);
+  if (sessionid != NULL) {
+    sinfo = get_cached_session_info(sessionid);
+  }
+
+  if (! valid_unexpired_session(sinfo)) {
+    if (sinfo) {
+      char ts[APR_CTIME_LEN];
+      apr_ctime(ts, sinfo->timeout);
+      ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, r->server, "cache entry for session %s expired at %s, deleting", sinfo->sessionid, ts);
+      delete_cached_session_info(sinfo);
+      sinfo = 0;
+    } else {
+      ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, r->server, "cache entry for session %s not found", sessionid);
+    }
+  }
+
+  if (sinfo == NULL) {
+    if ((sinfo = webauthn_make_session_info_from_scratch(r, local_config)) != NULL) {
+      cache_sessioninfo(sinfo, r);
+    }
+  }
+  return sinfo;
+}
+
+static int webauthn_check_user_id(request_rec *r)
 {
   int retval = HTTP_UNAUTHORIZED;
   webauthn_local_config *local_config = (webauthn_local_config *) ap_get_module_config(r->per_dir_config, &webauthn_module);
-  session_info *sinfo = webauthn_make_session_info_from_scratch(r, local_config);
+  session_info *sinfo = find_or_create_session_info(r, local_config);
   
   if (sinfo) {
     set_request_vals(r, sinfo);
@@ -222,10 +264,12 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
 {
   int debug = 0;
   session_info *sinfo = 0;
+  unauthn_response if_unauthn = (local_config->if_unauthn == ua_unset ? DEFAULT_UNAUTHN_RESPONSE : local_config->if_unauthn);
 
   const char *session_uri=apr_psprintf(r->pool, "https://%s%s", r->hostname, config.session_path);
-  const char *login_uri=apr_psprintf(r->pool, "https://%s%s?do_redirect=true&referrer=%s",
+  const char *login_uri=apr_psprintf(r->pool, "https://%s%s?%sreferrer=%s",
 				     r->hostname, config.login_path,
+				     (if_unauthn == ua_redirect ? "do_redirect=true&" : ""),
 				     ap_escape_uri(r->pool, r->unparsed_uri));
   const char *sessionid = 0;
   ap_cookie_read(r, config.cookie_name, &sessionid, 0);
@@ -279,7 +323,7 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
   if (session_curl) {
     curl_easy_cleanup(session_curl);
   }
-  if (sinfo == NULL) {
+  if (sinfo == NULL && if_unauthn != ua_fail) {
     ap_internal_redirect(login_uri, r);
   }
   return sinfo;
@@ -400,6 +444,19 @@ static const char *webauthn_set_login_path(cmd_parms *cmd, void *cfg, const char
 static const char *webauthn_set_cookie_name(cmd_parms *cmd, void *cfg, const char *arg)
 {
   config.cookie_name = apr_pstrdup(cmd->pool, arg);
+  return NULL;
+}
+
+static const char *webauthn_set_if_unauthn(cmd_parms *cmd, void *cfg, const char *arg)
+{
+  webauthn_local_config *lcfg = (webauthn_local_config *)cfg;
+  if (strcasecmp(arg, "redirect") == 0) {
+    lcfg->if_unauthn = ua_redirect;
+  } else if (strcasecmp(arg, "json") == 0) {
+    lcfg->if_unauthn = ua_json;
+  } else if (strcasecmp(arg, "fail") == 0) {
+    lcfg->if_unauthn = ua_fail;
+  }
   return NULL;
 }
 
@@ -583,6 +640,7 @@ static void *create_local_conf(apr_pool_t *pool, char *context) {
   cfg->context = apr_pstrdup(pool, context);
   cfg->pool = pool;
   cfg->alias_hash = create_managed_hash(pool);
+  cfg->if_unauthn = ua_unset;
   return cfg;
 }
 
@@ -593,6 +651,7 @@ static void *merge_local_conf(apr_pool_t *pool, void *parent_cfg, void *child_cf
   merged->context = "merged configuration";
   merged->pool = pool;
   merged->alias_hash = create_alias_overlay(pool, child->alias_hash->hash, parent->alias_hash->hash);
+  merged->if_unauthn = (child->if_unauthn == ua_unset ? parent->if_unauthn : child->if_unauthn);
   return merged;
 }
 
@@ -660,42 +719,19 @@ static authz_status webauthn_group_check_authorization(request_rec *r, const cha
 {
   webauthn_local_config *local_config = (webauthn_local_config *) ap_get_module_config(r->per_dir_config, &webauthn_module);
   ap_expr_info_t *expr = (ap_expr_info_t *)parsed_require_args;
-  const char *sessionid = 0;
-  session_info *sinfo = 0;
   char time_string[APR_CTIME_LEN];
   apr_time_t now = apr_time_now();
   apr_ctime(time_string, now);
-  ap_cookie_read(r, config.cookie_name, &sessionid, 0);
-  if (sessionid != NULL) {
-    sinfo = get_cached_session_info(sessionid);
-  }
-
-  if (! valid_unexpired_session(sinfo)) {
-    if (sinfo) {
-      char ts[APR_CTIME_LEN];
-      apr_ctime(ts, sinfo->timeout);
-      ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, r->server, "cache entry for session %s expired at %s, deleting", sinfo->sessionid, ts);
-      delete_cached_session_info(sinfo);
-      sinfo = 0;
-    } else {
-      ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, r->server, "cache entry for session %s not found", sessionid);
-    }
-  }
-
-  if (sinfo == NULL) {
-    if ((sinfo = webauthn_make_session_info_from_scratch(r, local_config)) != NULL) {
-      cache_sessioninfo(sinfo, r);
-    }
-  }
   const char *err = NULL;
   const char *groups_string = ap_expr_str_exec(r, expr, &err);
 
   managed_hash *group_alias_hash = local_config->alias_hash;
 
+  session_info *sinfo = find_or_create_session_info(r, local_config);
+
   if (sinfo) {
-    if (sinfo->user) {
-      set_request_vals(r, sinfo);
-    }
+    set_request_vals(r, sinfo);
+
     const char *desired_group = NULL;
     while ((desired_group = ap_getword_conf(r->pool, &groups_string)) && desired_group[0]) {
       if (group_from_list(desired_group, sinfo->groups)) {
