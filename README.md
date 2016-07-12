@@ -9,6 +9,9 @@ for web requests by talking to a local or remote provider.
 
 ## Status
 
+[![Build Status](https://travis-ci.org/informatics-isi-edu/webauthn.svg?branch=master)](https://travis-ci.org/informatics-isi-edu/webauthn)
+
+
 Webauthn is research software, but its core features have proven
 stable enough to use in several production science projects.
 
