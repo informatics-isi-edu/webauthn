@@ -30,6 +30,11 @@ import sys
 import traceback
 import base64
 
+psycopg2.extensions.register_type(psycopg2.extensions.JSON)
+psycopg2.extensions.register_type(psycopg2.extensions.JSONARRAY)
+psycopg2.extensions.register_type(psycopg2.extensions.JSONB)
+psycopg2.extensions.register_type(psycopg2.extensions.JSONBARRAY)
+
 try:
     import simplejson
     
@@ -137,8 +142,11 @@ def merge_config(overrides=None, defaults=None, jsonFileName=None, built_ins={})
     
     """
     if defaults is None and jsonFileName is not None:
-        homedir = os.environ.get('HOME', './')
-        fname = '%s/%s' % (homedir, jsonFileName)
+        if jsonFileName[0:1] == '/':
+            fname = jsonFileName
+        else:
+            homedir = os.environ.get('HOME', './')
+            fname = '%s/%s' % (homedir, jsonFileName)
         f = open(fname)
         s = f.read()
         f.close()
@@ -176,7 +184,7 @@ def sql_literal(v):
         return 'NULL'
 
 def is_authorized(context, acl):
-    return set( acl ).intersection( context.attributes.union( set('*') ) ) \
+    return set( acl ).intersection( set([a['id'] for a in context.attributes]).union( set('*') ) ) \
         and True \
         or False
 

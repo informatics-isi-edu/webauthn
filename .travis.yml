@@ -1,0 +1,43 @@
+
+language: python
+
+addons:
+  postgresq: "9.4"
+
+env:
+  global:
+    - COOKIES=~/cookies
+    - VERBOSE=brief
+    - HTTPD_ERROR_LOG=/var/log/apache2/error.log
+
+before_install:
+  - sudo apt-get update
+  - sudo service postgresql stop
+  - sudo apt-get purge postgresql-9.1 postgresql-9.2 postgresql-9.3
+  - sudo service postgresql start 9.4
+  - sudo apt-get -y install libpq-dev postgresql-server-dev-9.4 python-dev
+  - sudo apt-get -y install chkconfig apache2 ssl-cert libapache2-mod-wsgi python python-dateutil python-tz
+  - sudo pip install web.py
+  - sudo pip install psycopg2
+  - sudo make testvars
+  - sudo a2enmod ssl
+  - sudo a2ensite default-ssl
+  - sudo chkconfig apache2 on
+
+install:
+  - sudo make install
+  - sudo make deploy
+  - sudo service apache2 restart
+  - sudo ls -l /etc/apache2/conf.d
+  - sudo ls -lR /var/run/apache2
+  - sudo ls -lR /var/log/apache2
+
+script:
+  - sudo -H -u webauthn webauthn2-manage adduser test1
+  - sudo -H -u webauthn webauthn2-manage passwd test1 dummypassword1
+  - sudo -H -u webauthn webauthn2-manage addattr admin
+  - sudo -H -u webauthn webauthn2-manage assign test1 admin
+  - sudo -H -u webauthn webauthn2-manage adduser test2
+  - sudo -H -u webauthn webauthn2-manage passwd test2 dummypassword2
+  - sudo bash ./test/rest-tests.sh test1 dummypassword1
+

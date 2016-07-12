@@ -1,4 +1,4 @@
-"webauthn2" : {
+{
   "require_client": false,
   "require_attributes": true, 
   "listusers_permit": [], 
@@ -17,14 +17,14 @@
         
   "handler_uri_usersession": "/ermrest/authn/session", 
         
-  "web_cookie_name": "ermrest", 
-  "web_cookie_path": "/ermrest",
+  "web_cookie_name": "webauthn", 
+  "web_cookie_path": "/",
   "web_cookie_secure": true, 
   "setheader": false,
 
   "database_schema": "webauthn2_globus_auth", 
   "database_type": "postgres", 
-  "database_name": "ermrest", 
+  "database_dsn": "dbname=webauthn", 
   "database_max_retries": 5, 
 
   "oauth2_nonce_hard_timeout" : 3600,

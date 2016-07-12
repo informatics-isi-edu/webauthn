@@ -18,25 +18,30 @@ Webauthn is a server software library meant to be integrated into a
 web service written in Python and using the web.py web framework.
 
 1. Install the webauthn software and prerequisites.
-2. Install a web service which imports and uses webauthn.
-3. Create a customized local JSON configuration file.
-4. Perform deployment steps to configure database schemas, enable web services, etc.
-5. Establish client identities and attribute bindings in the relevant providers.
-6. Use the [webauthn REST API](#rest-api)
+2. Create a customized local JSON configuration file.
+3. Perform deployment steps to configure database schemas, enable web services, etc.
+4. Establish client identities and attribute bindings in the relevant providers.
+5. Use the [webauthn REST API](#rest-api)
   - Check session status
   - Establish session via login sequence
   - Extend session expiration time
   - Delete session
-7. Use a web service API that consumes webauthn security context
+6. Use a web service API that consumes webauthn security context
   - Service is aware of client's context (identity and attributes)
   - Service MAY refuse access to anonymous clients who lack security context
   - Service MAY apply fine-grained authorization decisions based on resource-level policies
 
 ## Installation
 
-See the companion ERMrest service and follow its installation instructions.
+As root, run these convenience `Makefile` targets for development and test:
 
-TODO: devise separate webauthn installation method and document it.
+    make install
+	make deploy
+
+If you wish to modify the service configuration, edit the
+`~webauthn/webauthn2_config.json` (see `samples/` folder in source
+tree for examples. Then, repeat the `make deploy` step so that the
+database can be fully configured.
 
 ## Help and Contact
 
@@ -75,13 +80,13 @@ The pertinent webauthn data for the JSON configuration file would be:
   "clients_provider": "database", 
   "attributes_provider": "database", 
             
-  "web_cookie_name": "ermrest", 
+  "web_cookie_name": "webauthn", 
   "web_cookie_path": "/", 
   "web_cookie_secure": true, 
 
   "database_schema": "webauthn2", 
   "database_type": "postgres", 
-  "database_dsn": "dbname=", 
+  "database_dsn": "dbname=webauthn", 
   "database_max_retries": 5
   
 ```
@@ -98,70 +103,12 @@ deployed:
 4. Globus groups provider
   - Custom Globus workflows to establish client group memberships as attributes
 
-With the Globus providers, there are several variants corresponding to
-integration with different service and protocol versions.
-
-#### 2015 Globus Online Providers
-
-Until time of writing (2016-02-02), the main production scenario has
-been a Globus-specific identity establishment workflow, `GOAuth`,
-which is loosely based on OpenID Connect. A custom attribute provider
-talks to the Globus Online Groups service to determine an
-authenticated client's group memberships.
-
-The pertinent webauthn data for the JSON configuration file would be:
-
-```
-  ...
-  "sessionids_provider": "webcookie", 
-  "sessionstates_provider": "oauth2", 
-  "clients_provider": "goauth", 
-  "preauth_provider": "goauth", 
-  "attributes_provider": "goauth", 
-            
-  "web_cookie_name": "ermrest", 
-  "web_cookie_path": "/", 
-  "web_cookie_secure": true, 
-  "setheader": false,
-
-  "database_schema": "webauthn2_goauth", 
-  "database_type": "postgres", 
-  "database_dsn": "dbname=", 
-  "database_max_retries": 5, 
-
-  "oauth2_nonce_hard_timeout" : 3600,
-  "oauth2_discovery_uri": "https://accounts.google.com/.well-known/openid-configuration",
-  "oauth2_redirect_relative_uri": "/authn/session",
-  "oauth2_client_secret_file": "/usr/local/etc/oauth2/client_secret_google.json",
-  "oauth2_scope": "openid email profile",
-  "oauth2_provider_sets_token_nonce": false
-
-```
-
-#### 2016 Globus Legacy Providers
-
-Starting in mid-February 2016, a new Globus identity and group service
-suite will be deployed. One of its features will be a "legacy"
-endpoint to support the previous `GOAuth` workflows.
-
-In beta testing with the "legacy" endpoint implementation of the new
-Globus services, several compatibility issues have been identified. A
-bug-fixed client library and updated version of the webauthn `goauth`
-provider module will be required to interoperate with this new service
-endpoint in legacy mode.
-
-The same JSON configuration as in
-[the previous section](#2015-globus-online-providers) is expected to
-work with the new service once the client software is updated. If it
-proves necessary, variant configuration data will be documented here
-in the future.
-
 #### 2016 Globus Providers
 
-The new Globus identity establishment workflow is expected to be
-OpenID Connect compliant, and a generic OpenID Connect provider is
-under development to use this feature natively. Once integration has
-been validated, this alternate configuration will be documented here.
+The new Globus identity establishment workflow is OpenID Connect
+compliant, and a generic OpenID Connect provider is under development
+to use this feature natively. Once integration has been validated,
+this alternate configuration will be documented here.
 
 Support for the new Globus Groups service will also be documented here
 once available.
@@ -190,14 +137,14 @@ The pertinent webauthn data for the JSON configuration file would be:
   "preauth_provider": "oauth2", 
   "attributes_provider": null, 
             
-  "web_cookie_name": "ermrest", 
+  "web_cookie_name": "webauthn", 
   "web_cookie_path": "/", 
   "web_cookie_secure": true, 
   "setheader": false,
 
   "database_schema": "webauthn2_oauth2", 
   "database_type": "postgres", 
-  "database_dsn": "dbname=", 
+  "database_dsn": "dbname=webauthn", 
   "database_max_retries": 5, 
 
   "oauth2_nonce_hard_timeout" : 3600,
@@ -213,14 +160,9 @@ TODO: validate whether this information is still accurate.
 
 ## REST API
 
-Currently, we primarily deploy webauthn within the
-[ERMrest](http://github.com/informatics-isi-edu/ermrest) relational
-data service, exposing the webauthn REST API as a sub-resource tree,
-e.g. `http://www.example.com/ermrest/authn/session` might be the URL
-to a webauthn session resource.
-
-In the future, we may split out a standalone webauthn REST service
-endpoint that lives outside of this data service.
+Webauthn contains its own REST service endpoint, so
+`http://www.example.com/authn/session` might be the URL to a webauthn
+session resource if deployed on your `www.example.com` server.
 
 The API described below is assuming cookie-based session tracking as
 in the security provider scenarios previously described.
@@ -229,10 +171,10 @@ in the security provider scenarios previously described.
 
 The GET operation is used to check the status of the existing session.
 
-    GET /ermrest/authn/session HTTP/1.1
+    GET /authn/session HTTP/1.1
     Host: www.example.com
 	Accept: application/json
-	Cookie: ermrest=SESSION_ID_GOES_HERE
+	Cookie: webauthn=SESSION_ID_GOES_HERE
 
 A successful response will include a JSON representation of the
 current session status:
@@ -241,12 +183,10 @@ current session status:
     Content-Length: 180
 	Content-Type: application/json
 
-    {"attributes": ["group1", "testuser"], "seconds_remaining": 1792, "since": "2016-02-02 17:23:42.260959-08:00", "expires": "2016-02-02 17:53:42.260959-08:00", "client": "testuser"}
+    {"attributes": [{"id": "group1", "display_name": "group1"}, {"id": "testuser", "display_name": "testuser"}], "seconds_remaining": 1792, "since": "2016-02-02 17:23:42.260959-08:00", "expires": "2016-02-02 17:53:42.260959-08:00", "client": {"id": "testuser", "display_name": "testuser"}}
 
-The exact formatting of user identity or group attributes depends on
-the configured providers. For example, with `goauth` providers the
-user names are prefixed with `u:` and the group IDs are prefixed with
-`g:` to forcibly protect against collisions.
+The exact content of user identity or group attribute objects depends on
+the configured providers.
 
 Typical error responses:
 
@@ -265,10 +205,10 @@ session without performing other web service operations.
 The PUT operation is used to simulate other web service interactions
 and cause extension of the session expiration time.
 
-    PUT /ermrest/authn/session HTTP/1.1
+    PUT /authn/session HTTP/1.1
     Host: www.example.com
 	Accept: application/json
-	Cookie: ermrest=SESSION_ID_GOES_HERE
+	Cookie: webauthn=SESSION_ID_GOES_HERE
 
 A successful response will include a JSON representation of the
 current session status following the adjustment of the expiration time:
@@ -277,7 +217,7 @@ current session status following the adjustment of the expiration time:
     Content-Length: 180
 	Content-Type: application/json
 
-    {"attributes": ["group1", "testuser"], "seconds_remaining": 1799, "since": "2016-02-02 17:23:42.260959-08:00", "expires": "2016-02-02 18:05:44.533946-08:00", "client": "testuser"}
+    {"attributes": [{"id": "group1", "display_name": "group1"}, {"id": "testuser", "display_name": "testuser"}], "seconds_remaining": 1799, "since": "2016-02-02 17:23:42.260959-08:00", "expires": "2016-02-02 18:05:44.533946-08:00", "client": {"id": "testuser", "display_name": "testuser"}}
 
 Typical error responses:
 
@@ -287,9 +227,9 @@ Typical error responses:
 
 The DELETE operation is used to logout or terminate the webauthn session.
 
-    DELETE /ermrest/authn/session HTTP/1.1
+    DELETE /authn/session HTTP/1.1
     Host: www.example.com
-	Cookie: ermrest=SESSION_ID_GOES_HERE
+	Cookie: webauthn=SESSION_ID_GOES_HERE
 
 A successful response will be empty:
 
@@ -307,7 +247,7 @@ operation may be futile or confusing:
 1. The DELETE method destroys the session state in webauthn.
 2. An AJAX application or other request attempts service access without security context.
 3. The AJAX application or service redirects the client to the session establishment workflow.
-4. When using GOAuth or other OpenID Connect providers, the user may automatically login without further user interaction.
+4. When using Globus Auth or other OpenID Connect providers, the user may automatically login without further user interaction.
   - The user is still authenticated with the external Globus or OpenID Connect identity provider, e.g. via cookies that are not controlled by webauthn.
   - The user has previously selected a choice in the identity provider to remember their decision to grant access to the webauthn-enabled web server.
 5. The user is again faced with an active session after having requested logout.
@@ -326,7 +266,7 @@ The workflow for session establishment depends on the provider module configurat
 The POST method is used to submit a username and password and create a
 session in a single round-trip:
 
-    POST /ermrest/authn/session HTTP/1.1
+    POST /authn/session HTTP/1.1
     Host: www.example.com
 	Content-Type: application/x-www-urlencoded
 	Content-Length:
@@ -339,8 +279,8 @@ ignored as it MAY change in future code revisions:
 
     HTTP/1.1 201 Created
     Content-Length:
-	Set-Cookie: ermrest=NEW_SESSION_ID_GOES_HERE; Path=/; secure
-	Location: /ermrest/authn/session/NEW_SESSION_ID_GOES_HERE
+	Set-Cookie: webauthn=NEW_SESSION_ID_GOES_HERE; Path=/; secure
+	Location: /authn/session/NEW_SESSION_ID_GOES_HERE
 	Content-Type: text/uri-list
 
 	NEW_SESSION_ID_GOES_HERE
@@ -372,18 +312,18 @@ an interactive web user agent aka a web browser:
 
 The GET operation is used to start the workflow:
 
-    GET /ermrest/authn/preauth HTTP/1.1
+    GET /authn/preauth HTTP/1.1
     Host: www.example.com
 
 A successful response sets initial cookies and contains a JSON
 representation of the instructions:
 
     HTTP/1.1 200 OK
-    Set-Cookie: oauth2_auth_nonce=NONCE_GOES_HERE; Path=/ermrest/; secure
+    Set-Cookie: oauth2_auth_nonce=NONCE_GOES_HERE; Path=/; secure
 	Content-Type: application/json
 	Content-Length: 255
 
-    {"authentication_type": "oauth2", "cookie": "oauth2_auth_nonce", "redirect_url": "https://www.globus.org/OAuth?state=STATE_VALUE_GOES_HERE&redirect_uri=https%3A%2F%2Fwww.example.com%2Fermrest%2Fauthn%2Fsession&response_type=code&client_id=exampleclient"}
+    {"authentication_type": "oauth2", "cookie": "oauth2_auth_nonce", "redirect_url": "https://www.globus.org/OAuth?state=STATE_VALUE_GOES_HERE&redirect_uri=https%3A%2F%2Fwww.example.com%2Fauthn%2Fsession&response_type=code&client_id=exampleclient"}
 
 TODO: document the rest of the workflow that should follow based on these instructions.
 
@@ -395,6 +335,6 @@ information.
 
 ## About Us
 
-ERMrest is developed in the
+Webauthn is developed in the
 [Informatics group](http://www.isi.edu/research_groups/informatics/home)
 at the [USC Information Sciences Institute](http://www.isi.edu).

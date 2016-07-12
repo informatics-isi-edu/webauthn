@@ -1,0 +1,19 @@
+# this file must be loaded (alphabetically) after wsgi.conf
+AllowEncodedSlashes On
+
+WSGIPythonOptimize 1
+WSGIDaemonProcess @DAEMONUSER@ processes=4 threads=4 user=@DAEMONUSER@ maximum-requests=2000
+WSGIScriptAlias /authn @PYLIBDIR@/webauthn2/webauthn2.wsgi
+WSGIPassAuthorization On
+
+WSGISocketPrefix @WSGISOCKETPREFIX@
+
+<Location "/authn" >
+   Satisfy Any
+   Allow from all
+   WSGIProcessGroup @DAEMONUSER@
+    
+   # site can disable redundant service logging by adding env=!dontlog to their CustomLog or similar directives
+   SetEnv dontlog
+</Location>
+

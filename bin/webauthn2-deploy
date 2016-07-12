@@ -1,0 +1,113 @@
+#!/bin/bash
+
+# 
+# Copyright 2012-2016 University of Southern California
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#    http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+if [[ $# -gt 0 ]]
+then
+    # allow VAR=value args to be passed on command-line
+    if [[ -x /usr/bin/env ]]
+    then
+	exec /usr/bin/env "$@" "$0"
+    else
+	echo could not find 'env'
+	exit 1
+    fi
+fi
+
+# paths set for installation
+SHAREDIR=${SHAREDIR:-/usr/share/webauthn2}
+HTTPDCONFDIR=${HTTPDCONFDIR:-/etc/httpd/conf.d}
+SU=su
+
+# named parameters that can be set by caller or on command-line above to override defaults...
+
+PGADMIN="${PGADMIN:-postgres}"
+DAEMONUSER="webauthn" # Unix and DB user name for service daemon
+
+# make these available to child processes
+export PGADMIN
+export DAEMONUSER
+
+TMP_SQL=$(mktemp /tmp/ermrest-deploy.sql.XXXXX)
+
+cleanup()
+{
+    rm -f ${TMP_SQL}
+}
+
+trap cleanup 0
+
+pgid()
+{
+    line=$($SU -c "psql -q -t -A -c \"select * from pg_roles where rolname = '$1'\"" - "${PGADMIN}")
+    status=$?
+    [[ $status -eq 0 ]] || return $status
+    [[ -n "$line" ]] || return 1
+    echo "$line"
+    return 0
+}
+
+pgcreateuser()
+{
+    $SU -c "createuser $*" - ${PGADMIN}
+}
+
+pgdbid()
+{
+    line=$($SU -c "psql -q -t -A -c \"select * from pg_database where datname = '$1'\"" - ${PGADMIN})
+    status=$?
+    [[ $status -eq 0 ]] || return $status
+    [[ -n "$line" ]] || return 1
+    echo "$line"
+    return 0
+}
+
+id ${DAEMONUSER} || useradd -m -r ${DAEMONUSER}
+usermod -a -G apache ${DAEMONUSER}
+chmod og+rx /home/${DAEMONUSER}
+chgrp apache /home/${DAEMONUSER}
+
+pgid ${DAEMONUSER} || pgcreateuser -D -R -S ${DAEMONUSER}
+
+# temporary ugliness for backwards-compatibility
+$SU -c "psql -c 'GRANT ${DAEMONUSER} TO ermrest'" - ${PGADMIN}
+$SU -c "psql -c 'GRANT ${DAEMONUSER} TO ermrestddl'" - ${PGADMIN}
+$SU -c "psql -c 'GRANT ${DAEMONUSER} TO hatrac'" - ${PGADMIN}
+
+if [[ -r /etc/redhat-release ]]
+then
+    SEMANAGE_HTTPD_SYS_CONTENT_T=httpd_sys_content_t
+    
+    semanage fcontext --add --ftype d --type "${SEMANAGE_HTTPD_SYS_CONTENT_T}" "/home/${DAEMONUSER}"
+    semanage fcontext --add --type "${SEMANAGE_HTTPD_SYS_CONTENT_T}" "/home/${DAEMONUSER}/webauthn2_config.json"
+    restorecon -v /home/${DAEMONUSER}
+    setsebool -P httpd_enable_homedirs on
+fi
+
+[[ ! -r ${HTTPDCONFDIR}/wsgi_webauthn2.conf ]] && cp ${SHAREDIR}/wsgi_webauthn2.conf ${HTTPDCONFDIR}/.
+
+# prevent overwrites
+[[ -r /home/${DAEMONUSER}/webauthn2_config.json ]] || $SU -c "cp -a ${SHAREDIR}/database/webauthn2_config.json ." - "${DAEMONUSER}"
+
+if ! pgdbid "${DAEMONUSER}"
+then
+    $SU -c "createdb -O ${DAEMONUSER} ${DAEMONUSER}" - ${PGADMIN}
+fi
+
+# this is supposed to be idempotent too...
+$SU -c "webauthn2-db-init" - "${DAEMONUSER}"
+

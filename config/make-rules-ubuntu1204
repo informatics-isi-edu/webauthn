@@ -1,8 +1,0 @@
-
-# Recipes for Ubuntu 12.04
-
-$(PREINSTALL):
-	apt-get -y install python python-psycopg2 python-dateutil python-webpy python-tz python-suds
-	mkdir -p $(VARLIBDIR)
-	touch $(PREINSTALL)
-

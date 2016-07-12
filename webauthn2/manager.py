@@ -84,6 +84,7 @@ database_type
 
 """
 
+import os.path
 import web
 import util
 import providers
@@ -229,6 +230,8 @@ class Manager (util.DatabaseConnection):
         defaults (even if the dictionary is empty).
 
         """
+        # we now ignore config arguments and load dedicated daemon config!
+        overrides = util.merge_config(jsonFileName='%s/webauthn2_config.json' % os.path.expanduser("~webauthn"))
         config = util.merge_config(overrides, defaults, built_ins=config_built_ins)
 
         util.DatabaseConnection.__init__(self, config)

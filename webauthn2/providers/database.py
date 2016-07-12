@@ -903,7 +903,7 @@ class DatabaseAttributeSearch (AttributeSearch):
 SELECT attribute FROM %(atable)s ;
 """
                                              % dict(atable=self.provider._table('attribute'))
-                                             ) ]).union( clientnames )
+                                             ) ]).union( set(clientnames) )
 
         if db:
             return db_body(db)
