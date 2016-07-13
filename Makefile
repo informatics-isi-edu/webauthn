@@ -2,7 +2,8 @@
 
 # this ugly hack necessitated by Ubuntu... grrr...
 SYSPREFIX=$(shell python -c 'import site;print site.getsitepackages()[0]' | sed -e 's|/[^/]\+/[^/]\+/[^/]\+$$||')
-PYLIBDIR=$(shell python -c 'import site;print site.getsitepackages()[0]')
+# try to find the architecture-neutral lib dir by looking for one of our expected prereqs... double grrr...
+PYLIBDIR=$(shell python -c 'import site;import os.path;print [d for d in site.getsitepackages() if os.path.exists(d+"/web")][0]')
 
 CONFDIR=/etc
 SHAREDIR=$(SYSPREFIX)/share/webauthn2
