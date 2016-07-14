@@ -94,7 +94,7 @@ then
     
     semanage fcontext --add --ftype d --type "${SEMANAGE_HTTPD_SYS_CONTENT_T}" "/home/${DAEMONUSER}"
     semanage fcontext --add --type "${SEMANAGE_HTTPD_SYS_CONTENT_T}" "/home/${DAEMONUSER}/webauthn2_config.json"
-    restorecon -v /home/${DAEMONUSER}
+    restorecon -rv /home/${DAEMONUSER}
     setsebool -P httpd_enable_homedirs on
 fi
 
