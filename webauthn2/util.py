@@ -246,6 +246,76 @@ def generate_random_string(length=24, alpha=True, numeric=True, symbols=False, s
     return ''.join([ source[random.randrange(0, len(source))]
                      for i in range(0, length) ])
 
+class Context (object):
+    """
+    A Context instance represents authentication context for a single service request.
+
+    Each request context includes these important fields:
+
+        context.session     exposes session information or is None 
+        context.client      exposes name-value pairs associated with the client
+        context.attributes  exposes a set of client attributes
+
+    The non-None session object should always implement interfaces
+    consistent with the Session class.  It may support additional
+    provider-specific capabilities.
+
+    The client value should either be None or a str or unicode text
+    value.
+
+    Each attribute value should be a str or unicode text value.
+
+    """
+
+    def __init__(self, manager=None, setheader=False, db=None):
+        """
+        Construct one Context instance using the manager and setheader policy as needed.
+
+        The manager is included to provide reentrant access to the
+        configured providers for this webauthn deployment.
+
+        """
+        self.session = None
+        self.attributes = set()
+        self.client = None
+
+        if manager:
+            # look for existing session ID context in message
+            if manager.sessionids:
+                sessionids = manager.sessionids.get_request_sessionids(manager, self, db)
+            else:
+                sessionids = set()
+
+            if sessionids:
+                # look up existing session data for discovered IDs
+                if manager.sessions:
+                    manager.sessions.set_msg_context(manager, self, sessionids, db)
+
+            if manager.clients.msgauthn:
+                # look for embedded client identity
+                oldclient = self.get_client_id()
+
+                manager.clients.msgauthn.set_msg_context(manager, self, db)
+
+                if oldclient != self.get_client_id() and manager.attributes.client:
+                    # update attributes for newly modified client ID
+                    self.attributes = set()
+                    manager.attributes.client.set_msg_context(manager, self, db)
+
+            if manager.attributes.msgauthn:
+                # look for embedded client attributes
+                manager.attributes.msgauthn.set_msg_context(manager, self, db)
+
+    def get_client_id(self):
+        if self.client == None:
+            return None
+        else:
+            return self.client.get(ID)
+
+    def __repr__(self):
+        return '<%s %s>' % (type(self), dict(session=self.session,
+                                             client=self.client,
+                                             attributes=self.attributes))
 def session_from_environment():
     """
     Get and decode session details from the environment set by the http server (with mod_webauthn).
@@ -262,6 +332,18 @@ def session_from_environment():
         return None
     session_string=base64.standard_b64decode(b64_session_string)
     return jsonReader(session_string)
+
+def context_from_environment():
+    """
+    Get and decode session details from the environment set by the http server (with mod_webauthn).
+    Returns a Context instance on success, None if the environment variable is unset (or blank).
+    Throws TypeError if the base64 decode fails and ValueError if json decode fails
+    """
+    context_dict = session_from_environment()
+    context = Context()
+    context.client = context_dict['client']
+    context.attributes = context_dict['attributes']
+    return context
 
 class NoMethod(web.HTTPError):
     """`405 Method Not Allowed` error."""
