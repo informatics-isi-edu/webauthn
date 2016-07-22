@@ -336,13 +336,14 @@ def session_from_environment():
 def context_from_environment():
     """
     Get and decode session details from the environment set by the http server (with mod_webauthn).
-    Returns a Context instance on success, None if the environment variable is unset (or blank).
+    Returns a Context instance.
     Throws TypeError if the base64 decode fails and ValueError if json decode fails
     """
     context_dict = session_from_environment()
     context = Context()
-    context.client = context_dict['client']
-    context.attributes = context_dict['attributes']
+    if context_dict:
+        context.client = context_dict['client']
+        context.attributes = context_dict['attributes']
     return context
 
 class NoMethod(web.HTTPError):
