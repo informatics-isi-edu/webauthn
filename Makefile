@@ -35,6 +35,7 @@ UNINSTALL=$(UNINSTALL_DIRS) \
 # make this the default target
 install: samples/wsgi_webauthn2.conf force
 	python ./setup.py install
+	$(MAKE) -C apache_module
 
 testvars: force
 	@echo DAEMONUSER=$(DAEMONUSER)
@@ -47,6 +48,7 @@ testvars: force
 
 deploy: install
 	env SHAREDIR=$(SHAREDIR) HTTPDCONFDIR=$(HTTPDCONFDIR) webauthn2-deploy
+	$(MAKE) -C apache_module
 
 samples/wsgi_webauthn2.conf: samples/wsgi_webauthn2.conf.in
 	./install-script -M sed -R @PYLIBDIR@=$(PYLIBDIR) @WSGISOCKETPREFIX@=$(WSGISOCKETPREFIX) @DAEMONUSER@=$(DAEMONUSER) -o root -g root -m a+r -p -D $< $@
