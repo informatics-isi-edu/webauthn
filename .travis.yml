@@ -1,6 +1,9 @@
 
 language: python
 
+sudo: required
+dist: trusty
+
 addons:
   postgresq: "9.4"
 
