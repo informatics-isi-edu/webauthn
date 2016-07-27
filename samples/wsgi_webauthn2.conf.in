@@ -9,8 +9,8 @@ WSGIPassAuthorization On
 WSGISocketPrefix @WSGISOCKETPREFIX@
 
 <Location "/authn" >
-   Satisfy Any
-   Allow from all
+   AuthType None
+   Require all granted
    WSGIProcessGroup @DAEMONUSER@
     
    # site can disable redundant service logging by adding env=!dontlog to their CustomLog or similar directives
