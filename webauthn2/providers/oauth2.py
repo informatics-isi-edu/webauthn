@@ -454,12 +454,12 @@ class OAuth2Login (ClientLogin):
         raise AppIdentityError('Wrong number of segments in token: %s' % jwt)
       signed = '%s.%s' % (segments[0], segments[1])
     
-      header = simplejson.loads(base64.urlsafe_b64decode(segments[0]))
+      header = simplejson.loads(cls.urlsafe_b64decode(segments[0]))
 
-      signature = base64.urlsafe_b64decode(segments[2])
+      signature = cls.urlsafe_b64decode(segments[2])
     
       # Parse token.
-      json_body = base64.urlsafe_b64decode(segments[1])
+      json_body = cls.urlsafe_b64decode(segments[1])
       try:
         parsed = json.loads(json_body)
       except:
@@ -506,7 +506,12 @@ class OAuth2Login (ClientLogin):
     
       return {'header' : header, 'body' : parsed}
 
-        
+    @staticmethod
+    def urlsafe_b64decode(text):
+        padded = bytes(text) + b'=' * (4 - len(text) % 4)
+        return base64.urlsafe_b64decode(padded)
+
+          
     def accepts_login_get(self):
         return True
 
