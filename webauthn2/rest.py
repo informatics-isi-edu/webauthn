@@ -316,7 +316,9 @@ class RestHandlerFactory (object):
 
                 preferred_final_url =  web.input().get(LOGOUT_URL)
                 if preferred_final_url == None:
-                    preferred_final_url = expand_relative_url(self.manager.config.get(DEFAULT_LOGOUT_PATH))
+                    preferred_final_url = self.manager.config.get(DEFAULT_LOGOUT_PATH)
+
+                preferred_final_url = expand_relative_url(preferred_final_url)
 
                 if preferred_final_url == None:
                     # Should probably have a real logging facility
