@@ -195,3 +195,12 @@ do
     basic_usertest "$1" "$2"
     shift 2
 done
+
+if [[ ${NUM_FAILURES} -gt 0 ]]
+then
+    echo "FAILED ${NUM_FAILURES} of ${NUM_TESTS} tests" 
+    exit 1
+else
+    echo "ALL ${NUM_TESTS} tests succeeded" >&2
+    exit 0
+fi

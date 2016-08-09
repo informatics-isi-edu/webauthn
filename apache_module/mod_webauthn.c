@@ -15,7 +15,7 @@
 #include <ap_expr.h>
 #include <curl/curl.h>
 #include <json-c/json.h>
-#include <httpd/util_cookies.h>
+#include <util_cookies.h>
 #include <apr_time.h>
 #include <unistd.h>
 
