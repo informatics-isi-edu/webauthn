@@ -348,7 +348,7 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
 
 static void curl_add_put_nothing_opts(request_rec *r, CURL *curl, const char *sessionid)
 {
-  curl_easy_setopt(curl, CURLOPT_UPLOAD, 0L);
+  curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
   curl_easy_setopt(curl, CURLOPT_READFUNCTION, webauthn_read_noop);
   curl_easy_setopt(curl, CURLOPT_READDATA, NULL);
   long dummy_size = 0L;
