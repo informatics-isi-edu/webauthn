@@ -35,8 +35,12 @@ Provider-specific parameters specific to OAuth2:
 `oauth2_discovery_uri`
    : OpenID Connect Discovery 1.0 endpoint
 
+
+`oauth2_redirect_uri`
+   : The path (relative to the current host) that users are redirected to after providing consent/authorization
+
 `oauth2_redirect_relative_uri`
-   : The path that users are redirected to after providing consent/authorization
+   : (deprecated) The path (relative to the current service) that users are redirected to after providing consent/authorization
 
 `oauth2_client_secret_file`
    : The file, obtained from an OAuth2 provider (e.g., google) during registration, containing shared secrets and other information.
@@ -571,16 +575,22 @@ class OAuth2PreauthProvider (PreauthProvider):
         """
         Initiate a login (redirect to OAuth2 provider)
         """
-        self.authentication_uri_args["redirect_uri"] = self.make_uri(str(self.cfg.get('oauth2_redirect_relative_uri')))
+        self.authentication_uri_args["redirect_uri"] = self.make_uri(self.cfg.get('oauth2_redirect_uri'))
+        if self.authentication_uri_args["redirect_uri"] == None:
+            self.authentication_uri_args["redirect_uri"] = self.make_relative_uri(str(self.cfg.get('oauth2_redirect_relative_uri')))
         session = self.make_session(db)
         self.nonce_state.log_referrer(session.get('auth_url_nonce'), web.input().get('referrer'), db)
-        web.setcookie(self.nonce_cookie_name, session.get('auth_cookie_nonce'), secure=True)
+        web.setcookie(self.nonce_cookie_name, session.get('auth_cookie_nonce'), secure=True, path="/")
         auth_request_args = self.make_auth_request_args(session)
         if do_redirect :
-            web.debug("redirecting")
             raise web.seeother(self.make_redirect_uri(auth_request_args))
         else:
             return self.make_redirect_uri(auth_request_args)
+
+    def make_uri(self, base):
+        if base == None:
+            return None
+        return "{prot}://{host}{path}".format(prot=web.ctx.protocol, host=web.ctx.host, path=base)
 
     def preauth_referrer(self):
         """
@@ -591,7 +601,7 @@ class OAuth2PreauthProvider (PreauthProvider):
             raise OAuth2ProtocolError("No state argument")
         return self.nonce_state.get_referrer(auth_url_nonce)
         
-    def make_uri(self, relative_uri):
+    def make_relative_uri(self, relative_uri):
         return web.ctx.home + relative_uri
 
     def make_auth_request_args(self, session):

@@ -141,12 +141,12 @@ class GlobusAuthPreauthProvider (oauth2.OAuth2PreauthProvider):
 # Sometimes Globus whitelist entries will have typos in the URLs ("//" instead of "/" is very common),
 # and it can take a long time to get those fixed.
 
-    def make_uri(self, relative_uri):
+    def make_relative_uri(self, relative_uri):
         override_uri = self.cfg.get('globus_auth_override_full_redirect_uri')
         if override_uri is not None and override_uri != '':
             return override_uri
         else:
-            return oauth2.OAuth2PreauthProvider.make_uri(self, relative_uri)
+            return oauth2.OAuth2PreauthProvider.make_relative_uri(self, relative_uri)
 
 class GlobusAuthAttributeClient (AttributeClient):
 
