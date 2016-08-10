@@ -77,8 +77,11 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
             'my_statuses' : 'active',
             'for_all_identities' : 'true'
             }
-        group_endpoint = urlparse.urlunsplit(["https", 'nexus.api.globusonline.org', "groups", urllib.urlencode(group_args), None])
-        token_request = urllib2.Request(group_endpoint)
+        group_base = self.provider.cfg.get('globus_auth_group_endpoint')
+        if group_base == None:
+            group_base = "https://nexus.api.globusonline.org/groups"
+        urltuple = urlparse.urlsplit(group_base)
+        token_request = urllib2.Request(urlparse.urlunsplit([urltuple[0], urltuple[1], urltuple[2], urllib.urlencode(group_args), None]))
         token_request.add_header('Authorization', 'Bearer ' + group_token.get('access_token'))
         u = self.open_url(token_request, "getting groups", False)
         groups = simplejson.load(u)
