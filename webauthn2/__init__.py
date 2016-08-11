@@ -42,8 +42,7 @@ def source_checksum():
         h = hashlib.md5()
         for mod in [ exc, rest, manager, util, providers,
                      providers.providers, providers.null, providers.webcookie, 
-                     providers.database, providers.oauth1a,
-                     providers.globusonline, providers.web ]:
+                     providers.database, providers.web ]:
             try:
                 h.update( inspect.getsource( mod ) )
             except IOError:
