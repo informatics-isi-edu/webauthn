@@ -91,19 +91,6 @@ if _enable_oauth2:
     config_built_ins.update( oauth2.config_built_ins )
 
 try:
-    # conditionalize oauth1 module since it has oddball dependencies
-    import oauth1a
-    _enable_oauth1a = True
-except:
-    _enable_oauth1a = False
-    
-if _enable_oauth1a:
-    __doc__ += oauth1a.__doc__
-    sessionids.add(oauth1a.Oauth1aSessionIdProvider)
-    sessionstates.add(oauth1a.Oauth1aSessionStateProvider)
-    config_built_ins.update( oauth1a.config_built_ins )
-
-try:
     # conditionalize globus_auth module since it has oddball dependencies
     import globus_auth
     _enable_globus_auth = True
