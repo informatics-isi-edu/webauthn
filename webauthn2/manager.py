@@ -247,5 +247,5 @@ class Manager (util.DatabaseConnection):
         result.update( self.attributes.get_http_vary() )
         return result
 
-nullmanager = Manager()
+nullmanager = None
 

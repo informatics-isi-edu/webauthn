@@ -75,7 +75,6 @@ static webauthn_config config;
 
 typedef enum {
   ua_redirect,
-  ua_json,
   ua_fail,
   ua_unset
 } unauthn_response;
@@ -162,7 +161,7 @@ static const command_rec webauthn_directives[] =
     AP_INIT_TAKE1("WebauthnVerifySslHost", webauthn_set_verify_ssl_host, NULL, RSRC_CONF, "Flag to validate ssl hostname for login/session urls"),
     AP_INIT_TAKE1("WebauthnMaxCacheSeconds", webauthn_set_max_cache_seconds, NULL, RSRC_CONF, "Maximum number of seconds to cache session info before querying webauthn"),
     AP_INIT_TAKE23("WebauthnAddGroupAlias", webauthn_add_group_alias, NULL, (RSRC_CONF | OR_AUTHCFG), "Create an alias that can be used in 'Require webauthn-group' directives."),
-    AP_INIT_TAKE1("WebauthnIfUnauthenticated", webauthn_set_if_unauthn, NULL, RSRC_CONF | OR_AUTHCFG, "Action to take (redirect, json, or fail) if the user isn't logged in"),
+    AP_INIT_TAKE1("WebauthnIfUnauthn", webauthn_set_if_unauthn, NULL, RSRC_CONF | OR_AUTHCFG, "Action to take (redirect, json, or fail) if the user isn't logged in"),
     { NULL }
   };
 
@@ -270,7 +269,8 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
   const char *login_uri=apr_psprintf(r->pool, "https://%s%s?%sreferrer=%s",
 				     r->hostname, config.login_path,
 				     (if_unauthn == ua_redirect ? "do_redirect=true&" : ""),
-				     ap_escape_uri(r->pool, r->unparsed_uri));
+				     /*				     ap_escape_urlencoded(r->pool, r->unparsed_uri)); */
+  				     ap_escape_uri(r->pool, r->unparsed_uri)); 
   const char *sessionid = 0;
   ap_cookie_read(r, config.cookie_name, &sessionid, 0);
   ap_set_content_type(r, "text/plain");
@@ -323,8 +323,15 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
   if (session_curl) {
     curl_easy_cleanup(session_curl);
   }
-  if (sinfo == NULL && if_unauthn != ua_fail) {
-    ap_internal_redirect(login_uri, r);
+  if (sinfo == NULL) {
+    if (if_unauthn == ua_fail) {
+      if (r->err_headers_out == NULL) {
+	r->err_headers_out = apr_table_make(r->pool, 1);
+      }
+      apr_table_setn(r->err_headers_out, "WWW-Authenticate", apr_psprintf(r->pool, "Webauthn: preauth=%s", login_uri));
+    } else {
+      ap_internal_redirect(login_uri, r);
+    }
   }
   return sinfo;
 }
@@ -348,7 +355,7 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
 
 static void curl_add_put_nothing_opts(request_rec *r, CURL *curl, const char *sessionid)
 {
-  curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
+  curl_easy_setopt(curl, CURLOPT_UPLOAD, 0L);
   curl_easy_setopt(curl, CURLOPT_READFUNCTION, webauthn_read_noop);
   curl_easy_setopt(curl, CURLOPT_READDATA, NULL);
   long dummy_size = 0L;
@@ -452,11 +459,12 @@ static const char *webauthn_set_if_unauthn(cmd_parms *cmd, void *cfg, const char
   webauthn_local_config *lcfg = (webauthn_local_config *)cfg;
   if (strcasecmp(arg, "redirect") == 0) {
     lcfg->if_unauthn = ua_redirect;
-  } else if (strcasecmp(arg, "json") == 0) {
-    lcfg->if_unauthn = ua_json;
   } else if (strcasecmp(arg, "fail") == 0) {
     lcfg->if_unauthn = ua_fail;
-  }
+  } else {
+    ap_log_error(APLOG_MARK, APLOG_ERR, 0, cmd->server,
+		 "Unrecognized value for WebauthnIfUnauthn: '%s'", arg);
+  }    
   return NULL;
 }
 
@@ -556,7 +564,7 @@ static int webauthn_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *
   config.session_path = NULL;
   config.login_path = NULL;
   config.verify_ssl_host = VERIFY_SSL_HOST_ON;
-  config.cookie_name = "ermrest";
+  config.cookie_name = "webauthn";
   curl_global_init(CURL_GLOBAL_SSL);
   config.session_hash = create_managed_hash(pconf);
   config.alias_hash = create_managed_hash(pconf);
@@ -729,29 +737,31 @@ static authz_status webauthn_group_check_authorization(request_rec *r, const cha
 
   session_info *sinfo = find_or_create_session_info(r, local_config);
 
-  if (sinfo) {
-    set_request_vals(r, sinfo);
+  if (sinfo == 0) {
+    return (AUTHZ_DENIED_NO_USER);
+  }
 
-    const char *desired_group = NULL;
-    while ((desired_group = ap_getword_conf(r->pool, &groups_string)) && desired_group[0]) {
-      if (group_from_list(desired_group, sinfo->groups)) {
-	return(AUTHZ_GRANTED);
-      }
+  set_request_vals(r, sinfo);
+  
+  const char *desired_group = NULL;
+  while ((desired_group = ap_getword_conf(r->pool, &groups_string)) && desired_group[0]) {
+    if (group_from_list(desired_group, sinfo->groups)) {
+      return(AUTHZ_GRANTED);
+    }
 
-      group_alias *aliased_group;
-      if ((aliased_group = get_managed_hash_entry(group_alias_hash, desired_group)) != 0) {
-	webauthn_group *found_group;
-	if ((found_group = group_from_list(aliased_group->group, sinfo->groups)) != 0) {
-	  if (! aliased_group->verify) {
-	    return(AUTHZ_GRANTED);
-	  }
-	  if (found_group->display_name && (strcmp(aliased_group->alias, found_group->display_name) == 0)) {
-	    return(AUTHZ_GRANTED);
-	  } else {
-	    ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r,
-			  "Group alias verify failed: display_name for '%s' was '%s' in credential, not '%s'",
-			  found_group->id, (found_group->display_name ? found_group->display_name : "(null)"), aliased_group->alias);
-	  }
+    group_alias *aliased_group;
+    if ((aliased_group = get_managed_hash_entry(group_alias_hash, desired_group)) != 0) {
+      webauthn_group *found_group;
+      if ((found_group = group_from_list(aliased_group->group, sinfo->groups)) != 0) {
+	if (! aliased_group->verify) {
+	  return(AUTHZ_GRANTED);
+	}
+	if (found_group->display_name && (strcmp(aliased_group->alias, found_group->display_name) == 0)) {
+	  return(AUTHZ_GRANTED);
+	} else {
+	  ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r,
+			"Group alias verify failed: display_name for '%s' was '%s' in credential, not '%s'",
+			found_group->id, (found_group->display_name ? found_group->display_name : "(null)"), aliased_group->alias);
 	}
       }
     }
