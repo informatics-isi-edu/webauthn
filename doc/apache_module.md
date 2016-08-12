@@ -81,9 +81,11 @@ In addition, the `isrd-staff`, `isrd-systems`, and `kidney-users` statements wil
 ### Telling the module what to do if the user isn't logged in.
 
 The `WebauthnIfUnauthn` directive determines what the module should do when a user needs to be logged in (because of a `valid-user` or `webauthn-group` requirement) but doesn't have a valid session. `WebauthnIfUnauthn` can appear in any `Location` or `Directory` section. It recognizes two possible values:
-`redirect` will redirect the user (with a `303 See Other`) to the login page. This is suitable for URLs the user will be viewing directly from a browser.
-`fail` will return a `401 Unauthorized` status. This is suitable for applications that expect to act on the data received. The response will have a `WWW-Authenticate` header of the form:
+* `redirect` will redirect the user (with a `303 See Other`) to the login page. This is suitable for URLs the user will be viewing directly from a browser.
+* `fail` will return a `401 Unauthorized` status. This is suitable for applications that expect to act on the data received. The response will have a `WWW-Authenticate` header of the form:
+
 `WWW-Authenticate: Webauthn: preauth=`_url_
+
 where _url_ is the URL of the login page the user should be redirected to. For example:
 
 ```
