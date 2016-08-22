@@ -10,9 +10,18 @@ These lines must be added to the resource configuration section (the main sectio
 
 ```
 LoadModule webauthn_module    /usr/lib64/httpd/modules/mod_webauthn.so
-WebauthnLoginPath /ermrest/authn/preauth
-WebauthnSessionPath /ermrest/authn/session
+WebauthnLoginPath /authn/preauth
+WebauthnSessionPath /authn/session
 ```
+Some optional parameters that can go in this section are:
+
+Parameter | Default value | Possible values | Description
+--------- | ------------- | --------------- | -----------
+WebauthnCookieName | `webauthn` | any string | This is the name of the cookie set by the webauthn service. In previous versions, the cookie was called `ermrest`.
+WebauthnVerifySslHost | `on` | `on` or `off` | If `on`, the module validates the server's certificate on each REST call the module makes to the local `webauthn` service; if `off`, that validation is not done.
+WebauthnMaxCacheSeconds | none | any integer | The maximum number of seconds to cache session's information. The module will cache for half the amount of time remaining before the session expires or this number of seconds, whichever is less.
+
+### Setting access policies
 
 In each `Directory` or `Location` section (or `.htaccess` file) in which you want to use the module, you'll need this line to tell httpd to use webauthn for authentication within that directory/location:
 
@@ -68,6 +77,21 @@ This will only authorize users who are:
 - in `my-made-up-alias`
 
 In addition, the `isrd-staff`, `isrd-systems`, and `kidney-users` statements will cause webauthn to check both the `id` and `display_name` for each group, but the `my-made-up-alias` statemetn will cause webauthn to check only the `id`.
+
+### Telling the module what to do if the user isn't logged in.
+
+The `WebauthnIfUnauthn` directive determines what the module should do when a user needs to be logged in (because of a `valid-user` or `webauthn-group` requirement) but doesn't have a valid session. `WebauthnIfUnauthn` can appear in any `Location` or `Directory` section. It recognizes two possible values:
+* `redirect` will redirect the user (with a `303 See Other`) to the login page. This is suitable for URLs the user will be viewing directly from a browser.
+* `fail` will return a `401 Unauthorized` status. This is suitable for applications that expect to act on the data received. The response will have a `WWW-Authenticate` header of the form:
+
+`WWW-Authenticate: Webauthn: preauth=`_url_
+
+where _url_ is the URL of the login page the user should be redirected to. For example:
+
+```
+WWW-Authenticate: Webauthn: preauth=https://webauthn-dev.isi.edu/ermrest/authn/preauth?referrer=/static/foo.txt
+```
+Note: if the user has a valid session but isn't authorized because of insufficient group membership, the module will return `403 Forbidden`.
 
 ## Environment Variables Set by the Module
 
