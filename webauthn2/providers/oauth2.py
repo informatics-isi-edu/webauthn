@@ -335,6 +335,7 @@ class OAuth2Login (ClientLogin):
         for key in ClientLogin.standard_names:
             if context.user.get(key) != None:
                 context.client[key] = context.user.get(key)
+        context.client[IDENTITIES] = [context.client.get(ID)]
         return context.client
 
     @staticmethod

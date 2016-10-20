@@ -56,9 +56,12 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
         context.globus_identities.add(user_id)
         identity_set = self.userinfo.get('identities_set')
         issuer = self.id_token.get('iss')
+        context.client[IDENTITIES] = []
         if identity_set != None:
             for id in identity_set:
-                context.globus_identities.add(KeyedDict({ID : issuer + '/' + id}))
+                full_id = issuer + '/' + id
+                context.globus_identities.add(KeyedDict({ID : full_id}))
+                context.client[IDENTITIES].append(full_id)
 
         for token in other_tokens:
             scope = token.get('scope')

@@ -481,6 +481,7 @@ class DatabaseLogin (ClientLogin):
                 context.client = KeyedDict()
                 context.client[ID] = uname
                 context.client[DISPLAY_NAME] = uname
+                context.client[IDENTITIES] = [context.client.get(ID)]
                 return context.client
 
         if db:

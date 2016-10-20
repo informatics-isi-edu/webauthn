@@ -140,7 +140,8 @@ __all__ = [
     'LAST_LOGIN',
     'LAST_GROUP_UPDATE',
     'LAST_SESSION_EXTENSION',
-    'KeyedDict'
+    'KeyedDict',
+    'IDENTITIES'
 
     ]
 
@@ -157,6 +158,8 @@ LOGIN_FORM="login_form"
 LAST_LOGIN="last_login"
 LAST_SESSION_EXTENSION="last_session_extension"
 LAST_GROUP_UPDATE="last_group_update"
+IDENTITIES="identities"
+
 
 class Provider (object):
 
