@@ -251,14 +251,6 @@ static void set_request_vals(request_rec *r, session_info *sinfo) {
   }
 }
 
-static size_t webauthn_read_noop(char *buffer, size_t size, size_t nitems, void *instream) {
-  size_t len=size*nitems;
-  if (len > 0) {
-    memset(buffer, 0, len);
-  }
-  return(len);
-}
-
 static session_info *webauthn_make_session_info_from_scratch(request_rec * r, webauthn_local_config *local_config)
 {
   int debug = 0;
@@ -355,11 +347,8 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
 
 static void curl_add_put_nothing_opts(request_rec *r, CURL *curl, const char *sessionid)
 {
-  curl_easy_setopt(curl, CURLOPT_UPLOAD, 0L);
-  curl_easy_setopt(curl, CURLOPT_READFUNCTION, webauthn_read_noop);
-  curl_easy_setopt(curl, CURLOPT_READDATA, NULL);
-  long dummy_size = 0L;
-  curl_easy_setopt(curl, CURLOPT_INFILESIZE, &dummy_size);
+  /* CURLOPT_UPLOAD appears to be broken, so do this instead */
+  curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
   char *cookie_string = apr_psprintf(r->pool, "%s=%s", config.cookie_name, sessionid);
   curl_easy_setopt(curl, CURLOPT_COOKIE, cookie_string); 
 }
