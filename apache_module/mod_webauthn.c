@@ -339,8 +339,9 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, webauthn_curl_write_callback); 
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)data); 
-    curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, (void *)errbuf); 
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, config.verify_ssl_host);
+    curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, (void *)errbuf);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, (long) (config.verify_ssl_host > 0 ? 1 : 0));
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, (long) config.verify_ssl_host);
   }
   return(curl);
 }
