@@ -31,6 +31,7 @@ install:
   - sudo make testvars
   - sudo make install
   - sudo make deploy
+  - sudo bash ./test/ubuntu-https-servername.sh
   - sudo bash ./test/static-test-setup.sh
   - sudo a2enmod webauthn
   - sudo service apache2 restart
