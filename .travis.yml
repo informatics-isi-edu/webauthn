@@ -31,6 +31,7 @@ install:
   - sudo make testvars
   - sudo make install
   - sudo make deploy
+  - sudo bash ./test/static-test-setup.sh
   - sudo service apache2 restart
   - sudo ls -lR /etc/apache2
   - sudo ls -lR /var/run/apache2
@@ -44,6 +45,7 @@ script:
   - sudo -H -u webauthn webauthn2-manage adduser test2
   - sudo -H -u webauthn webauthn2-manage passwd test2 dummypassword2
   - sudo bash ./test/rest-tests.sh test1 dummypassword1
+  - sudo bash ./test/static-tests.sh test1 dummypassword1
 
 after_failure:
   - sudo cat /etc/apache2/conf.d/wsgi_webauthn2.conf
