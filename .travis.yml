@@ -52,6 +52,7 @@ after_failure:
   - sudo cat /etc/apache2/conf.d/wsgi_webauthn2.conf
   - sudo cat /etc/apache2/conf.d/webauthn_test.conf
   - sudo cat /etc/apache2/mods-available/webauthn.load
+  - sudo cat /etc/hosts
   - sudo cat /etc/apache2/apache2.conf
   - sudo cat /etc/apache2/sites-available/default-ssl.conf
   - sudo ls -lR /etc/apache2
