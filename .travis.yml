@@ -51,4 +51,6 @@ script:
 after_failure:
   - sudo cat /etc/apache2/conf.d/wsgi_webauthn2.conf
   - sudo cat /etc/apache2/conf.d/webauthn_test.conf
+  - sudo cat /etc/apache2/mods-available/webauthn.load
+  - sudo ls -l /etc/apach2/mod*
   - sudo cat ${HTTPD_ERROR_LOG}
