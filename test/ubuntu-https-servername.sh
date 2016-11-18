@@ -4,7 +4,7 @@
 
 servername=$(hostname)
 conf=/etc/apache2/sites-available/default-ssl.conf
-pattern="^\( *\)\(ServerAdmin .*\)"
+pattern="^\([[:space:]]*\)\(ServerAdmin .*\)"
 replacement="\1\2"
 replacement+="\1\n# try to avoid server name mismatch errors for mod_webauthn testing"
 replacement+="\1\nServerName $servername:443"
