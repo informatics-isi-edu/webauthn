@@ -35,6 +35,7 @@ c=${HTTPCONFDIR}/webauthn_test.conf
 cat > $c <<EOF
 WebauthnLoginPath /authn/preauth
 WebauthnSessionPath /authn/session
+WebauthnVerifySslHost off
 
 <Directory "/var/www/html/test1">
   AuthType webauthn
