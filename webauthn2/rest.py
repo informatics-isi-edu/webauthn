@@ -213,8 +213,7 @@ class RestHandlerFactory (object):
                 # Debug for referrer tracing
                 referrer_arg = str(web.input().get('referrer'))
                 referer_header = str(web.ctx.env.get('HTTP_REFERER'))
-                web.debug("in GET /session, referrer arg is '{referrer_arg}', Referrer header is '{referer_header}'"\
-                          .format(referrer_arg=referrer_arg, referer_header=referer_header))
+                #web.debug("in GET /session, referrer arg is '{referrer_arg}', Referrer header is '{referer_header}'".format(referrer_arg=referrer_arg, referer_header=referer_header))
                 
                 def db_body(db):
                     self.context = Context(self.manager, False, db)
@@ -1203,9 +1202,8 @@ class RestHandlerFactory (object):
                 referrer_arg = str(web.input().get('referrer'))
                 referer_header = str(web.ctx.env.get('HTTP_REFERER'))
                 do_redirect = (str(web.input().get('do_redirect')) == 'true')
-                web.debug("in GET /preauth, user agent is '{user_agent}'".format(user_agent=str(web.ctx.env.get('HTTP_USER_AGENT'))))
-                web.debug("in GET /preauth, referrer arg is '{referrer_arg}', Referrer header is '{referer_header}'"\
-                          .format(referrer_arg=referrer_arg, referer_header=referer_header))
+                #web.debug("in GET /preauth, user agent is '{user_agent}'".format(user_agent=str(web.ctx.env.get('HTTP_USER_AGENT'))))
+                #web.debug("in GET /preauth, referrer arg is '{referrer_arg}', Referrer header is '{referer_header}'".format(referrer_arg=referrer_arg, referer_header=referer_header))
 
                 def db_body(db):
                     self.context = Context(self.manager, False, db)
