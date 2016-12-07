@@ -434,6 +434,15 @@ class ClientManage (ProviderInterface):
         else:
             raise ValueError('unauthorized')
 
+    def update_last_login(self, manager, context, username, db=None):
+        raise NotImplementedError()
+
+    def update_last_session_extension(self, manager, context, username, db=None):
+        raise NotImplementedError()
+
+    def update_last_group_update(self, manager, context, username, db=None):
+        raise NotImplementedError()
+
 class ClientPasswd (ProviderInterface):
     """
     ClientPasswd interface for managing client passwords.

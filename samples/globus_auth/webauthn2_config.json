@@ -30,7 +30,7 @@
   "oauth2_nonce_hard_timeout" : 3600,
   "oauth2_redirect_relative_uri": "/authn/session",
   "oauth2_client_secret_file": "/home/secrets/oauth2/client_secret_globus.json",
-  "oauth2_scope": "urn:globus:auth:scope:auth.globus.org:view_identities urn:globus:auth:scope:nexus.api.globus.org:groups",
+  "oauth2_scope": "openid email profile urn:globus:auth:scope:auth.globus.org:view_identities urn:globus:auth:scope:nexus.api.globus.org:groups",
   "oauth2_discovery_uri" : "file:///usr/local/etc/oauth2/discovery_globus.json",
   "oauth2_provider_sets_token_nonce": false,
 

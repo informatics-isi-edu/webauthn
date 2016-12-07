@@ -70,7 +70,7 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
             if scope == "urn:globus:auth:scope:nexus.api.globus.org:groups":
                 group_token = token
                 break
-        web.debug("wallet: " + str(context.wallet))
+        #web.debug("wallet: " + str(context.wallet))
         if group_token == None:
             return user_id
         accepted_roles = ['admin', 'manager', 'member']

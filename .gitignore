@@ -56,3 +56,11 @@ docs/_build/
 
 # PyBuilder
 target/
+
+# webauthn build products
+samples/wsgi_webauthn2.conf
+apache_module/.libs
+apache_module/*.o
+apache_module/*.slo
+apache_module/*.lo
+apache_module/*.la
