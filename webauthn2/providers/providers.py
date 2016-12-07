@@ -487,6 +487,14 @@ class ClientProvider (Provider):
         self.search = None
         self.manage = None
         self.passwd = None
+    def update_last_login(self, manager, context, db=None):
+        raise NotImplementedError()
+
+    def update_last_session_extension(self, manager, context, db=None):
+        raise NotImplementedError()
+
+    def update_last_group_update(self, manager, context, db=None):
+        raise NotImplementedError()
 
 class AttributeClient (ProviderInterface):
     """

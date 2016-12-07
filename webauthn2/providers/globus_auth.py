@@ -103,6 +103,8 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
                         if props.get("role") in accepted_roles and props.get("status") == "active":
                             context.globus_groups.add(group)
                             break
+        self.provider.manage.update_last_login(manager, context, context.client[ID], db)
+        self.provider.manage.update_last_group_update(manager, context, context.client[ID], db)
         return context.client
 
     def add_extra_token_request_headers(self, token_request):

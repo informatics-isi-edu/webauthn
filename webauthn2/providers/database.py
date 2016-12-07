@@ -341,7 +341,8 @@ UPDATE %(stable)s SET expires = %(expires)s WHERE key = %(key)s AND %(expires)s 
                             key=sql_literal(srow.key),
                             expires=sql_literal(expires))
                      )
-
+            if manager.clients != None and manager.clients.manage != None:
+                manager.clients.manage.update_last_session_extension(manager, context, context.client[ID], db)
         if db:
             return db_body(db)
         else:
@@ -482,13 +483,15 @@ class DatabaseLogin (ClientLogin):
                 context.client[ID] = uname
                 context.client[DISPLAY_NAME] = uname
                 context.client[IDENTITIES] = [context.client.get(ID)]
+                self.provider.manage.update_last_login(manager, context, context.client[ID], db)
                 return context.client
 
         if db:
             return db_body(db)
         else:
             return self.provider._db_wrapper(db_body)
-        
+
+      
 class DatabaseClientManage (ClientManage):
 
     def __init__(self, provider):
@@ -566,6 +569,30 @@ UPDATE %(utable)s SET %(colstring)s where %(username)s=%(uname)s
             return db_body(db)
         else:
             return self.provider._db_wrapper(db_body)
+
+    def update_last_login(self, manager, context, username, db=None):
+        db.query("""
+        update %(utable)s set last_login = now() where id = %(id)s
+        """
+                 %dict(utable=self.provider._table(self.provider.client_storage_name),
+                       id=sql_literal(username))
+             );
+
+    def update_last_session_extension(self, manager, context, username, db=None):
+        db.query("""
+        update %(utable)s set last_session_extension = now() where id = %(id)s
+        """
+                 %dict(utable=self.provider._table(self.provider.client_storage_name),
+                       id=sql_literal(username))
+             );
+
+    def update_last_group_update(self, manager, context, username, db=None):
+        db.query("""
+        update %(utable)s set last_group_update = now() where id = %(id)s
+        """
+                 %dict(utable=self.provider._table(self.provider.client_storage_name),
+                       id=sql_literal(username))
+             );
 
 
 
@@ -732,6 +759,8 @@ WHERE u.%(username)s = %(uname)s
         else:
             return None
 
+
+
     def _client_passwd_matches(self, db, clientname, passwd):
         row = self._client_passwd(db, clientname)
         if row == None:
@@ -882,6 +911,8 @@ WHERE c.attribute IN ( %(attrs)s )
                 else:
                     for row in results:
                         context.attributes.add({ID : row.aid, DISPLAY_NAME : row.attribute})
+            if manager.clients != None:
+                manager.clients.manage.update_last_group_update(manager, context, context.client[ID], db)
 
         if db:
             return db_body(db)

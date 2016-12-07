@@ -336,6 +336,7 @@ class OAuth2Login (ClientLogin):
             if context.user.get(key) != None:
                 context.client[key] = context.user.get(key)
         context.client[IDENTITIES] = [context.client.get(ID)]
+        self.provider.manage.update_last_login(manager, context, context.client[ID], db);
         return context.client
 
     @staticmethod
