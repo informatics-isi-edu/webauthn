@@ -29,12 +29,15 @@ In each `Directory` or `Location` section (or `.htaccess` file) in which you wan
 AuthType webauthn
 ```
 
-To actually do anything with the module, you'll need some `Require` directives. There are two relevant kinds:
+To actually do anything with the module, you'll need some `Require` directives. There are three relevant kinds:
 
 - `Require valid-user`
 - `Require webauthn-group` _group_id_
+- `Require webauthn-optional`
 
-These do pretty much what you'd expect, using the webauthn service to log the user in (if they're not logged in already) and then validate that they're authenticated (for `valid_user`) or in the specified group (for `webauthn-group`).
+The `valid-user` directive grants access to any logged-in user access. The `webauthn-group` directive grants access to any member of the specified group. The `webauthn-optional` directive allows access to anyone, even non-logged-in users (the directive is used to find user and group information and pass it on to the application).
+
+The behavior of the `valid-user` and `webauthn-group` directives when the user isn't logged in is controlled by the `WebauthnIfUnauthn` directive (described below). The `webauthn-optional` directive ignores this option and simply allows the non-logged-in user to proceed.
 
 ```
 Require webauthn-group https://auth.globus.org/176baec4-ed26-11e5-8e88-22000ab4b42b

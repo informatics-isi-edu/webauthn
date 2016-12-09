@@ -20,6 +20,7 @@
 #include <unistd.h>
 
 #define WEBAUTHN_GROUP "webauthn-group"
+#define WEBAUTHN_OPTIONAL "webauthn-optional"
 #define WEBAUTHN_SESSION_BASE64 "WEBAUTHN_SESSION_BASE64"
 #define USER_DISPLAY_NAME "USER_DISPLAY_NAME"
 #define VARY_HEADERS = "WEBAUTHN_VARY_HEADERS"
@@ -59,6 +60,7 @@ static void add_managed_hash_entry(managed_hash *mhash, const char *key, void *d
 static void delete_managed_hash_entry(managed_hash *mhash, const char *key, apr_pool_t *data_pool);
 static managed_hash *create_managed_hash(apr_pool_t *pool);
 static const char *webauthn_set_if_unauthn(cmd_parms *cmd, void *cfg, const char *arg);
+static authz_status webauthn_optional_check_authorization(request_rec *r, const char *require_args, const void *parsed_require_args);
 
 typedef struct {
   char *session_path;
@@ -137,12 +139,12 @@ typedef struct {
 static group_alias *clone_group_alias(apr_pool_t *pool, const group_alias *old);
 static session_info *get_cached_session_info(const char *sessionid);
 static session_info *make_session_info(request_rec *r, apr_pool_t *parent_pool, const char *sessionid, char *json_string);
-static session_info *webauthn_make_session_info_from_scratch(request_rec * r, webauthn_local_config *local_config);
+static session_info *webauthn_make_session_info_from_scratch(request_rec * r, webauthn_local_config *local_config, int never_redirect);
 static void cache_sessioninfo(session_info *sinfo, request_rec *r);
 static int valid_unexpired_session(session_info *sinfo);
 static void delete_cached_session_info(session_info *sinfo);
 static void set_request_vals(request_rec *r, session_info *sinfo);
-static session_info *find_or_create_session_info(request_rec *r, webauthn_local_config *local_config);
+static session_info *find_or_create_session_info(request_rec *r, webauthn_local_config *local_config, int never_redirect);
 
 static void curl_add_put_nothing_opts(request_rec *r, CURL *curl, const char *sessionid);
 
@@ -182,6 +184,12 @@ static const authz_provider authz_webauthn_group_provider =
     &webauthn_parse_config
   };
 
+static const authz_provider authz_webauthn_optional_provider =
+  {
+    &webauthn_optional_check_authorization,
+    &webauthn_parse_config
+  };
+
 
 static void register_hooks(apr_pool_t *pool)
 {
@@ -192,12 +200,15 @@ static void register_hooks(apr_pool_t *pool)
 			    AUTHZ_PROVIDER_VERSION,
 			    &authz_webauthn_group_provider,
 			    AP_AUTH_INTERNAL_PER_CONF);
-
+  ap_register_auth_provider(pool, AUTHZ_PROVIDER_GROUP, WEBAUTHN_OPTIONAL,
+			    AUTHZ_PROVIDER_VERSION,
+			    &authz_webauthn_optional_provider,
+			    AP_AUTH_INTERNAL_PER_CONF);
 
 }
 
 
-static session_info *find_or_create_session_info(request_rec *r, webauthn_local_config *local_config) {
+static session_info *find_or_create_session_info(request_rec *r, webauthn_local_config *local_config, int never_redirect) {
   const char *sessionid = 0;
   session_info *sinfo = 0;
   ap_cookie_read(r, config.cookie_name, &sessionid, 0);
@@ -218,7 +229,7 @@ static session_info *find_or_create_session_info(request_rec *r, webauthn_local_
   }
 
   if (sinfo == NULL) {
-    if ((sinfo = webauthn_make_session_info_from_scratch(r, local_config)) != NULL) {
+    if ((sinfo = webauthn_make_session_info_from_scratch(r, local_config, never_redirect)) != NULL) {
       cache_sessioninfo(sinfo, r);
     }
   }
@@ -229,7 +240,7 @@ static int webauthn_check_user_id(request_rec *r)
 {
   int retval = HTTP_UNAUTHORIZED;
   webauthn_local_config *local_config = (webauthn_local_config *) ap_get_module_config(r->per_dir_config, &webauthn_module);
-  session_info *sinfo = find_or_create_session_info(r, local_config);
+  session_info *sinfo = find_or_create_session_info(r, local_config, 0);
   
   if (sinfo) {
     set_request_vals(r, sinfo);
@@ -251,7 +262,7 @@ static void set_request_vals(request_rec *r, session_info *sinfo) {
   }
 }
 
-static session_info *webauthn_make_session_info_from_scratch(request_rec * r, webauthn_local_config *local_config)
+static session_info *webauthn_make_session_info_from_scratch(request_rec * r, webauthn_local_config *local_config, int never_redirect)
 {
   int debug = 0;
   session_info *sinfo = 0;
@@ -321,7 +332,7 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
 	r->err_headers_out = apr_table_make(r->pool, 1);
       }
       apr_table_setn(r->err_headers_out, "WWW-Authenticate", apr_psprintf(r->pool, "Webauthn: preauth=%s", login_uri));
-    } else {
+    } else if (never_redirect == 0) {
       ap_internal_redirect(login_uri, r);
     }
   }
@@ -725,7 +736,7 @@ static authz_status webauthn_group_check_authorization(request_rec *r, const cha
 
   managed_hash *group_alias_hash = local_config->alias_hash;
 
-  session_info *sinfo = find_or_create_session_info(r, local_config);
+  session_info *sinfo = find_or_create_session_info(r, local_config, 0);
 
   if (sinfo == 0) {
     return (AUTHZ_DENIED_NO_USER);
@@ -758,6 +769,18 @@ static authz_status webauthn_group_check_authorization(request_rec *r, const cha
   }
 
   return(AUTHZ_DENIED);
+}
+
+static authz_status webauthn_optional_check_authorization(request_rec *r, const char *require_args, const void *parsed_require_args)
+{
+  webauthn_local_config *local_config = (webauthn_local_config *) ap_get_module_config(r->per_dir_config, &webauthn_module);
+
+  session_info *sinfo = find_or_create_session_info(r, local_config, 1);
+
+  if (sinfo) {
+    set_request_vals(r, sinfo);
+  }
+  return(AUTHZ_GRANTED);
 }
 
 static void *get_managed_hash_entry(managed_hash *mhash, const char *key) {
