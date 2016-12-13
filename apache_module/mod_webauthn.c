@@ -23,7 +23,8 @@
 #define WEBAUTHN_OPTIONAL "webauthn-optional"
 #define WEBAUTHN_SESSION_BASE64 "WEBAUTHN_SESSION_BASE64"
 #define USER_DISPLAY_NAME "USER_DISPLAY_NAME"
-#define VARY_HEADERS = "WEBAUTHN_VARY_HEADERS"
+#define VARY_HEADERS "WEBAUTHN_VARY_HEADERS"
+#define ANON_SESSION_STRING "{\"client\": null, \"attributes\":[]}"
 /* These next two are defined by curl */
 #define VERIFY_SSL_HOST_OFF 0
 #define VERIFY_SSL_HOST_ON 2
@@ -70,6 +71,7 @@ typedef struct {
   managed_hash *alias_hash;
   int max_cache_seconds;
   int verify_ssl_host;
+  char *anon_session_base64_string;
 } webauthn_config;
 
 
@@ -97,7 +99,7 @@ typedef struct {
     char *data;
     int size;
   } segments[100];
-  int current_data_index;
+  int segment_count;
 } webauthn_http_data;
 
 static CURL *create_curl_handle(request_rec *r, const char *url, webauthn_http_data *data, char *errbuf);
@@ -241,23 +243,27 @@ static int webauthn_check_user_id(request_rec *r)
   int retval = HTTP_UNAUTHORIZED;
   webauthn_local_config *local_config = (webauthn_local_config *) ap_get_module_config(r->per_dir_config, &webauthn_module);
   session_info *sinfo = find_or_create_session_info(r, local_config, 0);
-  
+
+  set_request_vals(r, sinfo);  
   if (sinfo) {
-    set_request_vals(r, sinfo);
     retval = OK;
   }
   return(retval);
 }
 
 static void set_request_vals(request_rec *r, session_info *sinfo) {
-  if (sinfo->user) {
-    r->user = apr_pstrdup(r->pool, sinfo->user->id);
-    if (r->subprocess_env == NULL) {
-      r->subprocess_env = apr_table_make(r->pool, 1);
-    }
-    apr_table_set(r->subprocess_env, WEBAUTHN_SESSION_BASE64, apr_pstrdup(r->pool, sinfo->base64_session_string));
-    if (sinfo->user->display_name) {
-      apr_table_set(r->subprocess_env, USER_DISPLAY_NAME, apr_pstrdup(r->pool, sinfo->user->display_name));
+  if (sinfo == 0) {
+    apr_table_set(r->subprocess_env, WEBAUTHN_SESSION_BASE64, config.anon_session_base64_string);
+  } else {
+    if (sinfo->user) {
+      r->user = apr_pstrdup(r->pool, sinfo->user->id);
+      if (r->subprocess_env == NULL) {
+	r->subprocess_env = apr_table_make(r->pool, 1);
+      }
+      apr_table_set(r->subprocess_env, WEBAUTHN_SESSION_BASE64, apr_pstrdup(r->pool, sinfo->base64_session_string));
+      if (sinfo->user->display_name) {
+	apr_table_set(r->subprocess_env, USER_DISPLAY_NAME, apr_pstrdup(r->pool, sinfo->user->display_name));
+      }
     }
   }
 }
@@ -345,7 +351,7 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
   if(curl) {
     data->pool = r->pool;
     data->r = r;
-    data->current_data_index = 0;
+    data->segment_count = 0;
       
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, webauthn_curl_write_callback); 
@@ -401,6 +407,19 @@ static session_info *make_session_info(request_rec *r, apr_pool_t *parent_pool, 
    * leave the rest of the pool alone"). So we make a new pool for each hash entry.
    */
 
+  enum json_tokener_error json_err;
+  if (json_string == 0) {
+    return 0;
+  }
+
+  json_object *jobj = json_tokener_parse_verbose(json_string, &json_err);
+
+  if (jobj == 0 || json_err != json_tokener_success) {
+    ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+		  "Unable to parse JSON session string: %s\n", json_tokener_error_desc(json_err));
+    return 0;
+  }
+
   apr_pool_t *pool = 0;
   apr_pool_create(&pool, parent_pool);
   session_info *sess = apr_pcalloc(pool, sizeof(session_info));
@@ -408,7 +427,6 @@ static session_info *make_session_info(request_rec *r, apr_pool_t *parent_pool, 
   sess->sessionid = apr_pstrdup(pool, sessionid);
   sess->base64_session_string = ap_pbase64encode(pool, json_string);
 
-  json_object *jobj = json_tokener_parse(json_string);
   webauthn_group *groups = 0;
   int session_seconds = 0;
   webauthn_user *temp_user = 0; /* values not allocated in session_info pool */
@@ -570,6 +588,7 @@ static int webauthn_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *
   config.session_hash = create_managed_hash(pconf);
   config.alias_hash = create_managed_hash(pconf);
   config.max_cache_seconds = -1;
+  config.anon_session_base64_string = ap_pbase64encode(pconf, ANON_SESSION_STRING);
   return OK;
 }
 
@@ -583,24 +602,29 @@ static size_t webauthn_curl_write_callback(char *indata, size_t size, size_t nit
   }
   memcpy(mydata, indata, insize);
   mydata[insize] = '\0';
-  d->segments[d->current_data_index].data = mydata;
-  d->segments[d->current_data_index++].size = insize;
+  d->segments[d->segment_count].data = mydata;
+  d->segments[d->segment_count++].size = insize;
   return(insize);
 }
 
 static char *consolidate_segments(webauthn_http_data *data) {
-  if (data->current_data_index == 1) {
+  if (data == NULL || data->segment_count == 0) {
+    return NULL;
+  }
+  if (data->segment_count == 1) {
     return data->segments[0].data;
   }
   int total_size = 0;
-  for (int i = 0; i < data->current_data_index; i++) {
+  for (int i = 0; i < data->segment_count; i++) {
     total_size += data->segments[i].size;
   }
   char *str = (char *)apr_palloc(data->pool, total_size+1);
   char *s = str;
-  for (int i = 0; i < data->current_data_index; i++) {
-    memcpy(s, data->segments[i].data, data->segments[i].size);
-    s+=data->segments[i].size;
+  for (int i = 0; i < data->segment_count; i++) {
+    if (data->segments[i].size > 0) {
+      memcpy(s, data->segments[i].data, data->segments[i].size);
+      s+=data->segments[i].size;
+    }
   }
   *s = '\0';
   return(str);
@@ -738,12 +762,12 @@ static authz_status webauthn_group_check_authorization(request_rec *r, const cha
 
   session_info *sinfo = find_or_create_session_info(r, local_config, 0);
 
+  set_request_vals(r, sinfo);
+
   if (sinfo == 0) {
     return (AUTHZ_DENIED_NO_USER);
   }
 
-  set_request_vals(r, sinfo);
-  
   const char *desired_group = NULL;
   while ((desired_group = ap_getword_conf(r->pool, &groups_string)) && desired_group[0]) {
     if (group_from_list(desired_group, sinfo->groups)) {
@@ -777,9 +801,7 @@ static authz_status webauthn_optional_check_authorization(request_rec *r, const 
 
   session_info *sinfo = find_or_create_session_info(r, local_config, 1);
 
-  if (sinfo) {
-    set_request_vals(r, sinfo);
-  }
+  set_request_vals(r, sinfo);
   return(AUTHZ_GRANTED);
 }
 
