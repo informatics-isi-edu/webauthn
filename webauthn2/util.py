@@ -333,10 +333,11 @@ def session_from_environment():
     session_string=base64.standard_b64decode(b64_session_string)
     return jsonReader(session_string)
 
-def context_from_environment():
+def context_from_environment(fallback=True):
     """
     Get and decode session details from the environment set by the http server (with mod_webauthn).
-    Returns a Context instance.
+    Returns a Context instance which may be empty (anonymous).
+    If fallback=False, returns None if context was not found in environment.
     Throws TypeError if the base64 decode fails and ValueError if json decode fails
     """
     context_dict = session_from_environment()
@@ -344,7 +345,11 @@ def context_from_environment():
     if context_dict:
         context.client = context_dict['client']
         context.attributes = context_dict['attributes']
-    return context
+        return context
+    elif fallback:
+        return context
+    else:
+        return None
 
 class NoMethod(web.HTTPError):
     """`405 Method Not Allowed` error."""
