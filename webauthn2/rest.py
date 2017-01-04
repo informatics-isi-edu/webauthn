@@ -1,5 +1,5 @@
 # 
-# Copyright 2012 University of Southern California
+# Copyright 2012-2017 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -69,11 +69,86 @@ from util import *
 from manager import Manager, Context
 from providers import Session
 import re
+import logging
+from logging.handlers import SysLogHandler
+import datetime
+import pytz
+import struct
 
 import web
 import traceback
 import sys
 
+## setup logger and web request log helpers
+logger = logging.getLogger('webauthn')
+sysloghandler = SysLogHandler(address='/dev/log', facility=SysLogHandler.LOG_LOCAL1)
+syslogformatter = logging.Formatter('%(name)s[%(process)d.%(thread)d]: %(message)s')
+sysloghandler.setFormatter(syslogformatter)
+logger.addHandler(sysloghandler)
+logger.setLevel(logging.INFO)
+
+# some log message templates
+log_template = "%(elapsed_s)d.%(elapsed_frac)4.4ds %(client_ip)s user=%(client_identity)s req=%(reqid)s"
+log_trace_template = log_template + " -- %(tracedata)s"
+log_final_template = log_template + " (%(status)s) %(method)s %(proto)s://%(host)s%(uri)s %(range)s %(type)s"
+
+def log_parts():
+    """Generate a dictionary of interpolation keys used by our logging template."""
+    now = datetime.datetime.now(pytz.timezone('UTC'))
+    elapsed = (now - web.ctx.webauthn_start_time)
+    client_identity = web.ctx.webauthn2_context.client if web.ctx.webauthn2_context and web.ctx.webauthn2_context.client else ''
+    if type(client_identity) is dict:
+        client_identity = json.dumps(client_identity, separators=(',',':'))
+    parts = dict(
+        elapsed_s = elapsed.seconds, 
+        elapsed_frac = elapsed.microseconds/100,
+        client_ip = web.ctx.ip,
+        client_identity = urllib.quote(client_identity),
+        reqid = web.ctx.webauthn_request_guid
+        )
+    return parts
+
+def request_trace(tracedata):
+    """Log one tracedata event as part of a request's audit trail.
+
+       tracedata: a string representation of trace event data
+    """
+    parts = log_parts()
+    parts['tracedata'] = tracedata
+    logger.info( (log_trace_template % parts).encode('utf-8') )
+
+def web_method():
+    """Augment web handler method with common service logic."""
+    def helper(original_method):
+        def wrapper(*args):
+            # request context init
+            web.ctx.webauthn_request_guid = base64.b64encode( struct.pack('Q', random.getrandbits(64)) )
+            web.ctx.webauthn_start_time = datetime.datetime.now(pytz.timezone('UTC'))
+            web.ctx.webauthn_request_content_range = '-/-'
+            web.ctx.webauthn_content_type = 'unknown'
+            web.ctx.webauthn2_manager = args[0]
+            web.ctx.webauthn2_context = Context() # set empty context for sanity
+            web.ctx.webauthn_request_trace = request_trace
+
+            try:
+                # run actual method
+                return original_method(*args)
+            finally:
+                # finalize
+                parts = log_parts()
+                parts.update(dict(
+                    status = web.ctx.status,
+                    method = web.ctx.method,
+                    proto = web.ctx.protocol,
+                    host = web.ctx.host,
+                    uri = web.ctx.env['REQUEST_URI'],
+                    range = web.ctx.webauthn_request_content_range,
+                    type = web.ctx.webauthn_content_type
+                ))
+                logger.info( (log_final_template % parts).encode('utf-8') )
+        return wrapper
+    return helper
+    
 class RestHandlerFactory (object):
     """
     RestHandlerFactory encapsulates one-time application startup.
@@ -141,6 +216,7 @@ class RestHandlerFactory (object):
                 self.session_uri = session_uri
                 self.session_duration = session_duration
 
+            @web_method()
             def POST(self, sessionids, storage=None):
                 """
                 Session start (login) uses POST with form parameters.
@@ -193,7 +269,8 @@ class RestHandlerFactory (object):
                     for uri_key in sessionids:
                         if uri_key not in self.context.session.keys:
                             raise Forbidden('third-party session access for key "%s" forbidden' % uri_key)
-                        
+
+            @web_method()
             def GET(self, sessionids, db=None):
                 """
                 Session status uses GET.
@@ -276,6 +353,7 @@ class RestHandlerFactory (object):
                     web.header('Content-Length', len(response))
                 return response
 
+            @web_method()
             def PUT(self, sessionids):
                 """
                 Session extension uses PUT.
@@ -300,6 +378,7 @@ class RestHandlerFactory (object):
 
                 return self._db_wrapper(db_body)
 
+            @web_method()
             def DELETE(self, sessionids):
                 """
                 Session termination uses DELETE.
@@ -378,7 +457,7 @@ class RestHandlerFactory (object):
                         # perform authentication
                         self.context.client = self.manager.clients.login.login(self.manager, self.context, db, **storage)
                     except (KeyError, ValueError), ev:
-                        web.debug(traceback.format_exc(ev))
+                        request_trace('session establishment failed: %s %s' % (type(ev), ev))
                         # we don't reveal detailed reason for failed login 
                         msg = 'session establishment with (%s) failed' \
                             % ', '.join(self.manager.clients.login.login_keywords(True))
@@ -441,6 +520,7 @@ class RestHandlerFactory (object):
 
                 return userids
 
+            @web_method()
             def PUT(self, userids, storage=None):
                 """
                 Password update uses PUT.
@@ -496,6 +576,7 @@ class RestHandlerFactory (object):
                     web.header('Content-Length', len(response))
                 return response
 
+            @web_method()
             def DELETE(self, userids, storage=None):
                 """
                 Password disable uses DELETE.
@@ -558,6 +639,7 @@ class RestHandlerFactory (object):
             def __init__(self):
                 RestHandler.__init__(self)
 
+            @web_method()
             def GET(self, userids, storage=None):
                 """
                 User identity listing uses GET.
@@ -620,6 +702,7 @@ class RestHandlerFactory (object):
                     web.header('Content-Length', len(response))
                 return response
 
+            @web_method()
             def PUT(self, userids, storage=None):
                 """
                 User identity creation uses PUT.
@@ -666,6 +749,7 @@ class RestHandlerFactory (object):
                     web.header('Content-Length', len(response))
                 return response
 
+            @web_method()
             def DELETE(self, userids, storage=None):
                 """
                 User identity removal uses DELETE.
@@ -720,6 +804,7 @@ class RestHandlerFactory (object):
             def __init__(self):
                 RestHandler.__init__(self)
 
+            @web_method()
             def GET(self, attrs, storage=None):
                 """
                 Attribute listing uses GET.
@@ -777,6 +862,7 @@ class RestHandlerFactory (object):
                     web.header('Content-Length', len(response))
                 return response
 
+            @web_method()
             def PUT(self, attrs, storage=None):
                 """
                 Attribute creation uses PUT.
@@ -823,6 +909,7 @@ class RestHandlerFactory (object):
                     web.header('Content-Length', len(response))
                 return response
 
+            @web_method()
             def DELETE(self, attrs, storage=None):
                 """
                 Attribute removal uses DELETE.
@@ -877,6 +964,7 @@ class RestHandlerFactory (object):
             def __init__(self):
                 RestHandler.__init__(self)
 
+            @web_method()
             def GET(self, userid, attrs, storage=None):
                 """
                 Attribute assignment listing uses GET.
@@ -932,6 +1020,7 @@ class RestHandlerFactory (object):
                     web.header('Content-Length', len(response))
                 return response
 
+            @web_method()
             def PUT(self, userid, attrs, storage=None):
                 """
                 Attribute assignment creation uses PUT.
@@ -979,6 +1068,7 @@ class RestHandlerFactory (object):
                     web.header('Content-Length', len(response))
                 return response
 
+            @web_method()
             def DELETE(self, userid, attrs, storage=None):
                 """
                 Attribute removal uses DELETE.
@@ -1038,6 +1128,7 @@ class RestHandlerFactory (object):
             def __init__(self):
                 RestHandler.__init__(self)
 
+            @web_method()
             def GET(self, child, parents, storage=None):
                 """
                 Attribute nesting listing uses GET.
@@ -1092,6 +1183,7 @@ class RestHandlerFactory (object):
                     web.header('Content-Length', len(response))
                 return response
 
+            @web_method()
             def PUT(self, child, parents, storage=None):
                 """
                 Attribute nesting creation uses PUT.
@@ -1140,6 +1232,7 @@ class RestHandlerFactory (object):
                     web.header('Content-Length', len(response))
                 return response
 
+            @web_method()
             def DELETE(self, child, parents, storage=None):
                 """
                 Attribute nest removal uses DELETE.
@@ -1195,6 +1288,7 @@ class RestHandlerFactory (object):
             def __init__(self):
                 RestHandler.__init__(self)
 
+            @web_method()
             def GET(self, db=None):
                 """
                 Return pre-authentication data (e.g., display a web form for users to select among IdPs).
@@ -1246,6 +1340,7 @@ class RestHandlerFactory (object):
             def __init(self):
                 Resthandler.__init__(self)
 
+            @web_method()
             def GET(self, sessionids, db=None):
                 return self.DELETE(sessionids)
                 
