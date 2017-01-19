@@ -396,8 +396,8 @@ class OAuth2Login (ClientLogin):
             return urllib2.urlopen(req)
         except Exception, ev:
             if repeatable:
-                web.debug("Got exception {ev} while {text} (url {url}, headers {headers})".format(
-                    ev=str(ev), text=str(text), url=str(req.get_full_url()), headers=str(req.header_items())))
+                web.debug("Got {t} exception {ev} while {text} (url {url}, headers {headers})".format(
+                    t=str(type(ev)), ev=str(ev), text=str(text), url=str(req.get_full_url()), headers=str(req.header_items())))
                 raise ev
             else:
                 raise OAuth2ProtocolError("Error {text}: {ev} ({url})".format(text=text, ev=str(ev), url=req.get_full_url()))

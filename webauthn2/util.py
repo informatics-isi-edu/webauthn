@@ -533,7 +533,7 @@ class DatabaseConnection (PooledConnection):
                         psycopg2.extensions.TransactionRollbackError, 
                         IOError, urllib2.URLError), ev:
                     et, ev2, tb = sys.exc_info()
-                    web.debug('got exception "%s" during _db_wrapper()' % str(ev2),
+                    web.debug('got exception "%s" during _db_wrapper(), retries = %d' % (str(ev2), retries),
                               traceback.format_exception(et, ev2, tb))
                     # these are likely transient errors so rollback and retry
                     t.rollback()
@@ -550,8 +550,6 @@ class DatabaseConnection (PooledConnection):
                 except Exception, ev:
                     def trace():
                         et, ev2, tb = sys.exc_info()
-                        web.debug('got exception "%s" during _db_wrapper()' % str(ev2),
-                                  traceback.format_exception(et, ev2, tb))
 
                     # see if subclass told us how to handle exception
                     for cls, do_commit, do_trace in self.extended_exceptions:
@@ -577,16 +575,17 @@ class DatabaseConnection (PooledConnection):
 
                 retries -= 1
 
-            if retries == 0:
-                # we never get here unless:
-                # 1. an exception prevented 'return val' above
-                # 2. we caught it in an except branch above and it got saved as last_ev for possible retry
-                raise last_ev
-            else:
-                attempt = (retries - self.database_max_retries - 1) * -1
-                delay =  random.uniform(0.75, 1.25) * math.pow(10.0, attempt) * 0.00000001
-                web.debug('transaction attempt %d of %d: delaying %f after "%s"' % (attempt, self.database_max_retries, delay, str(last_ev)))
-                time.sleep(delay)
+                if retries == 0:
+                    # we never get here unless:
+                    # 1. an exception prevented 'return val' above
+                    # 2. we caught it in an except branch above and it got saved as last_ev for possible retry
+                    web.debug('giving up with %s after %d retries' % (str(type(last_ev)), self.database_max_retries))
+                    raise last_ev
+                else:
+                    attempt = (retries - self.database_max_retries - 1) * -1
+                    delay =  random.uniform(0.75, 1.25) * math.pow(10.0, attempt) * 0.00000001
+                    web.debug('transaction attempt %d of %d: delaying %f after "%s"' % (attempt, self.database_max_retries, delay, str(last_ev)))
+                    time.sleep(delay)
 
         finally:
             # return db to pool if we didn't abandon it above
