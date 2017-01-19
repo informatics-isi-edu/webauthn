@@ -287,11 +287,17 @@ class OAuth2Login (ClientLogin):
         token_request = urllib2.Request(self.provider.cfg.get('token_endpoint'), urllib.urlencode(token_args))
         self.add_extra_token_request_headers(token_request)
         u = self.open_url(token_request, "getting token", repeatable)
+        if (u == None):
+            raise OAuth2Exception("Error opening connection for token request")
         repeatable = False
         # Access token has been used, so from this point on, all exceptions should be ones
         # that will not cause db_wrapper to retry (because those retries will fail and generate
         # confusing exceptions / log messages).
-        self.payload=simplejson.load(u)
+        try:
+            self.payload=simplejson.load(u)
+        except ex:
+            web.debug('Exception decoding token payload (http code was {code}): {ex}'.format(code=str(u.getcode()), ex=str(ex)))
+            raise OAUth2Exception('Exception decoding token payload: http code {code}'.format(code=str(u.getcode())))
         u.close()
         token_payload=simplejson.dumps(self.payload, separators=(',', ':'))
         raw_id_token=self.payload.get('id_token')
@@ -390,6 +396,8 @@ class OAuth2Login (ClientLogin):
             return urllib2.urlopen(req)
         except Exception, ev:
             if repeatable:
+                web.debug("Got exception {ev} while {text} (url {url}, headers {headers})".format(
+                    ev=str(ev), text=str(text), url=str(req.get_full_url()), headers=str(req.header_items())))
                 raise ev
             else:
                 raise OAuth2ProtocolError("Error {text}: {ev} ({url})".format(text=text, ev=str(ev), url=req.get_full_url()))
