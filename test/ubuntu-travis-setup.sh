@@ -1,7 +1,9 @@
 #!/bin/bash
 
+set -eu
+
 # turn off mod_webauthn ssl verification
-conf=/etc/apache2/sites-available/webauthn.conf
+conf=/etc/apache2/conf.d/webauthn.conf
 mv $conf $conf.orig
 sed -e "s|\(WebauthnVerifySslHost\).*|\1 off|" \
     < $conf.orig \
