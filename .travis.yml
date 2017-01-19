@@ -31,8 +31,6 @@ install:
   - sudo make testvars
   - sudo make install
   - sudo make deploy
-  - sudo mv /etc/apache2/conf.d/webauthn.conf /etc/apache2/conf.d/webauthn.conf.orig
-  - sudo sed -e 's/\(WebauthnVerifySslHost\).*/\1 off/' < /etc/apache2/conf.d/webauthn.conf.orig > /etc/apache2/conf.d/webauthn.conf
   - sudo bash ./test/ubuntu-travis-setup.sh
   - sudo bash ./test/static-test-setup.sh
   - sudo a2enmod webauthn
