@@ -31,6 +31,8 @@ install:
   - sudo make testvars
   - sudo make install
   - sudo make deploy
+  - sudo mv /etc/apache2/conf.d/webauthn.conf /etc/apache2/conf.d/webauthn.conf.orig
+  - sudo sed -e 's/\(WebauthnVerifySslHost\).*/\1 off/' < /etc/apache2/conf.d/webauthn.conf.orig > /etc/apache2/conf.d/webauthn.conf
   - sudo bash ./test/ubuntu-https-servername.sh
   - sudo bash ./test/static-test-setup.sh
   - sudo a2enmod webauthn
@@ -50,6 +52,7 @@ script:
   - sudo bash ./test/static-tests.sh test1 dummypassword1
 
 after_failure:
+  - sudo cat /etc/apache2/conf.d/webauthn.conf
   - sudo cat /etc/apache2/conf.d/wsgi_webauthn2.conf
   - sudo cat /etc/apache2/conf.d/webauthn_test.conf
   - sudo cat /etc/apache2/mods-available/webauthn.load
