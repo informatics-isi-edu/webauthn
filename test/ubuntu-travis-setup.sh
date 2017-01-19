@@ -1,5 +1,13 @@
 #!/bin/bash
 
+# turn off mod_webauthn ssl verification
+conf=/etc/apache2/sites-available/webauthn.conf
+mv $conf $conf.orig
+sed -e "s|\(WebauthnVerifySslHost\).*|\1 off|" \
+    < $conf.orig \
+    > $conf
+chmod u+rw,og=r $conf
+
 # monkey with ssl.conf for travisci (ubuntu) tests
 
 servername=$(hostname)
