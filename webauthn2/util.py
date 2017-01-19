@@ -19,6 +19,7 @@ import psycopg2
 import psycopg2.extensions
 import web
 import urllib
+import urllib2
 import datetime
 import pytz
 import math
@@ -530,7 +531,7 @@ class DatabaseConnection (PooledConnection):
 
                 except (psycopg2.IntegrityError, 
                         psycopg2.extensions.TransactionRollbackError, 
-                        IOError), ev:
+                        IOError, urllib2.URLError), ev:
                     et, ev2, tb = sys.exc_info()
                     web.debug('got exception "%s" during _db_wrapper()' % str(ev2),
                               traceback.format_exception(et, ev2, tb))
