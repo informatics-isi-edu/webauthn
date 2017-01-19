@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 
-# Copyright 2012-2016 University of Southern California
+# Copyright 2012-2017 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -98,6 +98,7 @@ then
     setsebool -P httpd_enable_homedirs on
 fi
 
+[[ ! -r ${HTTPDCONFDIR}/webauthn.conf ]] && cp ${SHAREDIR}/webauthn.conf ${HTTPDCONFDIR}/.
 [[ ! -r ${HTTPDCONFDIR}/wsgi_webauthn2.conf ]] && cp ${SHAREDIR}/wsgi_webauthn2.conf ${HTTPDCONFDIR}/.
 
 # prevent overwrites

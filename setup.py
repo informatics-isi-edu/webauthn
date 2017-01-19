@@ -1,6 +1,6 @@
 
 #
-# Copyright 2012-2015 University of Southern California
+# Copyright 2012-2017 University of Southern California
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@ setup(
     },
     data_files=[
         (datadir, [
+            "samples/webauthn.conf",
             "samples/wsgi_webauthn2.conf",
         ]),
         (datadir + '/database', [
