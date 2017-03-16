@@ -309,7 +309,7 @@ class RestHandlerFactory (object):
 
                 def has_login_params():
                     for p in web.input():
-                        if p != 'referrer':
+                        if p != 'referrer' and p != 'cid':
                             return True
                     return False
 
