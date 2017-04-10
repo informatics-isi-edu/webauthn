@@ -74,6 +74,7 @@ from logging.handlers import SysLogHandler
 import datetime
 import pytz
 import struct
+import json
 
 import web
 import traceback
@@ -97,7 +98,7 @@ def log_parts():
     now = datetime.datetime.now(pytz.timezone('UTC'))
     elapsed = (now - web.ctx.webauthn_start_time)
     client_identity = web.ctx.webauthn2_context.client if web.ctx.webauthn2_context and web.ctx.webauthn2_context.client else ''
-    if type(client_identity) is dict:
+    if isinstance(client_identity, dict):
         client_identity = json.dumps(client_identity, separators=(',',':'))
     parts = dict(
         elapsed_s = elapsed.seconds, 
@@ -135,6 +136,9 @@ def web_method():
                 return original_method(*args)
             finally:
                 # finalize
+                self = args[0]
+                if hasattr(self, 'context'):
+                    web.ctx.webauthn2_context = self.context
                 parts = log_parts()
                 parts.update(dict(
                     status = web.ctx.status,
