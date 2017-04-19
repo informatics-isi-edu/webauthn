@@ -184,6 +184,16 @@ class Session (object):
         self.since = since
         self.expires = expires
 
+    def to_dict(self):
+        r = {}
+        for k, v in [
+                ('since', self.since),
+                ('expires', self.expires),
+        ]:
+            if v is not None:
+                r[k] = v.isoformat(' ')
+        return r
+        
     def __repr__(self):
         return '<%s %s>' % (type(self), dict(keys=self.keys, 
                                              since=self.since,

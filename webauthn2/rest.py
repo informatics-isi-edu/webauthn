@@ -161,6 +161,8 @@ def web_method():
                     ]
                     if v
                 ])
+                if web.ctx.webauthn2_context and web.ctx.webauthn2_context.session:
+                    od['session'] = web.ctx.webauthn2_context.session.to_dict()
                 logger.info( json.dumps(od, separators=(', ', ':')).encode('utf-8') )
         return wrapper
     return helper
