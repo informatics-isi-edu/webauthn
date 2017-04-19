@@ -346,6 +346,11 @@ def context_from_environment(fallback=True):
     if context_dict:
         context.client = context_dict['client']
         context.attributes = context_dict['attributes']
+        context.session = {
+            k: v
+            for k, v in context_dict.items()
+            if k in {'since', 'expires', 'seconds_remaining', 'vary_headers'}
+        }
         return context
     elif fallback:
         return context
