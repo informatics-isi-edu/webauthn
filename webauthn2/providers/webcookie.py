@@ -1,6 +1,6 @@
 
 # 
-# Copyright 2010-2012 University of Southern California
+# Copyright 2010-2017 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -43,9 +43,10 @@ import web
 import random
 
 config_built_ins = web.storage(
-    web_cookie_name= 'webauthn2',
+    web_cookie_name= 'webauthn',
     web_cookie_secure= True,
-    web_cookie_path= '/'
+    web_cookie_path= '/',
+    tracking_cookie_name='webauthn_track',
 )
 
 test_cookies = web.storage()
@@ -74,13 +75,19 @@ class WebcookieSessionIdProvider (SessionIdProvider):
         self.cookiename = config.web_cookie_name
         self.secure = config.web_cookie_secure
         self.path = config.web_cookie_path
+        self.trackcookiename = config.tracking_cookie_name
 
     def get_request_sessionids(self, manager, context, db=None):
         if 'env' in web.ctx:
             cookie = web.cookies().get(self.cookiename)
+            track = web.cookies().get(self.trackcookiename)
         else:
             cookie = test_cookies.get(self.cookiename)
+            track = None
 
+        if track:
+            context.tracking = track
+            
         if cookie:
             # cookie contains sessguid | other data...
             return [ cookie.split('|')[0] ]

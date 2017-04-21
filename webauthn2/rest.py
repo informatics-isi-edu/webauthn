@@ -158,6 +158,7 @@ def web_method():
                         ('user', parts['client_identity_obj']),
                         ('referrer', web.ctx.env.get('HTTP_REFERER')),
                         ('agent', web.ctx.env.get('HTTP_USER_AGENT')),
+                        ('track', web.ctx.webauthn2_context.tracking),
                     ]
                     if v
                 ])
@@ -362,7 +363,8 @@ class RestHandlerFactory (object):
                     since=self.context.session.since,
                     expires=self.context.session.expires,
                     seconds_remaining=self.context.session.expires and (self.context.session.expires - now).seconds,
-                    vary_headers=list(self.manager.get_http_vary())
+                    vary_headers=list(self.manager.get_http_vary()),
+                    tracking=self.context.tracking,
                     )
                 response = jsonWriter(response) + '\n'
                 if 'env' in web.ctx:

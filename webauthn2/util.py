@@ -256,6 +256,7 @@ class Context (object):
         context.session     exposes session information or is None 
         context.client      exposes name-value pairs associated with the client
         context.attributes  exposes a set of client attributes
+        context.tracking    exposes a tracking ID or is None
 
     The non-None session object should always implement interfaces
     consistent with the Session class.  It may support additional
@@ -279,6 +280,7 @@ class Context (object):
         self.session = None
         self.attributes = set()
         self.client = None
+        self.tracking = None
 
         if manager:
             # look for existing session ID context in message
@@ -314,9 +316,16 @@ class Context (object):
             return self.client.get("id")
 
     def __repr__(self):
-        return '<%s %s>' % (type(self), dict(session=self.session,
-                                             client=self.client,
-                                             attributes=self.attributes))
+        return '<%s %s>' % (
+            type(self),
+            dict(
+                session=self.session,
+                client=self.client,
+                attributes=self.attributes,
+                tracking=self.tracking,
+            )
+        )
+
 def session_from_environment():
     """
     Get and decode session details from the environment set by the http server (with mod_webauthn).
@@ -351,6 +360,7 @@ def context_from_environment(fallback=True):
             for k, v in context_dict.items()
             if k in {'since', 'expires', 'seconds_remaining', 'vary_headers'}
         }
+        context.tracking = context_dict.get('tracking')
         return context
     elif fallback:
         return context

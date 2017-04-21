@@ -17,7 +17,8 @@
         
   "handler_uri_usersession": "/ermrest/authn/session", 
         
-  "web_cookie_name": "webauthn", 
+  "web_cookie_name": "webauthn",
+  "tracking_cookie_name": "webauthn_track",
   "web_cookie_path": "/",
   "web_cookie_secure": true, 
   "setheader": false,
