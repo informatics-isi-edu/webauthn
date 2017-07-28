@@ -24,7 +24,6 @@
 #define WEBAUTHN_SESSION_BASE64 "WEBAUTHN_SESSION_BASE64"
 #define USER_DISPLAY_NAME "USER_DISPLAY_NAME"
 #define VARY_HEADERS "WEBAUTHN_VARY_HEADERS"
-#define ANON_SESSION_STRING "{\"client\": null, \"attributes\":[]}"
 /* These next two are defined by curl */
 #define VERIFY_SSL_HOST_OFF 0
 #define VERIFY_SSL_HOST_ON 2
@@ -40,6 +39,7 @@ static const char *webauthn_set_login_path(cmd_parms *cmd, void *cfg, const char
 static const char *webauthn_set_session_path(cmd_parms *cmd, void *cfg, const char *arg);
 static const char *webauthn_set_verify_ssl_host(cmd_parms *cmd, void *cfg, const char *arg);
 static const char *webauthn_set_cookie_name(cmd_parms *cmd, void *cfg, const char *arg);
+static const char *webauthn_set_tracking_cookie_name(cmd_parms *cmd, void *cfg, const char *arg);
 static int webauthn_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *ptemp);
 static size_t webauthn_curl_write_callback(char *indata, size_t size, size_t nitems, void *buffer);
 static void *create_local_conf(apr_pool_t *pool, char *context);
@@ -49,6 +49,7 @@ static const char *webauthn_set_max_cache_seconds(cmd_parms *cmd, void *cfg, con
 static const char *webauthn_parse_config(cmd_parms *cmd, const char *require_line, const void **parsed_require_line);
 static const char *webauthn_add_group_alias(cmd_parms *cmd, void *cfg, const char *alias, const char *group, const char *verify);
 static void *merge_local_conf(apr_pool_t *pool, void *parent_cfg, void *child_cfg);
+static char *make_anon_session_string(request_rec *r);
 
 typedef struct {
   apr_hash_t *hash;
@@ -67,11 +68,11 @@ typedef struct {
   char *session_path;
   char *login_path;
   char *cookie_name;
+  char *tracking_cookie_name;  
   managed_hash *session_hash;
   managed_hash *alias_hash;
   int max_cache_seconds;
   int verify_ssl_host;
-  char *anon_session_base64_string;
 } webauthn_config;
 
 
@@ -161,6 +162,7 @@ static const command_rec webauthn_directives[] =
   {
     AP_INIT_TAKE1("WebauthnLoginPath", webauthn_set_login_path, NULL, RSRC_CONF, "Relative url for login"),
     AP_INIT_TAKE1("WebauthnCookieName", webauthn_set_cookie_name, NULL, RSRC_CONF, "Webauthn cookie name"),
+    AP_INIT_TAKE1("WebauthnTrackingCookieName", webauthn_set_tracking_cookie_name, NULL, RSRC_CONF, "Webauthn anon tracking cookie name"),    
     AP_INIT_TAKE1("WebauthnSessionPath", webauthn_set_session_path, NULL, RSRC_CONF, "Relative url for session query"),
     AP_INIT_TAKE1("WebauthnVerifySslHost", webauthn_set_verify_ssl_host, NULL, RSRC_CONF, "Flag to validate ssl hostname for login/session urls"),
     AP_INIT_TAKE1("WebauthnMaxCacheSeconds", webauthn_set_max_cache_seconds, NULL, RSRC_CONF, "Maximum number of seconds to cache session info before querying webauthn"),
@@ -253,7 +255,7 @@ static int webauthn_check_user_id(request_rec *r)
 
 static void set_request_vals(request_rec *r, session_info *sinfo) {
   if (sinfo == 0) {
-    apr_table_set(r->subprocess_env, WEBAUTHN_SESSION_BASE64, config.anon_session_base64_string);
+    apr_table_set(r->subprocess_env, WEBAUTHN_SESSION_BASE64, make_anon_session_string(r));
   } else {
     if (sinfo->user) {
       r->user = apr_pstrdup(r->pool, sinfo->user->id);
@@ -267,6 +269,19 @@ static void set_request_vals(request_rec *r, session_info *sinfo) {
     }
   }
 }
+
+static char *make_anon_session_string(request_rec *r) {
+  char *s;
+  const char *tracking_id = 0;
+  ap_cookie_read(r, config.tracking_cookie_name, &tracking_id, 0);
+  if (tracking_id) {
+    s = apr_psprintf(r->pool, "{\"tracking\": \"%s\", \"client\": null, \"attributes\":[]}", tracking_id);
+  } else {
+    s = "{\"client\": null, \"attributes\":[]}";
+  }
+  return(ap_pbase64encode(r->pool, s));  
+}
+
 
 static session_info *webauthn_make_session_info_from_scratch(request_rec * r, webauthn_local_config *local_config, int never_redirect)
 {
@@ -365,9 +380,17 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
 
 static void curl_add_put_nothing_opts(request_rec *r, CURL *curl, const char *sessionid)
 {
+  char *cookie_string;
+  const char *tracking_id;
+  ap_cookie_read(r, config.tracking_cookie_name, &tracking_id, 0);  
   /* CURLOPT_UPLOAD appears to be broken, so do this instead */
   curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
-  char *cookie_string = apr_psprintf(r->pool, "%s=%s", config.cookie_name, sessionid);
+  if (tracking_id) {  
+    cookie_string = apr_psprintf(r->pool, "%s=%s; %s=%s", config.cookie_name, sessionid, config.tracking_cookie_name, tracking_id);
+  } else {
+    cookie_string = apr_psprintf(r->pool, "%s=%s", config.cookie_name, sessionid);
+  }    
+    
   curl_easy_setopt(curl, CURLOPT_COOKIE, cookie_string); 
 }
 
@@ -470,6 +493,12 @@ static const char *webauthn_set_login_path(cmd_parms *cmd, void *cfg, const char
 static const char *webauthn_set_cookie_name(cmd_parms *cmd, void *cfg, const char *arg)
 {
   config.cookie_name = apr_pstrdup(cmd->pool, arg);
+  return NULL;
+}
+
+static const char *webauthn_set_tracking_cookie_name(cmd_parms *cmd, void *cfg, const char *arg)
+{
+  config.tracking_cookie_name = apr_pstrdup(cmd->pool, arg);
   return NULL;
 }
 
@@ -584,11 +613,11 @@ static int webauthn_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *
   config.login_path = NULL;
   config.verify_ssl_host = VERIFY_SSL_HOST_ON;
   config.cookie_name = "webauthn";
+  config.tracking_cookie_name = "webauthn_track";  
   curl_global_init(CURL_GLOBAL_SSL);
   config.session_hash = create_managed_hash(pconf);
   config.alias_hash = create_managed_hash(pconf);
   config.max_cache_seconds = -1;
-  config.anon_session_base64_string = ap_pbase64encode(pconf, ANON_SESSION_STRING);
   return OK;
 }
 
