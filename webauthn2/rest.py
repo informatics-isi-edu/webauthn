@@ -394,7 +394,7 @@ class RestHandlerFactory (object):
                     self._session_authz(sessionids)
                     self.context.session.expires = now + self.session_duration
                     self.manager.sessions.extend(self.manager, self.context, db)
-                    return self.GET(sessionids, db)
+                    return self._login_response()
 
                 return self._db_wrapper(db_body)
 
