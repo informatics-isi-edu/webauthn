@@ -85,7 +85,6 @@ pgid ${DAEMONUSER} || pgcreateuser -D -R -S ${DAEMONUSER}
 
 # temporary ugliness for backwards-compatibility
 $SU -c "psql -c 'GRANT ${DAEMONUSER} TO ermrest'" - ${PGADMIN}
-$SU -c "psql -c 'GRANT ${DAEMONUSER} TO ermrestddl'" - ${PGADMIN}
 $SU -c "psql -c 'GRANT ${DAEMONUSER} TO hatrac'" - ${PGADMIN}
 
 if [[ -r /etc/redhat-release ]]
