@@ -38,8 +38,15 @@ web service written in Python and using the web.py web framework.
 
 As root, run these convenience `Makefile` targets for development and test:
 
+    make preinstall_centos
     make install
 	make deploy
+
+The `preinstall_centos` target may work on several Linux distributions
+including CentOS 7 and recent Fedora. It is not a frequently tested
+build method as most production environments choose to manage
+prerequisites more explicitly and so the webauthn `install` target
+does not attempt to solve those prerequisites itself.
 
 If you wish to modify the service configuration, edit the
 `~webauthn/webauthn2_config.json` (see `samples/` folder in source

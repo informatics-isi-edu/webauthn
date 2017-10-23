@@ -59,7 +59,7 @@ uninstall: force
 	rmdir --ignore-fail-on-non-empty -p $(UNINSTALL_DIRS)
 
 preinstall_centos: force
-	yum -y install python python-psycopg2 python-dateutil python-webpy pytz
+	yum -y install python python-psycopg2 python-dateutil python-webpy pytz libcurl libcurl-devel json-c json-c-devel httpd-devel
 
 preinstall_ubuntu: force
 	apt-get -y install python python-psycopg2 python-dateutil python-webpy python-tz
