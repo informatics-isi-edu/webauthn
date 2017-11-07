@@ -142,6 +142,14 @@ def web_method():
                 self = args[0]
                 if hasattr(self, 'context'):
                     web.ctx.webauthn2_context = self.context
+
+                try:
+                    dcctx = web.ctx.env.get('HTTP_DERIVA_CLIENT_CONTEXT', 'null')
+                    dcctx = urllib.unquote(dcctx)
+                    dcctx = json.loads(dcctx)
+                except:
+                    dcctx = None
+
                 parts = log_parts()
                 od = OrderedDict([
                     (k, v) for k, v in [
@@ -159,6 +167,7 @@ def web_method():
                         ('referrer', web.ctx.env.get('HTTP_REFERER')),
                         ('agent', web.ctx.env.get('HTTP_USER_AGENT')),
                         ('track', web.ctx.webauthn2_context.tracking),
+                        ('dcctx', dcctx),
                     ]
                     if v
                 ])
