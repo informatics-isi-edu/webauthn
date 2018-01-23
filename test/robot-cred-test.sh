@@ -36,4 +36,4 @@ cookie_hdr=$(grep '"cookie":' "$1" | sed -e 's/ *"cookie": *"\([^"]*\)".*/\1/')
 
 require "non-empty cookie header" [ -n "${cookie_hdr}" ]
 
-require "found session" curl -f -H "Cookie: ${cookie_hdr}" "https://$(hostname)/authn/session"
+require "found session" curl -f -k -H "Cookie: ${cookie_hdr}" "https://$(hostname)/authn/session"
