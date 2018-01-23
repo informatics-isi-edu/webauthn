@@ -62,4 +62,4 @@ after_failure:
   - sudo ls -lR /etc/apache2
   - sudo cat ${HTTPD_ERROR_LOG}
   - sudo cat /var/log/apache2/access.log
-  - sudo cat ~webauthn/robot123cred.json
+  - sudo cat /tmp/robot123cred.json
