@@ -48,8 +48,8 @@ script:
   - sudo -H -u webauthn webauthn2-manage passwd test2 dummypassword2
   - sudo bash ./test/rest-tests.sh test1 dummypassword1
   - sudo bash ./test/static-tests.sh test1 dummypassword1
-  - sudo -H -u webauthn webauthn2-manage addrobot robot123 robot123cred.json 5
-  - sudo bash ./test/robot-cred-test.sh ~webauthn/robot123cred.json
+  - sudo -H -u webauthn webauthn2-manage addrobot robot123 /tmp/robot123cred.json 5
+  - sudo bash ./test/robot-cred-test.sh /tmp/robot123cred.json
 
 after_failure:
   - sudo cat /etc/apache2/conf.d/webauthn.conf
