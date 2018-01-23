@@ -1,6 +1,6 @@
 
 # 
-# Copyright 2012 University of Southern California
+# Copyright 2012-2018 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -85,12 +85,14 @@ database_type
 """
 
 import os.path
+import platform
+import datetime
 import web
 import util
 import providers
 
 from providers.providers import Session, ID
-from util import Context
+from util import Context, urlquote
 
 source_checksum = None
 
@@ -246,6 +248,70 @@ class Manager (util.DatabaseConnection):
         result.update( self.clients.get_http_vary() )
         result.update( self.attributes.get_http_vary() )
         return result
+
+    def make_robot_session(self, robot_identity, robot_duration, existing_creds=None):
+        """Create robot session returning new credentials or extend existing session returning None.
+
+           If existing_creds are provided, they must resolve to a
+           matching session which will simply be extended to the new
+           duration.
+
+           If no existing_creds are provided (default), a new session
+           is created.
+
+           In either case, the local robot_identity will be qualified
+           with an identity authority appropriate to the local
+           deployment:  https://local.host.fqdn/webauthn_robot/
+
+        """
+        if not self.sessionids or self.sessionids.key != 'webcookie':
+            raise NotImplementedError('robot session requires webcookie sessionids provider')
+        if not self.sessions:
+            raise NotImplementedError('robot session requires sessions provider')
+
+        robot_hostname = platform.node() # host FQDN
+        robot_identity_uri = 'https://%s/webauthn_robot/%s' % (robot_hostname, urlquote(robot_identity))
+
+        if existing_creds is not None:
+            cred_cookie_hdr = existing_creds[robot_hostname]['cookie']
+            cred_cookiename, cred_cookie = cred_cookie_hdr.split('=', 1)
+            assert cred_cookiename == self.sessionids.cookiename, 'existing credential cookie name "%s" != configuration "%s"' % (cred_cookiename, self.sessionids.cookiename)
+
+            # attempt to find existing session
+            context = Context()
+            self.sessions.set_msg_context(self, context, [cred_cookie])
+            assert context.session is not None, 'existing credential %s does not match an existing session' % cred_cookie_hdr
+            assert context.client['id'] == robot_identity_uri, 'existing session identity "%s" != requested "%s" at hostname %s' % (
+                context.client['id'],
+                robot_identity,
+                robot_hostname
+            )
+
+            # extend current session
+            self.sessions.extend(self, context, duration=robot_duration)
+
+            return None
+        else:
+            context = Context()
+            context.session = Session(
+                since=datetime.datetime.utcnow(),
+                expires=datetime.datetime.utcnow() + robot_duration
+            )
+            self.sessionids.create_unique_sessionids(self, context)
+
+            context.client = {
+                'id': robot_identity_uri,
+                'display_name': robot_identity,
+                'identities': [ robot_identity_uri ],
+            }
+            context.attributes = [ context.client ]
+
+            self.sessions.new(self, context)
+            return {
+                robot_hostname: {
+                    'cookie': '%s=%s' % (self.sessionids.cookiename, context.session.keys[0])
+                }
+            }
 
 nullmanager = None
 

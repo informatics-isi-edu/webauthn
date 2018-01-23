@@ -1,7 +1,7 @@
 #!/usr/bin/python
 
 # 
-# Copyright 2012-2015 University of Southern California
+# Copyright 2012-2018 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,8 +16,10 @@
 # limitations under the License.
 #
 
+import os.path
 import sys
-
+import json
+import datetime
 import web
 web.config.debug = False
 web.config.debug_sql = False
@@ -46,6 +48,19 @@ webauthn2 service state.
 
    or: nest <child attr> <parent attr>   (make child attribute imply parent attribute)
    or: unnest <child attr> <parent attr> (make child attribute not imply parent attribute)
+
+   or: addrobot <username> <credfile> <days> (create robot session and credential file)
+
+The addrobot sub-command creates a fake identity, e.g.
+
+   { 'id': 'https://host1.example.com/webauthn_robot/user1' }
+
+if given the <username> argument 'user1' and executed on
+host1.example.com. A fake session will be created or extended for this
+identity with an expiration time <days> days in the future and the
+session key saved to <credfile> in the format expected by the
+deriva-py get_credentials() helper.
+
 
 Exit status:
 
@@ -122,6 +137,26 @@ def main(args):
             else:
                 raise NotImplementedError()
 
+        elif len(args) == 4 and args[0] == 'addrobot':
+            robot_credfilename = args[2]
+            try:
+                with open(robot_credfilename, 'rb') as robot_credfile:
+                    creds = json.load(robot_credfile)
+            except:
+                # missing or invalid existing credfile
+                creds = None
+
+            new_creds = webauthn2_manager.make_robot_session(args[1], datetime.timedelta(int(args[3])), existing_creds=creds)
+            if new_creds is not None:
+                try:
+                    # purge stale credentials
+                    os.remove(robot_credfilename)
+                except OSError:
+                    pass
+
+                # create new credentials file
+                with open(robot_credfilename, 'wb') as robot_credfile:
+                    json.dump(new_creds, robot_credfile, indent=2)
         else:
             usage()
             return 1

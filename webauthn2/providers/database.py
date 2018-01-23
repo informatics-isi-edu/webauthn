@@ -1,6 +1,6 @@
 
 # 
-# Copyright 2010-2012 University of Southern California
+# Copyright 2010-2018 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -319,7 +319,7 @@ INSERT INTO %(stable)s (key, since, keysince, expires, client, attributes, %(use
             return self._db_wrapper(db_body)
         
 
-    def extend(self, manager, context, db=None):
+    def extend(self, manager, context, db=None, duration=None):
         """
         Update expiration time of existing session mirroring context in persistent store.
 
@@ -327,8 +327,11 @@ INSERT INTO %(stable)s (key, since, keysince, expires, client, attributes, %(use
         def db_body(db):
             srow = self._session(db, context.session.keys)
             now = datetime.datetime.now(pytz.timezone('UTC'))
-            duration = datetime.timedelta(minutes=int(manager.config.get('session_expiration_minutes', 30)))
-            expires = now + duration
+            if duration is None:
+                newduration = datetime.timedelta(minutes=int(manager.config.get('session_expiration_minutes', 30)))
+            else:
+                newduration = duration
+            expires = now + newduration
             # check timestamp ordering because python time differences wrap around
             # in ugly ways instead of producing signed results!
             if (srow.expires > expires) or (expires - srow.expires).seconds < 5:
