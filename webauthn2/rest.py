@@ -192,7 +192,7 @@ def request_final_json(parts, extra={}):
 
     if web.ctx.webauthn2_context and web.ctx.webauthn2_context.session:
         session = web.ctx.webauthn2_context.session
-        if hasattr(session, to_dict):
+        if hasattr(session, 'to_dict'):
             session = session.to_dict()
         od['session'] = session
 
