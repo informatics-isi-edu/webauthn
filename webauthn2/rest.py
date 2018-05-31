@@ -75,6 +75,7 @@ import datetime
 import pytz
 import struct
 import json
+import hashlib
 from collections import OrderedDict
 
 import web
@@ -89,25 +90,34 @@ sysloghandler.setFormatter(syslogformatter)
 logger.addHandler(sysloghandler)
 logger.setLevel(logging.INFO)
 
-def log_parts():
-    """Generate a dictionary of interpolation keys used by our logging template."""
+def get_log_parts(start_time_key, request_guid_key, content_range_key, content_type_key):
+    """Generate a dictionary of interpolation keys used by our logging template.
+
+       Arguments:
+          start_time_key: key to entry in web.ctx w/ current request start timestamp
+          request_guid_key: key to entry in web.ctx w/ current request GUID
+          content_range_key: key to entry in web.ctx w/ HTTP range
+          content_type_key: key to entry in web.ctx w/ HTTP content type
+    """
     now = datetime.datetime.now(pytz.timezone('UTC'))
-    elapsed = (now - web.ctx.webauthn_start_time)
+    elapsed = (now - web.ctx[start_time_key])
     client_identity_obj = web.ctx.webauthn2_context and web.ctx.webauthn2_context.client or None
     parts = dict(
         elapsed = elapsed.seconds + 0.001 * (elapsed.microseconds/1000),
         client_ip = web.ctx.ip,
         client_identity_obj = client_identity_obj,
-        reqid = web.ctx.webauthn_request_guid
+        reqid = web.ctx[request_guid_key],
+        content_range = web.ctx[content_range_key],
+        content_type = web.ctx[content_range_key],
         )
     return parts
 
-def request_trace(tracedata):
-    """Log one tracedata event as part of a request's audit trail.
+def request_trace_json(tracedata, parts):
+    """Format one tracedata event as part of a request's audit trail.
 
        tracedata: a string representation of trace event data
+       parts: dictionary of log parts
     """
-    parts = log_parts()
     od = OrderedDict([
         (k, v) for k, v in [
             ('elapsed', parts['elapsed']),
@@ -118,8 +128,89 @@ def request_trace(tracedata):
         ]
         if v
     ])
+    return json.dumps(od, separators=(', ', ':')).encode('utf-8')
+
+def prune_excessive_dcctx(dcctx):
+    """Heuristically prune content from dcctx to avoid overly long log entries.
+
+       The main variable content is facet or referrer.facet
+       descriptions, so limit those.
+
+    """
+    max_facet_len = 2000
+
+    def prune_facet(container):
+        if 'facet' in container:
+            facet = container['facet']
+            facet_str = json.dumps(facet, separators=(',', ':'))
+            if len(facet_str) > max_facet_len:
+                del container['facet']
+                container['facet_trunc'] = facet_str[0:max_facet_len]
+
+    if 'referrer' in dcctx:
+        referrer = dcctx['referrer']
+        if isinstance(referrer, dict):
+            prune_facet(referrer)
+        else:
+            del dcctx['referrer']
+
+    prune_facet(dcctx)
+    return dcctx
+
+def request_final_json(parts, extra={}):
+    try:
+        dcctx = web.ctx.env.get('HTTP_DERIVA_CLIENT_CONTEXT', 'null')
+        dcctx = urllib.unquote(dcctx)
+        dcctx = prune_excessive_dcctx(json.loads(dcctx))
+    except:
+        dcctx = None
+
+    od = OrderedDict([
+        (k, v) for k, v in [
+            ('elapsed', parts['elapsed']),
+            ('req', parts['reqid']),
+            ('scheme', web.ctx.protocol),
+            ('host', web.ctx.host),
+            ('status', web.ctx.status),
+            ('method', web.ctx.method),
+            ('path', web.ctx.env['REQUEST_URI']),
+            ('range', parts['content_range']),
+            ('type', parts['content_type']),
+            ('client', parts['client_ip']),
+            ('user', parts['client_identity_obj']),
+            ('referrer', web.ctx.env.get('HTTP_REFERER')),
+            ('agent', web.ctx.env.get('HTTP_USER_AGENT')),
+            ('track', web.ctx.webauthn2_context.tracking),
+            ('dcctx', dcctx),
+        ]
+        if v
+    ])
+    if len(od.get('referrer', '')) > 1000:
+        # truncate overly long URL
+        od['referrer_md5'] = hashlib.md5(od['referrer']).hexdigest()
+        od['referrer'] = od['referrer'][0:500]
+
+    if web.ctx.webauthn2_context and web.ctx.webauthn2_context.session:
+        session = web.ctx.webauthn2_context.session
+        if hasattr(session, to_dict):
+            session = session.to_dict()
+        od['session'] = session
+
+    for k, v in extra.items():
+        od[k] = v
+
+    return json.dumps(od, separators=(', ', ':')).encode('utf-8')
     
-    logger.info( json.dumps(od, separators=(', ', ':')).encode('utf-8') )
+def log_parts():
+    """Generate a dictionary of interpolation keys used by our logging template."""
+    return get_log_parts('webauthn_start_time', 'webauthn_request_guid', 'webauthn_request_content_range', 'webauthn_content_type')
+
+def request_trace(tracedata):
+    """Log one tracedata event as part of a request's audit trail.
+
+       tracedata: a string representation of trace event data
+    """
+    logger.info(request_trace_json(tracedata, log_parts()))
 
 def web_method():
     """Augment web handler method with common service logic."""
@@ -143,37 +234,7 @@ def web_method():
                 if hasattr(self, 'context'):
                     web.ctx.webauthn2_context = self.context
 
-                try:
-                    dcctx = web.ctx.env.get('HTTP_DERIVA_CLIENT_CONTEXT', 'null')
-                    dcctx = urllib.unquote(dcctx)
-                    dcctx = json.loads(dcctx)
-                except:
-                    dcctx = None
-
-                parts = log_parts()
-                od = OrderedDict([
-                    (k, v) for k, v in [
-                        ('elapsed', parts['elapsed']),
-                        ('req', parts['reqid']),
-                        ('scheme', web.ctx.protocol),
-                        ('host', web.ctx.host),
-                        ('status', web.ctx.status),
-                        ('method', web.ctx.method),
-                        ('path', web.ctx.env['REQUEST_URI']),
-                        ('range', web.ctx.webauthn_request_content_range),
-                        ('type', web.ctx.webauthn_content_type),
-                        ('client', parts['client_ip']),
-                        ('user', parts['client_identity_obj']),
-                        ('referrer', web.ctx.env.get('HTTP_REFERER')),
-                        ('agent', web.ctx.env.get('HTTP_USER_AGENT')),
-                        ('track', web.ctx.webauthn2_context.tracking),
-                        ('dcctx', dcctx),
-                    ]
-                    if v
-                ])
-                if web.ctx.webauthn2_context and web.ctx.webauthn2_context.session:
-                    od['session'] = web.ctx.webauthn2_context.session.to_dict()
-                logger.info( json.dumps(od, separators=(', ', ':')).encode('utf-8') )
+                logger.info( request_final_json(log_parts()) )
         return wrapper
     return helper
     
