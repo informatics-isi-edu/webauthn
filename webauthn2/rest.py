@@ -84,7 +84,12 @@ import sys
 
 ## setup logger and web request log helpers
 logger = logging.getLogger('webauthn')
-sysloghandler = SysLogHandler(address='/dev/log', facility=SysLogHandler.LOG_LOCAL1)
+try:
+    # the use of '/dev/log' causes SysLogHandler to assume the availability of Unix sockets
+    sysloghandler = SysLogHandler(address='/dev/log', facility=SysLogHandler.LOG_LOCAL1)
+except:
+    # this fallback allows this file to at least be cleanly imported on non-Unix systems
+    sysloghandler = logging.StreamHandler()
 syslogformatter = logging.Formatter('%(name)s[%(process)d.%(thread)d]: %(message)s')
 sysloghandler.setFormatter(syslogformatter)
 logger.addHandler(sysloghandler)
