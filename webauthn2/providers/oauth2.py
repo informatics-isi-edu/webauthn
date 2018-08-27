@@ -713,12 +713,21 @@ class OAuth2SessionStateProvider(database.DatabaseSessionStateProvider):
         self.cfg = OAuth2Config(config)
         self.oauth_context = dict()
         self.nonce_cookie_name = config.oauth2_nonce_cookie_name
+        self.extra_columns = [('wallet', 'json')]
+
+    def _new_session_extras(self, manager, context, db):
+        return [('wallet', simplejson.dumps(context.wallet, separators=(',', ':')))]
 
     def set_oauth_context_val(self, key, value):
         self.oauth_context[key] = value
 
     def set_oauth_context_val(self, key):
         return self.oauth_context.get(key)
+
+    def deploy_minor_upgrade(self, old_minor, db):
+        if self.major == 2 and old_minor == 0:
+            self._add_extra_columns(db)
+        return True
 
     def terminate(self, manager, context, db=None, preferred_final_url=None):
         database.DatabaseSessionStateProvider.terminate(self, manager, context, db, preferred_final_url)

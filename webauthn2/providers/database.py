@@ -143,10 +143,18 @@ class DatabaseConnection2 (DatabaseConnection):
            False: upgrade not possible, data incompatible
 
         """
-        if versioninfo.major != self.major or versioninfo.minor != self.minor:
+
+        if versioninfo.major != self.major:
             return False
+        elif versioninfo.minor > self.minor:
+            return False
+        elif versioninfo.minor < self.minor:
+            return self.deploy_minor_upgrade(versioninfo.minor, db)
         else:
             return None
+
+    def deploy_minor_upgrade(self, old_minor):
+        return False
 
     def deploy_guard(self, db, suffix=''):
         """
@@ -184,7 +192,7 @@ CREATE VIEW %(version)s AS
                 db.query("""
 DROP VIEW %(version)s;
 CREATE VIEW %(version)s AS
-  SELECT 2 AS major, 0 AS minor;
+  SELECT %(major)s::int AS major, %(minor)s::int AS minor;
 """
                          % dict(version=self._table('webauthn2_version' + suffix),
                                 major=sql_literal(self.major),
@@ -217,7 +225,7 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
 
     # data storage format version
     major = 2
-    minor = 0
+    minor = 1
 
     def __init__(self, config):
         SessionStateProvider(config)
@@ -423,13 +431,31 @@ CREATE TABLE %(stable)s (
                                 user_columns=','.join("%s text" % name for name in ClientLogin.standard_names),
                                 extras=','.join(self.extra_columns and [ '' ] + [ '%s %s' % ec for ec in self.extra_columns ]))
                          )
-
             self.deploy_guard(db, '_' + self.storage_name)
 
         if db:
             return db_body(db)
         else:
             return self._db_wrapper(db_body)
+        
+    def _add_extra_columns(self, db):
+        """
+        Add additional columns during a minor upgrade
+
+        """
+        def db_body(db):
+            DatabaseConnection2.deploy(self)
+            for cols in self.extra_columns:
+                db.query("ALTER TABLE %(stable)s ADD COLUMN IF NOT EXISTS %(colname)s %(coltype)s;"
+                         % dict(stable=self._table(self.storage_name),
+                                colname=cols[0],
+                                coltype=cols[1]
+                                ))
+        if db:
+            return db_body(db)
+        else:
+            return self._db_wrapper(db_body)
+        
 
 class DatabaseClientSearch (ClientSearch):
 
