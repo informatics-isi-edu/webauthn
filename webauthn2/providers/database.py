@@ -257,7 +257,8 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
 
             context.client = srow.get('client')
             context.attributes = srow.get('attributes')
-
+            for e in self.extra_columns:
+                context.extra_values[e[0]] = srow.get(e[0])
             return srow
 
         except KeyError:

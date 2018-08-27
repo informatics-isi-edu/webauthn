@@ -281,6 +281,7 @@ class Context (object):
         self.attributes = set()
         self.client = None
         self.tracking = None
+        self.extra_values = dict()
 
         if manager:
             # look for existing session ID context in message
@@ -323,6 +324,7 @@ class Context (object):
                 client=self.client,
                 attributes=self.attributes,
                 tracking=self.tracking,
+                extra_values=self.extra_values
             )
         )
 
