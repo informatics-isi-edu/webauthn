@@ -225,7 +225,7 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
 
     # data storage format version
     major = 2
-    minor = 1
+    minor = 2
 
     def __init__(self, config):
         SessionStateProvider(config)

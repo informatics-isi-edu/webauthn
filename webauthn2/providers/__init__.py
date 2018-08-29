@@ -85,6 +85,7 @@ except:
     
 if _enable_oauth2:
     __doc__ += oauth2.__doc__
+    sessionids.add(oauth2.OAuth2SessionIdProvider)    
     sessionstates.add(oauth2.OAuth2SessionStateProvider)
     clients.add(oauth2.OAuth2ClientProvider)
     preauths.add(oauth2.OAuth2PreauthProvider)

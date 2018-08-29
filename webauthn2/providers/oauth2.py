@@ -49,7 +49,7 @@ Provider-specific parameters specific to OAuth2:
 
 from providers import *
 from webauthn2.util import *
-from webauthn2.providers import database
+from webauthn2.providers import database, webcookie
 
 import web
 
@@ -216,6 +216,18 @@ insert into %(hash_key_table)s (key, timeout)
                 return True
         return False
 
+class bearer_token_util():
+    @staticmethod
+    def token_from_request():
+        authz_header=web.ctx.env.get('HTTP_AUTHORIZATION')
+        if authz_header == None:
+            return None
+        authz_header = authz_header.strip()
+        if not authz_header.startswith('Bearer '):
+            web.debug('"Authorization:" header does not start with "Bearer "')
+            return None
+        return authz_header[7:].lstrip()
+
 __all__ = [
     'OAuth2SessionStateProvider',
     'OAuth2ClientProvider',
@@ -245,6 +257,7 @@ class OAuth2Login (ClientLogin):
         """
         repeatable = True
         vals = web.input()
+
         # Wallet isn't exposed yet, but we will probably want it at some point in the future
         context.wallet = dict()
         # Check that this request came from the same user who initiated the oauth flow
@@ -707,6 +720,7 @@ class OAuth2Passwd(ClientPasswd):
 
 class OAuth2SessionStateProvider(database.DatabaseSessionStateProvider):
     key="oauth2"
+    xref_storage_name = 'session_oauth_key'
 
     def __init__(self, config):
         database.DatabaseSessionStateProvider.__init__(self, config)
@@ -728,6 +742,34 @@ class OAuth2SessionStateProvider(database.DatabaseSessionStateProvider):
         if self.major == 2 and old_minor == 0:
             self._add_extra_columns(db)
         return True
+
+    def deploy(self, db=None):
+        """
+        Deploy initial provider state.
+
+        """
+
+        def db_body(db):
+            database.DatabaseSessionStateProvider.deploy(self)            
+
+            if not self._table_exists(db, self.xref_storage_name):
+                db.query("""
+CREATE TABLE %(stable)s (
+  oauth_token text primary key,
+  session_key text,
+  token_received timestamptz,
+  token_expires timestamptz,
+  refresh_tokens text[]
+);
+"""
+                         % dict(stable=self._table(self.xref_storage_name)))
+            self.deploy_guard(db, '_' + self.storage_name)
+
+        if db:
+            return db_body(db)
+        else:
+            return self._db_wrapper(db_body)
+    
 
     def terminate(self, manager, context, db=None, preferred_final_url=None):
         database.DatabaseSessionStateProvider.terminate(self, manager, context, db, preferred_final_url)
@@ -884,6 +926,43 @@ class OAuth2Config(collections.MutableMapping):
         return len(self.keys())
 
 
+class OAuth2SessionIdProvider (webcookie.WebcookieSessionIdProvider, database.DatabaseConnection2):
+    """
+    OAuth2SessionIdProvider implements session IDs based on HTTP cookies or OAuth2 Authorization headers
+
+    """
+    
+    key = 'oauth2'
+
+    def __init__(self, config):
+        database.DatabaseConnection2.__init__(self, config)
+        webcookie.WebcookieSessionIdProvider.__init__(self, config)
+    
+    def get_request_sessionids(self, manager, context, db=None):
+        bearer_token = bearer_token_util.token_from_request()
+        if bearer_token != None:
+            def db_body(db):
+                return db.query("""
+select session_key from %(schema)s.%(xref_table)s x 
+where oauth_token = %(token)s
+and token_expires > now()
+and exists (
+  select 1 from %(schema)s.%(session_table)s s 
+  where s.key = x.session_key
+  and s.expires > now()
+)
+"""
+                                % dict(xref_table = manager.sessions.xref_storage_name,
+                                       session_table = manager.sessions.storage_name,
+                                       token = sql_literal(bearer_token),
+                                       schema = self.database_schema))
+
+            rows = self._db_wrapper(db_body)
+            if len(rows) > 1:
+                raise ValueError("Found {x} rows for a bearer token; expected at most 1".format(x=str(len(rows))))
+            elif len(rows) == 1:
+                return [ str(rows[0].get("session_key")) ]
+        return webcookie.WebcookieSessionIdProvider.get_request_sessionids(self, manager, context, db)
 
 class OAuth2Exception(ValueError):
     pass

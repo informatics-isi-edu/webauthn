@@ -286,7 +286,9 @@ class Context (object):
         if manager:
             # look for existing session ID context in message
             if manager.sessionids:
+                web.debug("before get_request_sessionids")
                 sessionids = manager.sessionids.get_request_sessionids(manager, self, db)
+                web.debug("sessionids = {s}".format(s=sessionids))
             else:
                 sessionids = set()
 
