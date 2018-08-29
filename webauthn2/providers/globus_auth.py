@@ -69,7 +69,6 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
                 self.add_to_wallet(context, scope, issuer, token)
             if scope == "urn:globus:auth:scope:nexus.api.globus.org:groups":
                 group_token = token
-                break
         #web.debug("wallet: " + str(context.wallet))
         if group_token == None:
             return user_id
