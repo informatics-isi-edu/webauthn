@@ -29,6 +29,7 @@ import urlparse
 import json
 
 import web
+import globus_sdk
 
 __all__ = [
     'GlobusAuthClientProvider',
@@ -46,6 +47,7 @@ class GlobusAuth (database.DatabaseConnection2):
         database.DatabaseConnection2.__init__(self, config)
 
 class GlobusAuthLogin(oauth2.OAuth2Login):
+
     def login(self, manager, context, db, **kwargs):
         user_id = oauth2.OAuth2Login.login(self, manager, context, db, **kwargs)
         other_tokens = self.payload.get('other_tokens')
@@ -80,6 +82,7 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
             'for_all_identities' : 'true'
             }
         group_base = self.provider.cfg.get('globus_auth_group_endpoint')
+
         if group_base == None:
             group_base = "https://nexus.api.globusonline.org/groups"
         urltuple = urlparse.urlsplit(group_base)
@@ -118,6 +121,16 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
         self.add_extra_token_request_headers(req)
         return req
 
+    def payload_from_bearer_token(self, bearer_token, context, db):
+        oauth2.OAuth2Login.payload_from_bearer_token(self, bearer_token, context, db)
+        client = globus_sdk.ConfidentialAppAuthClient(self.provider.cfg.get('client_id'), self.provider.cfg.get('client_secret'))
+        # attempt to get dependent tokens
+        try:
+            token_response = client.oauth2_get_dependent_tokens(bearer_token)
+            web.debug("token_response: {t}".format(t=str(token_response)))
+        except globus_sdk.exc.AuthAPIError, ex:
+            web.debug("WARNING: dependent token request returned {ex}".format(ex=ex))
+    
 # Sometimes Globus whitelist entries will have typos in the URLs ("//" instead of "/" is very common),
 # and it can take a long time to get those fixed.
 

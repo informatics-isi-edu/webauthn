@@ -219,6 +219,8 @@ insert into %(hash_key_table)s (key, timeout)
 class bearer_token_util():
     @staticmethod
     def token_from_request():
+        if not 'env' in web.ctx:
+            return None
         authz_header=web.ctx.env.get('HTTP_AUTHORIZATION')
         if authz_header == None:
             return None
@@ -248,6 +250,7 @@ class OAuth2Login (ClientLogin):
     def __init__(self, provider):
         ClientLogin.__init__(self, provider)
 
+
     def login(self, manager, context, db, **kwargs):
         """
         Return "username" in the form iss:sub.
@@ -255,7 +258,40 @@ class OAuth2Login (ClientLogin):
         It is expected that the caller will store the resulting username into context.client for reuse.
         
         """
-        repeatable = True
+
+        bearer_token = bearer_token_util.token_from_request()
+        nonce_vals = dict()
+        base_timestamp = datetime.now(pytz.timezone('UTC'))
+        if bearer_token == None:
+            self.authorization_code_flow(context, db)
+        else:
+            self.payload_from_bearer_token(bearer_token, context, db)
+
+        # Get user directory data. Right now we're assuming the server will return json.
+        # TODO: in theory the return value could be signed jwt
+        userinfo_endpoint = self.provider.cfg.get('userinfo_endpoint')
+        req = self.make_userinfo_request(self.provider.cfg.get('userinfo_endpoint'), self.payload.get('access_token'))
+        f = self.open_url(req, "getting userinfo", False)
+        self.userinfo=simplejson.load(f)
+        f.close()
+        if self.userinfo.get('active') != True or self.userinfo.get('iss') == None or self.userinfo.get('sub') == None:
+            web.debug("Login failed, userinfo is not active, or iss or sub is missing: {u}".format(u=str(self.userinfo)))
+            raise OAuth2UserinfoError("Login failed, userinfo is not active, or iss or sub is missing: {u}".format(u=str(self.userinfo)))
+        username = str(self.userinfo.get('iss') + '/' + self.userinfo.get('sub'))
+        context.user = dict()
+        self.fill_context_from_userinfo(context, username, self.userinfo)
+
+        # Update user table
+        self.create_or_update_user(manager, context, username, self.id_token, self.userinfo, base_timestamp, self.payload, db)
+        context.client = KeyedDict()
+        for key in ClientLogin.standard_names:
+            if context.user.get(key) != None:
+                context.client[key] = context.user.get(key)
+        context.client[IDENTITIES] = [context.client.get(ID)]
+        self.provider.manage.update_last_login(manager, context, context.client[ID], db);
+        return context.client      
+
+    def authorization_code_flow(self, context, db):
         vals = web.input()
 
         # Wallet isn't exposed yet, but we will probably want it at some point in the future
@@ -296,27 +332,26 @@ class OAuth2Login (ClientLogin):
             'redirect_uri' : web.ctx.home + web.ctx.path,
             'nonce' : nonce_vals['auth_url_nonce'],
             'grant_type' : 'authorization_code'}
-        base_timestamp = datetime.now(pytz.timezone('UTC'))
+
         token_request = urllib2.Request(self.provider.cfg.get('token_endpoint'), urllib.urlencode(token_args))
         self.add_extra_token_request_headers(token_request)
-        u = self.open_url(token_request, "getting token", repeatable)
+        u = self.open_url(token_request, "getting token", True)
         if (u == None):
             raise OAuth2Exception("Error opening connection for token request")
-        repeatable = False
         # Access token has been used, so from this point on, all exceptions should be ones
         # that will not cause db_wrapper to retry (because those retries will fail and generate
         # confusing exceptions / log messages).
         try:
             self.payload=simplejson.load(u)
         except ex:
-            web.debug('Exception decoding token payload (http code was {code}): {ex}'.format(code=str(u.getcode()), ex=str(ex)))
             raise OAUth2Exception('Exception decoding token payload: http code {code}'.format(code=str(u.getcode())))
         u.close()
+            
         token_payload=simplejson.dumps(self.payload, separators=(',', ':'))
         raw_id_token=self.payload.get('id_token')
 
         # Validate id token
-        u=self.open_url(self.provider.cfg.get('jwks_uri'), "getting jwks info", repeatable)
+        u=self.open_url(self.provider.cfg.get('jwks_uri'), "getting jwks info", False)
         raw_keys = jwk.KEYS()
         raw_keys.load_jwks(u.read())
         u.close()
@@ -331,33 +366,16 @@ class OAuth2Login (ClientLogin):
             raise OAuth2IDTokenError('No issuer in ID token')
         if self.id_token.get('sub') == None or self.id_token.get('sub').strip() == '':
             raise OAuth2IDTokenError('No subject in ID token')
-        if self.provider.provider_sets_token_nonce and self.id_token.get('nonce') != nonce_vals['auth_url_nonce']:
+        if self.provider.provider_sets_token_nonce and self.id_token.get('nonce') != nonce_vals.get('auth_url_nonce'):
             raise OAuth2IDTokenError('Bad nonce in ID token')
 
         # Validate access token
         self.validate_access_token(id_header.get('alg'), self.id_token.get('at_hash'), self.payload.get('access_token'))
-
-        # Get user directory data. Right now we're assuming the server will return json.
-        # TODO: in theory the return value could be signed jwt
-        userinfo_endpoint = self.provider.cfg.get('userinfo_endpoint')
-        req = self.make_userinfo_request(self.provider.cfg.get('userinfo_endpoint'), self.payload.get('access_token'))
-        f = self.open_url(req, "getting userinfo", repeatable)
-        self.userinfo=simplejson.load(f)
-        f.close()
-        username = str(self.id_token.get('iss') + '/' + self.id_token.get('sub'))
-        context.user = dict()
-        self.fill_context_from_userinfo(context, username, self.userinfo)
-
-        # Update user table
-        self.create_or_update_user(manager, context, username, self.id_token, self.userinfo, base_timestamp, self.payload, db)
-        context.client = KeyedDict()
-        for key in ClientLogin.standard_names:
-            if context.user.get(key) != None:
-                context.client[key] = context.user.get(key)
-        context.client[IDENTITIES] = [context.client.get(ID)]
-        self.provider.manage.update_last_login(manager, context, context.client[ID], db);
-        return context.client
-
+        
+    def payload_from_bearer_token(self, bearer_token, context, db):
+        self.payload = {'access_token': bearer_token}
+        
+        
     @staticmethod
     def add_to_wallet(context, scope, issuer, token):
         # Wallet isn't exposed yet, but we will might as well take this first step
@@ -416,11 +434,13 @@ class OAuth2Login (ClientLogin):
                 raise OAuth2ProtocolError("Error {text}: {ev} ({url})".format(text=text, ev=str(ev), url=req.get_full_url()))
 
     def validate_userinfo(self, userinfo, id_token):
-        if userinfo.get('sub') != id_token.get('sub'):
-            raise Oauth2UserinfoError("Subject mismatch")
-        for key in ['iss', 'aud']:
-            if userinfo.get(key) != None and userinfo.get(key) != id_token.get(key):
-                raise OAuth2UserinfoError("Bad value for " + key)
+        # Check against configured values
+        if id_token != None:
+            if userinfo.get('sub') != id_token.get('sub'):
+                raise OAuth2UserinfoError("Subject mismatch id/userinfo")
+            for key in ['iss', 'aud']:
+                if userinfo.get(key) != None and userinfo.get(key) != id_token.get(key):
+                    raise OAuth2UserinfoError("id/userinfo mismatch for " + key)
 
     @classmethod
     def validate_access_token(cls, alg, expected_hash, access_token):
@@ -743,34 +763,6 @@ class OAuth2SessionStateProvider(database.DatabaseSessionStateProvider):
             self._add_extra_columns(db)
         return True
 
-    def deploy(self, db=None):
-        """
-        Deploy initial provider state.
-
-        """
-
-        def db_body(db):
-            database.DatabaseSessionStateProvider.deploy(self)            
-
-            if not self._table_exists(db, self.xref_storage_name):
-                db.query("""
-CREATE TABLE %(stable)s (
-  oauth_token text primary key,
-  session_key text,
-  token_received timestamptz,
-  token_expires timestamptz,
-  refresh_tokens text[]
-);
-"""
-                         % dict(stable=self._table(self.xref_storage_name)))
-            self.deploy_guard(db, '_' + self.storage_name)
-
-        if db:
-            return db_body(db)
-        else:
-            return self._db_wrapper(db_body)
-    
-
     def terminate(self, manager, context, db=None, preferred_final_url=None):
         database.DatabaseSessionStateProvider.terminate(self, manager, context, db, preferred_final_url)
         web.setcookie(self.nonce_cookie_name, "", expires=-1)
@@ -941,28 +933,17 @@ class OAuth2SessionIdProvider (webcookie.WebcookieSessionIdProvider, database.Da
     def get_request_sessionids(self, manager, context, db=None):
         bearer_token = bearer_token_util.token_from_request()
         if bearer_token != None:
-            def db_body(db):
-                return db.query("""
-select session_key from %(schema)s.%(xref_table)s x 
-where oauth_token = %(token)s
-and token_expires > now()
-and exists (
-  select 1 from %(schema)s.%(session_table)s s 
-  where s.key = x.session_key
-  and s.expires > now()
-)
-"""
-                                % dict(xref_table = manager.sessions.xref_storage_name,
-                                       session_table = manager.sessions.storage_name,
-                                       token = sql_literal(bearer_token),
-                                       schema = self.database_schema))
-
-            rows = self._db_wrapper(db_body)
-            if len(rows) > 1:
-                raise ValueError("Found {x} rows for a bearer token; expected at most 1".format(x=str(len(rows))))
-            elif len(rows) == 1:
-                return [ str(rows[0].get("session_key")) ]
+            hash = Crypto.Hash.SHA256.new(bearer_token).hexdigest()
+            if hash != None:
+                return(["oauth2-hash:{hash}".format(hash=hash)])
+            
         return webcookie.WebcookieSessionIdProvider.get_request_sessionids(self, manager, context, db)
+
+    def create_unique_sessionids(self, manager, context, db=None):
+        context.session.keys = self.get_request_sessionids(manager, context, db)
+        if context.session.keys == None or len(context.session.keys) == 0:
+            webcookie.WebcookieSessionIdProvider.create_unique_sessionids(self, manager, context, db)
+    
 
 class OAuth2Exception(ValueError):
     pass

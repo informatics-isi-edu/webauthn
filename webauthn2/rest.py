@@ -533,6 +533,7 @@ class RestHandlerFactory (object):
                 return response
 
             def _login_get_or_post(self, storage):
+
                 for key in self.manager.clients.login.login_keywords():
                     if key not in storage:
                         raise BadRequest('missing required parameter "%s"' % key)
