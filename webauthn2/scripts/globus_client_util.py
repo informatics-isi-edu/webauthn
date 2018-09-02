@@ -62,11 +62,11 @@ class GlobusClientUtil:
         return r.text
 
 if __name__ == '__main__':
-#    scope_file = sys.argv[1]
-    token = sys.argv[1]    
+    scope_file = sys.argv[1]
+#    token = sys.argv[1]    
     s = GlobusClientUtil()
-#    print s.create_scope(scope_file)
+    print s.create_scope(scope_file)
 #    print s.add_fqdn_to_client('nih-commons.derivacloud.org')
-#    print s.list_all_scopes()
-    print s.verify_access_token(token)
-    print s.introspect_access_token(token)    
+    print s.list_all_scopes()
+#    print s.verify_access_token(token)
+#    print s.introspect_access_token(token)    

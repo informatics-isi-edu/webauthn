@@ -1,0 +1,13 @@
+{
+    "scope": {
+	"name": "deriva-test-withdeps",
+	"description": "Toy scope for testing",    
+	"scope_suffix": "deriva_test_withdeps",
+	"advertised": true,
+	"allows_refresh_tokens" : true,
+	"dependent_scopes": [
+	    {"scope" : "89fc4dfd-1774-4675-a211-db7ab77c5ddd"},
+	    {"scope" : "fb64de18-91ce-4c19-a092-a647f07f28c3"}
+	]
+    }
+}

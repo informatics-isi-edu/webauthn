@@ -253,7 +253,7 @@ class OAuth2Login (ClientLogin):
 
     def login(self, manager, context, db, **kwargs):
         """
-        Return "username" in the form iss:sub.
+o        Return "username" in the form iss:sub.
 
         It is expected that the caller will store the resulting username into context.client for reuse.
         
@@ -262,6 +262,7 @@ class OAuth2Login (ClientLogin):
         bearer_token = bearer_token_util.token_from_request()
         nonce_vals = dict()
         base_timestamp = datetime.now(pytz.timezone('UTC'))
+        context.wallet = dict()        
         if bearer_token == None:
             self.authorization_code_flow(context, db)
         else:
@@ -273,6 +274,8 @@ class OAuth2Login (ClientLogin):
         req = self.make_userinfo_request(self.provider.cfg.get('userinfo_endpoint'), self.payload.get('access_token'))
         f = self.open_url(req, "getting userinfo", False)
         self.userinfo=simplejson.load(f)
+        self.validate_userinfo()
+        web.debug("userinfo: {u}".format(u=str(self.userinfo)))
         f.close()
         if self.userinfo.get('active') != True or self.userinfo.get('iss') == None or self.userinfo.get('sub') == None:
             web.debug("Login failed, userinfo is not active, or iss or sub is missing: {u}".format(u=str(self.userinfo)))
@@ -294,8 +297,6 @@ class OAuth2Login (ClientLogin):
     def authorization_code_flow(self, context, db):
         vals = web.input()
 
-        # Wallet isn't exposed yet, but we will probably want it at some point in the future
-        context.wallet = dict()
         # Check that this request came from the same user who initiated the oauth flow
         nonce_vals = {
             'auth_url_nonce' : vals.get('state'),
@@ -374,7 +375,7 @@ class OAuth2Login (ClientLogin):
         
     def payload_from_bearer_token(self, bearer_token, context, db):
         self.payload = {'access_token': bearer_token}
-        
+        self.id_token = None
         
     @staticmethod
     def add_to_wallet(context, scope, issuer, token):
@@ -412,7 +413,10 @@ class OAuth2Login (ClientLogin):
         context.user['id_token'] = simplejson.dumps(id_token, separators=(',', ':'))
         context.user['userinfo'] = simplejson.dumps(userinfo, separators=(',', ':'))
         context.user['access_token'] = token_payload.get('access_token')
-        context.user['access_token_expiration'] = base_timestamp + timedelta(seconds=int(token_payload.get('expires_in')))
+        if token_payload.get('exp') != None:
+            context.user['access_token_expiration'] = datetime.fromtimestamp(token_payload.get('exp'))
+        else:
+            context.user['access_token_expiration'] = base_timestamp + timedelta(seconds=int(token_payload.get('expires_in')))
         context.user['refresh_token'] = token_payload.get('refresh_token')
         if self.provider._client_exists(db, username):
             manager.clients.manage.update_noauthz(manager, context, username, db)
@@ -433,14 +437,46 @@ class OAuth2Login (ClientLogin):
             else:
                 raise OAuth2ProtocolError("Error {text}: {ev} ({url})".format(text=text, ev=str(ev), url=req.get_full_url()))
 
-    def validate_userinfo(self, userinfo, id_token):
-        # Check against configured values
-        if id_token != None:
-            if userinfo.get('sub') != id_token.get('sub'):
+    def validate_userinfo(self):
+        # Check times
+
+        if self.userinfo.get('nbf') != None and self.userinfo.get('nbf') > time.time():
+            raise OAuth2UserinfoError("Access token is not yet valid")
+        if self.userinfo.get('exp') != None:
+            if self.userinfo.get('exp') < time.time():
+                raise OAuth2UserinfoError("Access token has expired")            
+            self.payload['exp'] = self.userinfo.get('exp')
+
+        # Check issuer and (if applicable) audiende
+        accepted_scopes = self.provider.cfg.get('oauth2_accepted_scopes')
+        if self.userinfo.get('scope') != None:
+            found_scopes = self.userinfo.get('scope').split()
+
+        # First check for normal (user-involved) authorization flow. Userinfo will include the "openid" scope, and there
+        # will be an id token. Compare the issuer, audience, and subject.
+        if 'openid' in found_scopes and self.id_token != None:
+            web.debug("in id_token validation")            
+            if self.userinfo.get('sub') != self.id_token.get('sub'):
+                web.debug("Subject mismatch id/userinfo")                
                 raise OAuth2UserinfoError("Subject mismatch id/userinfo")
             for key in ['iss', 'aud']:
-                if userinfo.get(key) != None and userinfo.get(key) != id_token.get(key):
+                uval = self.userinfo.get(key)
+                ival = self.id_token.get(key)
+                if not (uval == ival or (isinstance(uval, list) and ival in uval)):
+                    web.debug("id/userinfo mismatch for " + key)
+                    web.debug("userinfo[{key}] = {u}, id[{key}] = {i}".format(key=key, u=str(self.userinfo.get(key)), i=str(self.id_token.get(key))))
                     raise OAuth2UserinfoError("id/userinfo mismatch for " + key)
+            web.debug("returning from validate_userinfo")                            
+            return
+
+        # If we got an access token without getting the authorization flow, check to see that the scope is one we're
+        # configured to accept and that the issuer is who we expect
+        for a in accepted_scopes:
+            if a.get('scope') in found_scopes:
+                if a.get("issuer") == self.userinfo.get('iss'):
+                    return
+        raise OAuth2UserInfoError("Can't verify issuer")
+            
 
     @classmethod
     def validate_access_token(cls, alg, expected_hash, access_token):
@@ -641,8 +677,9 @@ class OAuth2PreauthProvider (PreauthProvider):
         """
         auth_url_nonce = web.input().get('state')
         if auth_url_nonce == None:
-            raise OAuth2ProtocolError("No state argument")
-        return self.nonce_state.get_referrer(auth_url_nonce)
+            return None
+        else:
+            return self.nonce_state.get_referrer(auth_url_nonce)
         
     def make_relative_uri(self, relative_uri):
         return web.ctx.home + relative_uri
