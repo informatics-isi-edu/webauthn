@@ -18,6 +18,8 @@
 #include <util_cookies.h>
 #include <apr_time.h>
 #include <unistd.h>
+#include <apr_md5.h>
+#include <apr_cstr.h>
 
 #define WEBAUTHN_GROUP "webauthn-group"
 #define WEBAUTHN_OPTIONAL "webauthn-optional"
@@ -92,6 +94,9 @@ typedef struct {
   managed_hash *alias_hash;
   unauthn_response if_unauthn;
 } webauthn_local_config;
+
+static const char *session_id_from_oauth2_bearer_token(request_rec *r, webauthn_local_config *local_config);
+static const char *session_id_from_request(request_rec *r, webauthn_local_config *local_config);
 
 typedef struct {
   request_rec *r;
@@ -213,9 +218,9 @@ static void register_hooks(apr_pool_t *pool)
 
 
 static session_info *find_or_create_session_info(request_rec *r, webauthn_local_config *local_config, int never_redirect) {
-  const char *sessionid = 0;
+  const char *sessionid = session_id_from_request(r, local_config);
   session_info *sinfo = 0;
-  ap_cookie_read(r, config.cookie_name, &sessionid, 0);
+
   if (sessionid != NULL) {
     sinfo = get_cached_session_info(sessionid);
   }
@@ -295,14 +300,13 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
 				     (if_unauthn == ua_redirect ? "do_redirect=true&" : ""),
 				     /*				     ap_escape_urlencoded(r->pool, r->unparsed_uri)); */
   				     ap_escape_uri(r->pool, r->unparsed_uri)); 
-  const char *sessionid = 0;
-  ap_cookie_read(r, config.cookie_name, &sessionid, 0);
+  const char *sessionid = session_id_from_request(r, local_config);
   ap_set_content_type(r, "text/plain");
   apr_time_t now = apr_time_now();
   char time_string[APR_CTIME_LEN];
   apr_ctime(time_string, now);
   CURL *session_curl = 0;
-
+  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "in from_scratch, sessionid is '%s'", (sessionid ? sessionid : "null"));
   if (sessionid == NULL) {	/* no session cookie */
     goto end;
   }
@@ -827,7 +831,6 @@ static authz_status webauthn_group_check_authorization(request_rec *r, const cha
 static authz_status webauthn_optional_check_authorization(request_rec *r, const char *require_args, const void *parsed_require_args)
 {
   webauthn_local_config *local_config = (webauthn_local_config *) ap_get_module_config(r->per_dir_config, &webauthn_module);
-
   session_info *sinfo = find_or_create_session_info(r, local_config, 1);
 
   set_request_vals(r, sinfo);
@@ -900,4 +903,44 @@ static const char *webauthn_parse_config(cmd_parms *cmd, const char *require_lin
   *parsed_require_line = expr;
   
   return NULL;
+}
+
+#define BEARER_STRING "Bearer "
+#define OAUTH2_SESSION_PREFIX "oauth2-hash:"
+static const char *session_id_from_oauth2_bearer_token(request_rec *r, webauthn_local_config *local_config) {
+  const char *auth_header = apr_table_get(r->headers_in, "Authorization");
+  const char *bstr;
+  unsigned char *digest;
+  char *retval = NULL;
+  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "header is '%s'", auth_header);
+  bstr = apr_cstr_skip_prefix(auth_header, BEARER_STRING);
+  if (bstr != NULL) {
+    ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "bstr is '%s'", bstr);    
+    if (*bstr != '\0') {
+      digest = apr_palloc(local_config->pool, APR_MD5_DIGESTSIZE);
+      if (apr_md5(digest, bstr, strlen(bstr)) != APR_SUCCESS) {
+	ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "apr_md5 failed");
+      } else {
+	unsigned char *s = digest;;
+	retval = apr_palloc(local_config->pool, APR_MD5_DIGESTSIZE * 2 + strlen(OAUTH2_SESSION_PREFIX) + 1);
+	ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "digest of %s is %s", bstr, (char *)digest);
+	strcpy(retval, OAUTH2_SESSION_PREFIX);
+	char *r = retval + strlen(OAUTH2_SESSION_PREFIX);
+	for (int i = 0; i < APR_MD5_DIGESTSIZE; i++, s++, r+=2) {
+	  sprintf(r, "%02x", *s);
+	}
+      }
+    }
+  }
+  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "session_id_from_oauth2_bearer_token: returning '%s'", (retval ? retval : "null"));
+  return retval;
+}
+
+static const char *session_id_from_request(request_rec *r, webauthn_local_config *local_config) {
+  const char *sessionid = session_id_from_oauth2_bearer_token(r, local_config);
+  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "bearer token sessionid is %s", (sessionid ? sessionid : "null"));    
+  if (sessionid == NULL) {
+    ap_cookie_read(r, config.cookie_name, &sessionid, 0);
+  }
+  return sessionid;
 }

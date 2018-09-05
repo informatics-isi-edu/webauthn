@@ -79,6 +79,7 @@ from datetime import datetime, timedelta
 import pytz
 import webauthn2.providers
 import collections
+import hashlib
 
 config_built_ins = web.storage(
     # Items needed for methods inherited from database provider
@@ -253,7 +254,7 @@ class OAuth2Login (ClientLogin):
 
     def login(self, manager, context, db, **kwargs):
         """
-o        Return "username" in the form iss:sub.
+        Return "username" in the form iss:sub.
 
         It is expected that the caller will store the resulting username into context.client for reuse.
         
@@ -968,11 +969,12 @@ class OAuth2SessionIdProvider (webcookie.WebcookieSessionIdProvider, database.Da
         webcookie.WebcookieSessionIdProvider.__init__(self, config)
     
     def get_request_sessionids(self, manager, context, db=None):
+        # Use md5 because apr library (used by webauthn apache module) doesn't support sha256
         bearer_token = bearer_token_util.token_from_request()
         if bearer_token != None:
-            hash = Crypto.Hash.SHA256.new(bearer_token).hexdigest()
-            if hash != None:
-                return(["oauth2-hash:{hash}".format(hash=hash)])
+            m = hashlib.md5()
+            m.update(bearer_token)
+            return(["oauth2-hash:{hash}".format(hash=m.hexdigest())])
             
         return webcookie.WebcookieSessionIdProvider.get_request_sessionids(self, manager, context, db)
 

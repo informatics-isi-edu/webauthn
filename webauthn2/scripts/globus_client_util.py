@@ -52,6 +52,10 @@ class GlobusClientUtil:
                              json_body={'fqdn':fqdn})
         return r.text
 
+    def get_clients(self):
+        r = self.client.get('/v2/api/clients')
+        return r.text
+
 
     def verify_access_token(self, token):
         r = self.client.oauth2_validate_token(token)
@@ -62,11 +66,12 @@ class GlobusClientUtil:
         return r.text
 
 if __name__ == '__main__':
-    scope_file = sys.argv[1]
+#    scope_file = sys.argv[1]
 #    token = sys.argv[1]    
     s = GlobusClientUtil()
-    print s.create_scope(scope_file)
+    print s.get_clients()
+#    print s.create_scope(scope_file)
 #    print s.add_fqdn_to_client('nih-commons.derivacloud.org')
-    print s.list_all_scopes()
+#    print s.list_all_scopes()
 #    print s.verify_access_token(token)
 #    print s.introspect_access_token(token)    
