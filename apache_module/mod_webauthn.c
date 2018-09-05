@@ -221,6 +221,7 @@ static session_info *find_or_create_session_info(request_rec *r, webauthn_local_
   const char *sessionid = session_id_from_request(r, local_config);
   session_info *sinfo = 0;
 
+  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "entering find_or_create_session_info");
   if (sessionid != NULL) {
     sinfo = get_cached_session_info(sessionid);
   }
@@ -238,10 +239,13 @@ static session_info *find_or_create_session_info(request_rec *r, webauthn_local_
   }
 
   if (sinfo == NULL) {
+    ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "before from_scratch");    
     if ((sinfo = webauthn_make_session_info_from_scratch(r, local_config, never_redirect)) != NULL) {
       cache_sessioninfo(sinfo, r);
     }
+    ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "after from_scratch");              
   }
+  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "returning from find_or_create_session_info");  
   return sinfo;
 }
 
@@ -306,7 +310,6 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
   char time_string[APR_CTIME_LEN];
   apr_ctime(time_string, now);
   CURL *session_curl = 0;
-  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "in from_scratch, sessionid is '%s'", (sessionid ? sessionid : "null"));
   if (sessionid == NULL) {	/* no session cookie */
     goto end;
   }
@@ -830,10 +833,14 @@ static authz_status webauthn_group_check_authorization(request_rec *r, const cha
 
 static authz_status webauthn_optional_check_authorization(request_rec *r, const char *require_args, const void *parsed_require_args)
 {
+  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "entering optional_check");  
   webauthn_local_config *local_config = (webauthn_local_config *) ap_get_module_config(r->per_dir_config, &webauthn_module);
+  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "got config");    
   session_info *sinfo = find_or_create_session_info(r, local_config, 1);
+  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "after sinfo");      
 
   set_request_vals(r, sinfo);
+  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "returning from optional_check");    
   return(AUTHZ_GRANTED);
 }
 
@@ -912,22 +919,21 @@ static const char *session_id_from_oauth2_bearer_token(request_rec *r, webauthn_
   const char *bstr;
   unsigned char *digest;
   char *retval = NULL;
-  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "header is '%s'", auth_header);
-  bstr = apr_cstr_skip_prefix(auth_header, BEARER_STRING);
-  if (bstr != NULL) {
-    ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "bstr is '%s'", bstr);    
-    if (*bstr != '\0') {
-      digest = apr_palloc(local_config->pool, APR_MD5_DIGESTSIZE);
-      if (apr_md5(digest, bstr, strlen(bstr)) != APR_SUCCESS) {
-	ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "apr_md5 failed");
-      } else {
-	unsigned char *s = digest;;
-	retval = apr_palloc(local_config->pool, APR_MD5_DIGESTSIZE * 2 + strlen(OAUTH2_SESSION_PREFIX) + 1);
-	ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "digest of %s is %s", bstr, (char *)digest);
-	strcpy(retval, OAUTH2_SESSION_PREFIX);
-	char *r = retval + strlen(OAUTH2_SESSION_PREFIX);
-	for (int i = 0; i < APR_MD5_DIGESTSIZE; i++, s++, r+=2) {
-	  sprintf(r, "%02x", *s);
+  if (auth_header != NULL) {
+    bstr = apr_cstr_skip_prefix(auth_header, BEARER_STRING);
+    if (bstr != NULL) {
+      if (*bstr != '\0') {
+	digest = apr_palloc(local_config->pool, APR_MD5_DIGESTSIZE);
+	if (apr_md5(digest, bstr, strlen(bstr)) != APR_SUCCESS) {
+	  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "apr_md5 failed");
+	} else {
+	  unsigned char *s = digest;;
+	  retval = apr_palloc(local_config->pool, APR_MD5_DIGESTSIZE * 2 + strlen(OAUTH2_SESSION_PREFIX) + 1);
+	  strcpy(retval, OAUTH2_SESSION_PREFIX);
+	  char *r = retval + strlen(OAUTH2_SESSION_PREFIX);
+	  for (int i = 0; i < APR_MD5_DIGESTSIZE; i++, s++, r+=2) {
+	    sprintf(r, "%02x", *s);
+	  }
 	}
       }
     }
@@ -938,7 +944,6 @@ static const char *session_id_from_oauth2_bearer_token(request_rec *r, webauthn_
 
 static const char *session_id_from_request(request_rec *r, webauthn_local_config *local_config) {
   const char *sessionid = session_id_from_oauth2_bearer_token(r, local_config);
-  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "bearer token sessionid is %s", (sessionid ? sessionid : "null"));    
   if (sessionid == NULL) {
     ap_cookie_read(r, config.cookie_name, &sessionid, 0);
   }
