@@ -65,11 +65,42 @@ class GlobusClientUtil:
         r = self.client.oauth2_token_introspect(token)
         return r.text
 
+    def create_private_client(self):
+        nih_client_dict = {
+            "client" : {
+                "name" : "nih_test_3",
+                "public_client" : False,
+                "redirect_urls" : ["https://webauthn-dev.isrd.isi.edu/authn/session", "https://nih-commons.derivacloud.org/authn/session"]
+                }
+        }
+        r = self.client.post("/v2/api/clients",
+                             json_body = nih_client_dict)
+        return r.text
+
+    def add_redirect_uris(self):
+        d={
+            "client": {
+                "redirect_urls" : ["https://webauthn-dev.isrd.isi.edu/authn/session", "https://nih-commons.derivacloud.org/authn/session"]
+                }
+            }
+        r = self.client.put("/v2/api/clients/{client_id}".format(client_id=self.client_id),
+                            json_body=d)
+        return r.text
+    
+    def get_my_client(self):
+        r = self.client.get('/v2/api/clients/{client_id}'.format(client_id=self.client_id))
+        return r.text
+
+
 if __name__ == '__main__':
 #    scope_file = sys.argv[1]
 #    token = sys.argv[1]    
     s = GlobusClientUtil()
-    print s.get_clients()
+#    print s.update_private_client()        
+    print s.create_private_client()    
+#    print s.get_clients()
+#    print s.get_my_client()
+#    print s.add_redirect_uris()
 #    print s.create_scope(scope_file)
 #    print s.add_fqdn_to_client('nih-commons.derivacloud.org')
 #    print s.list_all_scopes()
