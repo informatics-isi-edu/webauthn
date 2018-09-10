@@ -716,7 +716,10 @@ class OAuth2SessionStateProvider(database.DatabaseSessionStateProvider):
         self.extra_columns = [('wallet', 'json')]
 
     def _new_session_extras(self, manager, context, db):
-        return [('wallet', simplejson.dumps(context.wallet, separators=(',', ':')))]
+        if hasattr(context, "wallet"):
+            return [('wallet', simplejson.dumps(context.wallet, separators=(',', ':')))]
+        else:
+            return []
 
     def set_oauth_context_val(self, key, value):
         self.oauth_context[key] = value
