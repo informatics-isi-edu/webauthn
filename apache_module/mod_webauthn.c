@@ -221,7 +221,6 @@ static session_info *find_or_create_session_info(request_rec *r, webauthn_local_
   const char *sessionid = session_id_from_request(r, local_config);
   session_info *sinfo = 0;
 
-  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "entering find_or_create_session_info");
   if (sessionid != NULL) {
     sinfo = get_cached_session_info(sessionid);
   }
@@ -245,7 +244,6 @@ static session_info *find_or_create_session_info(request_rec *r, webauthn_local_
     }
     ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "after from_scratch");              
   }
-  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "returning from find_or_create_session_info");  
   return sinfo;
 }
 
@@ -833,14 +831,10 @@ static authz_status webauthn_group_check_authorization(request_rec *r, const cha
 
 static authz_status webauthn_optional_check_authorization(request_rec *r, const char *require_args, const void *parsed_require_args)
 {
-  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "entering optional_check");  
   webauthn_local_config *local_config = (webauthn_local_config *) ap_get_module_config(r->per_dir_config, &webauthn_module);
-  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "got config");    
   session_info *sinfo = find_or_create_session_info(r, local_config, 1);
-  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "after sinfo");      
 
   set_request_vals(r, sinfo);
-  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "returning from optional_check");    
   return(AUTHZ_GRANTED);
 }
 
@@ -938,7 +932,6 @@ static const char *session_id_from_oauth2_bearer_token(request_rec *r, webauthn_
       }
     }
   }
-  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "session_id_from_oauth2_bearer_token: returning '%s'", (retval ? retval : "null"));
   return retval;
 }
 

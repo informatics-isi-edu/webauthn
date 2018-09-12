@@ -51,12 +51,14 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
     def login(self, manager, context, db, **kwargs):
         web.debug("before oauth2 login")
         user_id = oauth2.OAuth2Login.login(self, manager, context, db, **kwargs)
-        web.debug("after oauth2 login")        
         other_tokens = self.payload.get('other_tokens')
+        dependent_tokens = self.payload.get('dependent_tokens')
+        dependent_tokens_source = self.payload.get('dependent_tokens_source')
         group_token = None
         context.globus_identities = set()
         context.globus_identities.add(user_id)
         identity_set = self.userinfo.get('identities_set')
+
         issuer = self.userinfo.get('iss')
         context.client[IDENTITIES] = []
         if identity_set != None:
@@ -67,11 +69,20 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
 
         if other_tokens != None:
             for token in other_tokens:
-                scope = token.get('scope')
-                if scope is not None:
-                    self.add_to_wallet(context, scope, issuer, token)
-                    if scope == "urn:globus:auth:scope:nexus.api.globus.org:groups":
-                        group_token = token
+                self.add_to_wallet(context, issuer, token)
+                web.debug("examining token {t}".format(t=str(token)))
+                if self.token_has_scope(token, "urn:globus:auth:scope:nexus.api.globus.org:groups"):
+                    web.debug("found group scope in token {t}".format(t=str(token)))                    
+                    group_token = token                        
+
+        if dependent_tokens != None:
+            for token in dependent_tokens:
+                self.add_to_wallet(context, issuer, token)
+                web.debug("examining token {t}".format(t=str(token)))                
+                if group_token == None and self.token_has_scope(token, "urn:globus:auth:scope:nexus.api.globus.org:groups"):
+                    web.debug("found group scope in token {t}".format(t=str(token)))                                        
+                    group_token = token                        
+                    
         #web.debug("wallet: " + str(context.wallet))
         if group_token != None:
             accepted_roles = ['admin', 'manager', 'member']
@@ -127,9 +138,14 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
         # attempt to get dependent tokens
         try:
             introspect_response = client.oauth2_token_introspect(bearer_token)
-            web.debug("introspect response: {i}".format(i=str(introspect_response)))
-            token_response = client.oauth2_get_dependent_tokens(bearer_token)
-            web.debug("token_response: {t}".format(t=str(token_response)))
+            token_response = client.oauth2_get_dependent_tokens(bearer_token).data
+            if token_response != None and len(token_response) > 0:
+                self.payload['dependent_tokens_source'] = client.base_url
+                if self.payload['dependent_tokens_source'].endswith('/'):
+                    self.payload['dependent_tokens_source'] = self.payload['dependent_tokens_source'][:-1]
+                    if self.payload.get('dependent_tokens') == None:
+                        self.payload['dependent_tokens'] = dict()
+                    self.payload['dependent_tokens'] = token_response
         except globus_sdk.exc.AuthAPIError, ex:
             web.debug("WARNING: dependent token request returned {ex}".format(ex=ex))
     

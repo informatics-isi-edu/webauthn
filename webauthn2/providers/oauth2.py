@@ -377,13 +377,25 @@ class OAuth2Login (ClientLogin):
     def payload_from_bearer_token(self, bearer_token, context, db):
         self.payload = {'access_token': bearer_token}
         self.id_token = None
+
+    @staticmethod
+    def token_has_scope(token, scope):
+        if token == None:
+            return False
+        scopes = token.get('scope')
+        if scopes == None:
+            return False
+        return scope in scopes.split()
         
     @staticmethod
-    def add_to_wallet(context, scope, issuer, token):
-        # Wallet isn't exposed yet, but we will might as well take this first step
+    def add_to_wallet(context, issuer, token):
+        web.debug("in add_to_wallet, wallet={w}, token={t}".format(w=str(context.wallet), t=str(token)))
         if context.wallet.get(issuer) == None:
             context.wallet[issuer] = dict()
-        context.wallet[issuer][scope] = token
+        scopes = token.get('scope')
+        if scopes != None:
+            for scope in scopes.split():
+                context.wallet[issuer][scope] = token
 
 
     def add_extra_token_request_headers(self, token_request):

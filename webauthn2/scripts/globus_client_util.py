@@ -1,6 +1,7 @@
 from globus_sdk import ConfidentialAppAuthClient
 import json
 import sys
+import pprint
 
 CLIENT_CRED_FILE='/home/secrets/oauth2/client_secret_globus.json'
 
@@ -65,22 +66,22 @@ class GlobusClientUtil:
         r = self.client.oauth2_token_introspect(token)
         return r.text
 
-    def create_private_client(self):
+    def create_private_client(self, name, redirect_uris):
         nih_client_dict = {
             "client" : {
-                "name" : "nih_test_3",
+                "name" : name,
                 "public_client" : False,
-                "redirect_urls" : ["https://webauthn-dev.isrd.isi.edu/authn/session", "https://nih-commons.derivacloud.org/authn/session"]
+                "redirect_uris" : redirect_uris
                 }
         }
         r = self.client.post("/v2/api/clients",
                              json_body = nih_client_dict)
         return r.text
 
-    def add_redirect_uris(self):
+    def add_redirect_uris(self, redirect_uris):
         d={
             "client": {
-                "redirect_urls" : ["https://webauthn-dev.isrd.isi.edu/authn/session", "https://nih-commons.derivacloud.org/authn/session"]
+                "redirect_uris" : redirect_uris
                 }
             }
         r = self.client.put("/v2/api/clients/{client_id}".format(client_id=self.client_id),
@@ -91,18 +92,156 @@ class GlobusClientUtil:
         r = self.client.get('/v2/api/clients/{client_id}'.format(client_id=self.client_id))
         return r.text
 
+    def get_scopes_by_name(self, sname_string):
+        scopes = self.client.get('/v2/api/scopes?scope_strings={sname}'.format(sname=sname_string))
+        if scopes == None:
+            return None
+        else:
+            return scopes.get("scopes")
+
+    def get_scopes_by_id(self, id_string):
+        scopes = self.client.get('/v2/api/scopes?ids={ids}'.format(ids=id_string))
+        if scopes == None:
+            return None
+        else:
+            return scopes.get("scopes")
+
+    def my_scope_ids(self):
+        c = self.client.get('/v2/api/clients/{client_id}'.format(client_id=self.client_id))
+        me = c.get("client")
+        if me == None or me.get('scopes') == None:
+            return []
+        else:
+            return me.get('scopes')
+
+    def my_scope_names(self):
+        snames = []
+        scope_ids=self.my_scope_ids()
+        if scope_ids != None:
+            ids=",".join(scope_ids)
+            print(str(ids))
+            scopes=self.get_scopes_by_id(ids)
+            for s in scopes:
+                snames.append(s.get('scope_string'))
+        return snames
+
+    def get_grant_types(self):
+        grant_types=None
+        c = self.client.get('/v2/api/clients/{client_id}'.format(client_id=self.client_id))
+        me = c.get("client")
+        if me != None:
+            grant_types = me.get('grant_types')
+        return(grant_types)
+
+    def add_scopes(self, new_scopes):
+        scopes=set(self.my_scope_ids())
+        for s in self.get_scopes_by_name(",".join(new_scopes)):
+            scopes.add(s.get('id'))
+        d = {
+            "client": {
+                "scopes" : list(scopes)
+            }
+        }
+
+
+        r=self.client.put('/v2/api/clients/{client_id}'.format(client_id=self.client_id),
+                          json_body=d)
+        return r.text
+
+    def add_dependent_scopes(self, parent_scope_name, child_scope_names):
+        child_scope_ids = set()
+        parent_scopes = self.get_scopes_by_name(parent_scope_name)
+        if parent_scopes == None:
+            return "no parent scope"
+        if len(parent_scopes) != 1:
+            return "{l} parent scopes: {p}".format(l=str(len(parent_scopes)), p=str(parent_scopes))
+        parent_scope_id = parent_scopes[0].get("id")
+        for s in parent_scopes[0].get('dependent_scopes'):
+            child_scope_ids.add(s.get('id'))
+        new_child_scopes = self.get_scopes_by_name(",".join(child_scope_names))
+        for s in new_child_scopes:
+            child_scope_ids.add(s.get('id'))
+        dependent_scopes = []
+        for id in child_scope_ids:
+            dependent_scopes.append({'scope' : id, 'optional' : False, 'requires_refresh_token' : False})            
+        d = {
+            "scope" : {
+                "dependent_scopes" : dependent_scopes
+                }
+            }
+        print(str(d))
+        r = self.client.put('/v2/api/scopes/{i}'.format(i=parent_scope_id),
+                            json_body=d)
+        return r.text
+
+    def create_scope_with_deps(self, name, description, suffix, dependent_scopes=[], advertised=True, allow_refresh_tokens=True):
+        dependent_scope_arg = []
+        if len(dependent_scopes) > 0:
+            child_scopes=self.get_scopes_by_name(",".join(dependent_scopes))
+            for s in child_scopes:
+                dependent_scope_arg.append({
+                    "scope" : s.get("id"),
+                    "optional" : False,
+                    "requires_refresh_token" : False
+                    })
+        scope = {
+            "scope" : {
+                "name" : name,
+                "description" : description,
+                "scope_suffix" : suffix,
+                "dependent_scopes" : dependent_scope_arg,
+                "advertised" : advertised,
+                "allows_refresh_tokens": allow_refresh_tokens
+                }
+            }
+
+        r = self.client.post("/v2/api/clients/{client_id}/scopes".format(client_id = self.client_id),
+                             json_body=scope)
+        return r.text
+
+            
 
 if __name__ == '__main__':
 #    scope_file = sys.argv[1]
 #    token = sys.argv[1]    
     s = GlobusClientUtil()
-#    print s.update_private_client()        
-    print s.create_private_client()    
+    # s.add_dependent_scopes('https://auth.globus.org/scopes/0fb084ec-401d-41f4-990e-e236f325010a/deriva_test_withdeps',
+    #                        ['openid',
+    #                         'email',
+    #                         'urn:globus:auth:scope:nexus.api.globus.org:groups',
+    #                         'https://auth.globus.org/scopes/identifiers.globus.org/create_update'
+    #                         ])
+    # print s.add_grant_types([
+    #     "openid",
+    #     "email",
+    #     "profile",
+    #     "urn:globus:auth:scope:auth.globus.org:view_identities",
+    #     "urn:globus:auth:scope:nexus.api.globus.org:groups",
+    #     "https://auth.globus.org/scopes/identifiers.globus.org/create_update"
+    # ])
+#    s.add_scopes(["openid", "email"])
+#    print str(s.my_scope_names())
+#    print s.update_private_client()
+    pprint.pprint(s.get_scopes_by_name('email,urn:globus:auth:scope:nexus.api.globus.org:groups,urn:globus:auth:scope:transfer.api.globus.org:all'))
+#    print s.create_private_client("nih_test_3", ["https://webauthn-dev.isrd.isi.edu/authn/session", "https://nih-commons.derivacloud.org/authn/session"])    
 #    print s.get_clients()
+#    print s.add_scopes(]
 #    print s.get_my_client()
-#    print s.add_redirect_uris()
+#    print s.add_redirect_uris(["https://webauthn-dev.isrd.isi.edu/authn/session", "https://nih-commons.derivacloud.org/authn/session"])
 #    print s.create_scope(scope_file)
 #    print s.add_fqdn_to_client('nih-commons.derivacloud.org')
-#    print s.list_all_scopes()
+    # print s.create_scope_with_deps('Deriva Test 4', 'test scope 4 for deriva', 'deriva_test_4',
+    #                                dependent_scopes = [
+    #                                    "openid",
+    #                                    "email",
+    #                                    "profile",
+    #                                    "urn:globus:auth:scope:auth.globus.org:view_identities",
+    #                                    "urn:globus:auth:scope:nexus.api.globus.org:groups",
+    #                                    "urn:globus:auth:scope:transfer.api.globus.org:all",
+    #                                    "https://auth.globus.org/scopes/identifiers.globus.org/create_update"
+    #                                    ])
+
+#    print str(s.list_all_scopes())
+
 #    print s.verify_access_token(token)
 #    print s.introspect_access_token(token)    
