@@ -199,7 +199,15 @@ class GlobusClientUtil:
                              json_body=scope)
         return r.text
 
-            
+    def delete_scope(self, scope_string):
+        scopes = self.get_scopes_by_name(scope_string)
+        if scopes == None or len(scopes) != 1:
+            return "null or multiple scopes"
+        scope_id = scopes[0].get('id')
+        if scope_id == None:
+            return "no scope id"
+        r = self.client.delete('/v2/api/scopes/{scope_id}'.format(scope_id = scope_id))
+        return r.text
 
 if __name__ == '__main__':
 #    scope_file = sys.argv[1]
@@ -222,7 +230,7 @@ if __name__ == '__main__':
 #    s.add_scopes(["openid", "email"])
 #    print str(s.my_scope_names())
 #    print s.update_private_client()
-    pprint.pprint(s.get_scopes_by_name('email,urn:globus:auth:scope:nexus.api.globus.org:groups,urn:globus:auth:scope:transfer.api.globus.org:all'))
+#    pprint.pprint(s.get_scopes_by_name('email,urn:globus:auth:scope:nexus.api.globus.org:groups,urn:globus:auth:scope:transfer.api.globus.org:all'))
 #    print s.create_private_client("nih_test_3", ["https://webauthn-dev.isrd.isi.edu/authn/session", "https://nih-commons.derivacloud.org/authn/session"])    
 #    print s.get_clients()
 #    print s.add_scopes(]
@@ -230,7 +238,7 @@ if __name__ == '__main__':
 #    print s.add_redirect_uris(["https://webauthn-dev.isrd.isi.edu/authn/session", "https://nih-commons.derivacloud.org/authn/session"])
 #    print s.create_scope(scope_file)
 #    print s.add_fqdn_to_client('nih-commons.derivacloud.org')
-    # print s.create_scope_with_deps('Deriva Test 4', 'test scope 4 for deriva', 'deriva_test_4',
+    # print s.create_scope_with_deps('Deriva Services', 'Use Deriva Services', 'deriva_all',
     #                                dependent_scopes = [
     #                                    "openid",
     #                                    "email",
@@ -240,8 +248,14 @@ if __name__ == '__main__':
     #                                    "urn:globus:auth:scope:transfer.api.globus.org:all",
     #                                    "https://auth.globus.org/scopes/identifiers.globus.org/create_update"
     #                                    ])
-
-#    print str(s.list_all_scopes())
+    # print s.delete_scope("https://auth.globus.org/scopes/nih-commons.derivacloud.org/deriva_test_nodeps")
+    # print s.delete_scope("https://auth.globus.org/scopes/0fb084ec-401d-41f4-990e-e236f325010a/deriva_test_withdeps")
+    # print s.delete_scope("https://auth.globus.org/scopes/nih-commons.derivacloud.org/deriva_test_withdeps")
+    # print s.delete_scope("https://auth.globus.org/scopes/0fb084ec-401d-41f4-990e-e236f325010a/deriva_test_3")
+    # print s.delete_scope("https://auth.globus.org/scopes/nih-commons.derivacloud.org/deriva_test_3")
+    # print s.delete_scope("https://auth.globus.org/scopes/0fb084ec-401d-41f4-990e-e236f325010a/deriva_test_4")
+    # print s.delete_scope("https://auth.globus.org/scopes/nih-commons.derivacloud.org/deriva_test_4")    
+    print str(s.list_all_scopes())
 
 #    print s.verify_access_token(token)
 #    print s.introspect_access_token(token)    
