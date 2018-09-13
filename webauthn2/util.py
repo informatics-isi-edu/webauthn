@@ -424,14 +424,19 @@ def get_wallet_entries(wallet, credential_type, args={}):
         for entry in base_entry.values():
             if resource_server == None or entry.get('resource_server') == resource_server:
                 matching_entries.append(entry)
+
+    to_remove = []                
     if args.get('scopes') != None:
         for entry in matching_entries:
             if entry.get("scope") != None:
                 entry_scopes = entry.get("scope").split()
                 for a_scope in args.get('scopes'):
                     if a_scope not in entry_scopes:
-                        matching_entries.remove(entry)
+                        to_remove.append(entry)
                         break
+                    
+    for entry in to_remove:
+        matching_entries.remove(entry)
                     
     return matching_entries
     
