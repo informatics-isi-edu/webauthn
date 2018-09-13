@@ -347,11 +347,12 @@ class OAuth2Login (ClientLogin):
 
     @staticmethod
     def add_to_wallet(context, scope, issuer, token):
-        # Wallet isn't exposed yet, but we will might as well take this first step
-        if context.wallet.get(issuer) == None:
-            context.wallet[issuer] = dict()
-        context.wallet[issuer][scope] = token
-
+        if context.wallet.get('oauth2') == None:
+            context.wallet['oauth2'] = dict()
+	my_wallet = context.wallet.get('oauth2')
+        if my_wallet.get(issuer) == None:
+            my_wallet[issuer] = []
+	my_wallet[issuer].append(token)
 
     def add_extra_token_request_headers(self, token_request):
         pass
