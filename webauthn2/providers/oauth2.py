@@ -389,6 +389,7 @@ class OAuth2Login (ClientLogin):
         
     @staticmethod
     def add_to_wallet(context, issuer, token):
+        # If the wallet format is ever changed, the function get_wallet_entries in deriva-py will also need to be updated.
         if context.wallet.get('oauth2') == None:
             context.wallet['oauth2'] = dict()
         my_wallet = context.wallet.get('oauth2')
