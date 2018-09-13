@@ -389,14 +389,12 @@ class OAuth2Login (ClientLogin):
         
     @staticmethod
     def add_to_wallet(context, issuer, token):
-        web.debug("in add_to_wallet, wallet={w}, token={t}".format(w=str(context.wallet), t=str(token)))
-        if context.wallet.get(issuer) == None:
-            context.wallet[issuer] = dict()
-        scopes = token.get('scope')
-        if scopes != None:
-            for scope in scopes.split():
-                context.wallet[issuer][scope] = token
-
+        if context.wallet.get('oauth2') == None:
+            context.wallet['oauth2'] = dict()
+        my_wallet = context.wallet.get('oauth2')
+        if my_wallet.get(issuer) == None:
+            my_wallet[issuer] = []
+        my_wallet[issuer].append(token)
 
     def add_extra_token_request_headers(self, token_request):
         pass
