@@ -543,6 +543,7 @@ class DatabaseConnection (PooledConnection):
                     raise ev
 
                 except psycopg2.InterfaceError, ev:
+                    web.debug("got psycopg2 InterfaceError")
                     db = None # abandon stale db connection and retry
                     last_ev = ev
 

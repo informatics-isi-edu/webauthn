@@ -48,6 +48,11 @@ class GlobusClientUtil:
                              json_body=scope)
         return r.text
 
+    def update_scope(self, scope_id, args):
+        r = self.client.put("/v2/api/scopes/{scope_id}".format(scope_id = scope_id),
+                             json_body={"scope" : args})
+        return r.text
+
     def add_fqdn_to_client(self, fqdn):
         r = self.client.post('/v2/api/clients/{client_id}/fqdns'.format(client_id=self.client_id),
                              json_body={'fqdn':fqdn})
@@ -209,6 +214,17 @@ class GlobusClientUtil:
         r = self.client.delete('/v2/api/scopes/{scope_id}'.format(scope_id = scope_id))
         return r.text
 
+    def get_dependent_scopes(self, scope):
+        result = {"scope_string" : scope.get("scope_string"), "dependent_scopes" : []}
+        for ds in scope.get("dependent_scopes"):
+            ds_id = ds.get('scope')
+            ds_info = {"id" : ds_id}
+            d = self.get_scopes_by_id(ds_id)
+            if d != None:
+                ds_info['scope_string'] = d[0].get('scope_string')
+            result['dependent_scopes'].append(ds_info)
+        return(result)
+
 if __name__ == '__main__':
 #    scope_file = sys.argv[1]
 #    token = sys.argv[1]    
@@ -255,7 +271,16 @@ if __name__ == '__main__':
     # print s.delete_scope("https://auth.globus.org/scopes/nih-commons.derivacloud.org/deriva_test_3")
     # print s.delete_scope("https://auth.globus.org/scopes/0fb084ec-401d-41f4-990e-e236f325010a/deriva_test_4")
     # print s.delete_scope("https://auth.globus.org/scopes/nih-commons.derivacloud.org/deriva_test_4")    
-    print str(s.list_all_scopes())
-
+#    print str(s.list_all_scopes())
+#    scope = s.get_scopes_by_name("https://auth.globus.org/scopes/0fb084ec-401d-41f4-990e-e236f325010a/deriva_all")[0]
+#    pprint.pprint(s.get_dependent_scopes(scope))
 #    print s.verify_access_token(token)
-#    print s.introspect_access_token(token)    
+#    print s.introspect_access_token(token)
+    print s.update_scope('23b9a3f9-872d-4a40-9c4c-a80a4c61f3bf',
+                         {"name" : "Use Deriva Services",
+                          "description" : "Use all Deriva services"
+                          })
+    print s.update_scope('b892c8a9-2f33-4404-9fe3-6eb9093010c3',
+                         {"name" : "Use Deriva Services on nih-commons.derivacloud.org",
+                          "description" : "Use all Deriva services on nih-commons.derivacloud.org"
+                          })

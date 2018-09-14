@@ -465,12 +465,15 @@ class RestHandlerFactory (object):
                 # just extend session and then act like GET
                 now = datetime.datetime.now(pytz.timezone('UTC'))
 
+                def db_body_get_context(db):
+                    return Context(self.manager, False, db)
+
+                self.context = self._db_wrapper(db_body_get_context)
+                
+                if self.context.session is None and self.manager.clients.login is not None and self.manager.clients.login.request_has_relevant_auth_headers():
+                    return self._login_get_or_post(web.input())
+                
                 def db_body(db):
-                    self.context = Context(self.manager, False, db)
-                    web.debug("in put, session is {s}".format(s=str(self.context.session)))
-                    if self.context.session is None and self.manager.clients.login != None and self.manager.clients.login.request_has_relevant_auth_headers():
-                        web.debug("in put, doing get_or_post()")
-                        return self._login_get_or_post(web.input())
                     self._session_authz(sessionids)
                     self.context.session.expires = now + self.session_duration
                     self.manager.sessions.extend(self.manager, self.context, db)
@@ -550,7 +553,6 @@ class RestHandlerFactory (object):
                         raise Conflict('Login request conflicts with current client authentication state.')
 
                     self.context.session = Session()
-
                     # allocate new session ID first
                     self.manager.sessionids.create_unique_sessionids(self.manager, self.context)
 

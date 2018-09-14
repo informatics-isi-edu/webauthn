@@ -389,7 +389,6 @@ DELETE FROM %(stable)s WHERE expires < 'now'::timestamptz ;
 """
                  % dict(stable=self._table(self.storage_name))
                  )
-
         results = db.query("""
 SELECT * FROM %(stable)s 
 WHERE key IN ( %(keys)s ) OR key_old IN ( %(keys)s )
@@ -398,6 +397,7 @@ ORDER BY expires DESC ;
                            % dict(stable=self._table(self.storage_name),
                                   keys=','.join([ sql_literal(k) for k in sessionids ]))
                            )
+
         if len(results) > 1:
             # TODO: warn about this
             pass
