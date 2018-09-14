@@ -4,7 +4,7 @@ CLIENT_ID = 'f7cfb4d6-8f20-4983-a9c0-be3f0e2681fd'
 
 
 client = globus_sdk.NativeAppAuthClient(CLIENT_ID)
-client.oauth2_start_flow(requested_scopes="https://auth.globus.org/scopes/0fb084ec-401d-41f4-990e-e236f325010a/deriva_test_4")
+client.oauth2_start_flow(requested_scopes="https://auth.globus.org/scopes/0fb084ec-401d-41f4-990e-e236f325010a/deriva_all")
 
 authorize_url = client.oauth2_get_authorize_url()
 print('Please go to this URL and login: {0}'.format(authorize_url))

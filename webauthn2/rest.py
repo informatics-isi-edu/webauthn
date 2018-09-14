@@ -409,7 +409,8 @@ class RestHandlerFactory (object):
 
 
                 if self.manager.clients.login != None:
-                    if self.manager.clients.login.accepts_login_get() and has_login_params():
+                    if ((self.manager.clients.login.accepts_login_get() and has_login_params())
+                        or self.manager.clients.login.request_has_relevant_auth_headers()):
                         if self.context.session is None:
                             return self._login_get_or_post(web.input())
                         else:
@@ -466,6 +467,10 @@ class RestHandlerFactory (object):
 
                 def db_body(db):
                     self.context = Context(self.manager, False, db)
+                    web.debug("in put, session is {s}".format(s=str(self.context.session)))
+                    if self.context.session is None and self.manager.clients.login != None and self.manager.clients.login.request_has_relevant_auth_headers():
+                        web.debug("in put, doing get_or_post()")
+                        return self._login_get_or_post(web.input())
                     self._session_authz(sessionids)
                     self.context.session.expires = now + self.session_duration
                     self.manager.sessions.extend(self.manager, self.context, db)

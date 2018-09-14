@@ -353,6 +353,15 @@ class ClientLogin (ProviderInterface):
         """
         return False
 
+    def request_has_relevant_auth_headers(self):
+        """
+        return True if this login mechanism recognizes authorization headers, and the request has headers
+                    that may potentially be used to authenticate it
+               False otherwise
+        """
+        return False
+        
+
 class ClientMsgAuthn (ProviderInterface):
     """
     ClientMsgAuthn interface for augmenting request context based on message content.

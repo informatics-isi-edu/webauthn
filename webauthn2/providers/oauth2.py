@@ -624,6 +624,11 @@ class OAuth2Login (ClientLogin):
         hash = hash_alg.new(signed)
         return PKCS1_v1_5.new(RSA.importKey(pem)).verify(hash, signature)
 
+    def request_has_relevant_auth_headers(self):
+        web.debug("in req_has_relevant, btfr={b}".format(b=bearer_token_util.token_from_request()))
+        return bearer_token_util.token_from_request() is not None
+    
+
 
 class OAuth2PreauthProvider (PreauthProvider):
     key = 'oauth2'
@@ -723,7 +728,6 @@ class OAuth2PreauthProvider (PreauthProvider):
     def make_redirect_uri(self, args):
         components = self.authentication_uri_base + [self.make_redirect_uriargs(args), None]
         return urlparse.urlunsplit(components)
-
 
 class OAuth2ClientManage(database.DatabaseClientManage):
     def __init__(self, provider):
