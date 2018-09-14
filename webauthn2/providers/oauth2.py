@@ -276,7 +276,6 @@ class OAuth2Login (ClientLogin):
         f = self.open_url(req, "getting userinfo", False)
         self.userinfo=simplejson.load(f)
         self.validate_userinfo()
-        web.debug("userinfo: {u}".format(u=str(self.userinfo)))
         f.close()
         if self.userinfo.get('active') != True or self.userinfo.get('iss') == None or self.userinfo.get('sub') == None:
             web.debug("Login failed, userinfo is not active, or iss or sub is missing: {u}".format(u=str(self.userinfo)))
@@ -467,7 +466,6 @@ class OAuth2Login (ClientLogin):
         # First check for normal (user-involved) authorization flow. Userinfo will include the "openid" scope, and there
         # will be an id token. Compare the issuer, audience, and subject.
         if 'openid' in found_scopes and self.id_token != None:
-            web.debug("in id_token validation")            
             if self.userinfo.get('sub') != self.id_token.get('sub'):
                 web.debug("Subject mismatch id/userinfo")                
                 raise OAuth2UserinfoError("Subject mismatch id/userinfo")
@@ -478,7 +476,6 @@ class OAuth2Login (ClientLogin):
                     web.debug("id/userinfo mismatch for " + key)
                     web.debug("userinfo[{key}] = {u}, id[{key}] = {i}".format(key=key, u=str(self.userinfo.get(key)), i=str(self.id_token.get(key))))
                     raise OAuth2UserinfoError("id/userinfo mismatch for " + key)
-            web.debug("returning from validate_userinfo")                            
             return
 
         # If we got an access token without getting the authorization flow, check to see that the scope is one we're
@@ -625,7 +622,6 @@ class OAuth2Login (ClientLogin):
         return PKCS1_v1_5.new(RSA.importKey(pem)).verify(hash, signature)
 
     def request_has_relevant_auth_headers(self):
-        web.debug("in req_has_relevant, btfr={b}".format(b=bearer_token_util.token_from_request()))
         return bearer_token_util.token_from_request() is not None
     
 

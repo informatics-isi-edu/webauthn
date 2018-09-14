@@ -49,7 +49,6 @@ class GlobusAuth (database.DatabaseConnection2):
 class GlobusAuthLogin(oauth2.OAuth2Login):
 
     def login(self, manager, context, db, **kwargs):
-        web.debug("before oauth2 login")
         user_id = oauth2.OAuth2Login.login(self, manager, context, db, **kwargs)
         other_tokens = self.payload.get('other_tokens')
         dependent_tokens = self.payload.get('dependent_tokens')
@@ -70,17 +69,13 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
         if other_tokens != None:
             for token in other_tokens:
                 self.add_to_wallet(context, issuer, token)
-                web.debug("examining token {t}".format(t=str(token)))
                 if self.token_has_scope(token, "urn:globus:auth:scope:nexus.api.globus.org:groups"):
-                    web.debug("found group scope in token {t}".format(t=str(token)))                    
                     group_token = token                        
 
         if dependent_tokens != None:
             for token in dependent_tokens:
                 self.add_to_wallet(context, issuer, token)
-                web.debug("examining token {t}".format(t=str(token)))                
                 if group_token == None and self.token_has_scope(token, "urn:globus:auth:scope:nexus.api.globus.org:groups"):
-                    web.debug("found group scope in token {t}".format(t=str(token)))                                        
                     group_token = token                        
                     
         #web.debug("wallet: " + str(context.wallet))
