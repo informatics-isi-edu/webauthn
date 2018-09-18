@@ -60,9 +60,11 @@ uninstall: force
 
 preinstall_centos: force
 	yum -y install python python-psycopg2 python-dateutil python-webpy pytz libcurl libcurl-devel json-c json-c-devel httpd-devel
+	pip install globus-sdk
 
 preinstall_ubuntu: force
 	apt-get -y install python python-psycopg2 python-dateutil python-webpy python-tz
+	pip install globus-sdk
 
 force:
 
