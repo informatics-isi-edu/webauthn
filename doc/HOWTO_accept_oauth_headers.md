@@ -28,6 +28,8 @@ Add your scope to the list of scopes in the `oauth2_scope` section of your `weba
 
 4. Restart httpd.
 
+Note: The globus_auth login module uses the globus-sdk package for functionality beyond authentication (getting additional wallet tokens and getting the user's group memberships). If that package isn't installed, that module will log the user in and create a session with the user's identity, but that session will have no groups associated with it and will have an empty wallet. If this package hasn't been installed automatically, you can install it with "pip globus-sdk".
+
 ## Testing with OAuth2 Bearer tokens
 
 To test, first get a token. If you're using Globus as an OAuth2 provider, you can use a program like the one in webauthn2/scripts/globus_oauth_client.py to request a token -- edit the line:
