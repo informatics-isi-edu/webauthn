@@ -484,7 +484,8 @@ class OAuth2Login (ClientLogin):
             if a.get('scope') in found_scopes:
                 if a.get("issuer") == self.userinfo.get('iss'):
                     return
-        raise OAuth2UserInfoError("Can't verify issuer")
+        web.debug("Bad scope or issuer for OAuth2 bearer token")
+        raise OAuth2UserinfoError("Bad scope or issuer for OAuth2 bearer token")
             
 
     @classmethod
@@ -1007,7 +1008,7 @@ class OAuth2SessionGenerationFailed(OAuth2Exception):
 class OAuth2ProtocolError(OAuth2Exception):
     pass
 
-class OAuth2UserinfoError(OAuth2ProtocolError):
+class OAuth2UserinfoError(OAuth2Exception):
     pass
 
 class OAuth2LoginTimeoutError(OAuth2ProtocolError):

@@ -29,7 +29,13 @@ import urlparse
 import json
 
 import web
-import globus_sdk
+
+USE_GLOBUS_SDK = False
+try:
+    import globus_sdk
+    USE_GLOBUS_SDK = True
+except:
+    pass
 
 __all__ = [
     'GlobusAuthClientProvider',
@@ -129,20 +135,23 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
 
     def payload_from_bearer_token(self, bearer_token, context, db):
         oauth2.OAuth2Login.payload_from_bearer_token(self, bearer_token, context, db)
-        client = globus_sdk.ConfidentialAppAuthClient(self.provider.cfg.get('client_id'), self.provider.cfg.get('client_secret'))
-        # attempt to get dependent tokens
-        try:
-            introspect_response = client.oauth2_token_introspect(bearer_token)
-            token_response = client.oauth2_get_dependent_tokens(bearer_token).data
-            if token_response != None and len(token_response) > 0:
-                self.payload['dependent_tokens_source'] = client.base_url
-                if self.payload['dependent_tokens_source'].endswith('/'):
-                    self.payload['dependent_tokens_source'] = self.payload['dependent_tokens_source'][:-1]
+        if USE_GLOBUS_SDK:
+            client = globus_sdk.ConfidentialAppAuthClient(self.provider.cfg.get('client_id'), self.provider.cfg.get('client_secret'))            
+            # attempt to get dependent tokens
+            try:
+                introspect_response = client.oauth2_token_introspect(bearer_token)
+                token_response = client.oauth2_get_dependent_tokens(bearer_token).data
+                if token_response != None and len(token_response) > 0:
+                    self.payload['dependent_tokens_source'] = client.base_url
+                    if self.payload['dependent_tokens_source'].endswith('/'):
+                        self.payload['dependent_tokens_source'] = self.payload['dependent_tokens_source'][:-1]
                     if self.payload.get('dependent_tokens') == None:
                         self.payload['dependent_tokens'] = dict()
                     self.payload['dependent_tokens'] = token_response
-        except globus_sdk.exc.AuthAPIError, ex:
-            web.debug("WARNING: dependent token request returned {ex}".format(ex=ex))
+            except globus_sdk.exc.AuthAPIError, ex:
+                web.debug("WARNING: dependent token request returned {ex}".format(ex=ex))
+        else:
+            web.debug("WARNING: No globus_sdk installed; skipping dependent token request. This means no group info and an empty wallet for sessions authenticated by bearer token.")
     
 # Sometimes Globus whitelist entries will have typos in the URLs ("//" instead of "/" is very common),
 # and it can take a long time to get those fixed.
