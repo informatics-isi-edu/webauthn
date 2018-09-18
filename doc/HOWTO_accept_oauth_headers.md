@@ -1,6 +1,6 @@
 ## Accepting OAUth2 Bearer tokens
 
-**Currently, when authenticating with OAuth2 Bearer tokens, we are unable to get the credential we need to query the user's group memberships. **
+**Currently, when authenticating with OAuth2 Bearer tokens, we are unable to get the credential we need to query the user's group memberships.**
 
 Making these changes will cause webauthn to look for HTTP headers of the form "Authorization: Bearer xxxxx") and use them for authentication if found. If no valid header of that format is found (e.g., no Authorization header at all, one with an invalid token, etc.), webauthn will revert to the webcookie / OpenID Connect authentication method used by Chaise and other clients.
 
