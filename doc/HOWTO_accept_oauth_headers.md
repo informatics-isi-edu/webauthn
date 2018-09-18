@@ -1,4 +1,6 @@
-## To accept OAUth2 Bearer tokens
+## Accepting OAUth2 Bearer tokens
+
+**Currently, when authenticating with OAuth2 Bearer tokens, we are unable to get the credential we need to query the user's group memberships. **
 
 Making these changes will cause webauthn to look for HTTP headers of the form "Authorization: Bearer xxxxx") and use them for authentication if found. If no valid header of that format is found (e.g., no Authorization header at all, one with an invalid token, etc.), webauthn will revert to the webcookie / OpenID Connect authentication method used by Chaise and other clients.
 
@@ -53,12 +55,14 @@ Make sure there's a `:` after "Authorization" and not after "Bearer". Once you'v
 If your service needs to authenticate to an outgoing service (e.g., the Globus identifier service), you'll need to collect credentials to use to authenticate to that service. Globus's implementation of OAuth2 supports the concept of "dependent scopes" -- you can specify (on the Globus server) that a scope (e.g., `https://auth.globus.org/scopes/0fb084ec-401d-41f4-990e-e236f325010a/deriva_all`) depends on having other scopes (e.g., `https://auth.globus.org/scopes/identifiers.globus.org/create_update` and `urn:globus:auth:scope:transfer.api.globus.org:all`) in order to carry out its functions. Webauthn will automatically collect dependent tokens and store them in a wallet associated with the user's session. A service can use the function `deriva.core.utils.webauthn_utils.get_wallet_entries` to get entries of interest from a session wallet.
 
 For example:
+```
+   wallet = client.extra_values.get("wallet")
+   creds = get_wallet_entries(wallet, "oauth2", {"resource_server" : "identifiers.globus.org"})
+```
 
-wallet = client.extra_values.get("wallet")
-creds = get_wallet_entries(wallet, "oauth2", {"resource_server" : "identifiers.globus.org"})
+will return something like:
 
-then you'll get something like:
-
+```
 [
     {
         "access_token":"xxxxx",
@@ -69,6 +73,7 @@ then you'll get something like:
 "scope":"https://auth.globus.org/scopes/identifiers.globus.org/create_update"
     }
 ]
+```
 
 ## Adding a host-specific Deriva scope
 
