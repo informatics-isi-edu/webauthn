@@ -23,8 +23,7 @@ DAEMONUSER=webauthn
 
 INSTALL_SCRIPT=./install-script
 
-UNINSTALL_DIRS=$(PYLIBDIR)/webauthn \
-	$(PYLIBDIR)/webauthn/providers \
+UNINSTALL_DIRS=$(PYLIBDIR)/webauthn2 \
 	$(SHAREDIR) \
 	$(VARLIBDIR)
 
@@ -56,7 +55,7 @@ samples/wsgi_webauthn2.conf: samples/wsgi_webauthn2.conf.in
 # HACK: distutils doesn't have an uninstaller...
 uninstall: force
 	rm -rf $(UNINSTALL)
-	rmdir --ignore-fail-on-non-empty -p $(UNINSTALL_DIRS)
+
 
 preinstall_centos: force
 	yum -y install python python-psycopg2 python-dateutil python-webpy pytz libcurl libcurl-devel json-c json-c-devel httpd-devel
