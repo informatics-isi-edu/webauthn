@@ -18,12 +18,15 @@
 #include <util_cookies.h>
 #include <apr_time.h>
 #include <unistd.h>
+#include <apr_md5.h>
+#include <apr_cstr.h>
 
 #define WEBAUTHN_GROUP "webauthn-group"
 #define WEBAUTHN_OPTIONAL "webauthn-optional"
 #define WEBAUTHN_SESSION_BASE64 "WEBAUTHN_SESSION_BASE64"
 #define USER_DISPLAY_NAME "USER_DISPLAY_NAME"
 #define VARY_HEADERS "WEBAUTHN_VARY_HEADERS"
+#define AUTHORIZATION_HEADER "Authorization"
 /* These next two are defined by curl */
 #define VERIFY_SSL_HOST_OFF 0
 #define VERIFY_SSL_HOST_ON 2
@@ -93,6 +96,9 @@ typedef struct {
   unauthn_response if_unauthn;
 } webauthn_local_config;
 
+static const char *session_id_from_oauth2_bearer_token(request_rec *r, webauthn_local_config *local_config);
+static const char *session_id_from_request(request_rec *r, webauthn_local_config *local_config);
+
 typedef struct {
   request_rec *r;
   apr_pool_t *pool;
@@ -103,7 +109,7 @@ typedef struct {
   int segment_count;
 } webauthn_http_data;
 
-static CURL *create_curl_handle(request_rec *r, const char *url, webauthn_http_data *data, char *errbuf);
+static CURL *create_curl_handle(request_rec *r, const char *url, webauthn_http_data *data, char *errbuf, struct curl_slist **slist);
 
 static char *consolidate_segments(webauthn_http_data *data);
 
@@ -213,9 +219,9 @@ static void register_hooks(apr_pool_t *pool)
 
 
 static session_info *find_or_create_session_info(request_rec *r, webauthn_local_config *local_config, int never_redirect) {
-  const char *sessionid = 0;
+  const char *sessionid = session_id_from_request(r, local_config);
   session_info *sinfo = 0;
-  ap_cookie_read(r, config.cookie_name, &sessionid, 0);
+
   if (sessionid != NULL) {
     sinfo = get_cached_session_info(sessionid);
   }
@@ -295,21 +301,21 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
 				     (if_unauthn == ua_redirect ? "do_redirect=true&" : ""),
 				     /*				     ap_escape_urlencoded(r->pool, r->unparsed_uri)); */
   				     ap_escape_uri(r->pool, r->unparsed_uri)); 
-  const char *sessionid = 0;
-  ap_cookie_read(r, config.cookie_name, &sessionid, 0);
+  const char *sessionid = session_id_from_request(r, local_config);
   ap_set_content_type(r, "text/plain");
   apr_time_t now = apr_time_now();
   char time_string[APR_CTIME_LEN];
   apr_ctime(time_string, now);
   CURL *session_curl = 0;
-
+  struct curl_slist *slist = NULL;
+  
   if (sessionid == NULL) {	/* no session cookie */
     goto end;
   }
 
   webauthn_http_data *data = (webauthn_http_data *)apr_pcalloc(r->pool, sizeof(webauthn_http_data));
   char *errbuf = apr_pcalloc(r->pool, CURL_ERROR_SIZE);
-  session_curl = create_curl_handle(r, session_uri, data, errbuf);
+  session_curl = create_curl_handle(r, session_uri, data, errbuf, &slist);
 
   if(session_curl) {
     /* To extend the webauthn session lifetime, use PUT instead of GET */
@@ -344,6 +350,9 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
     sinfo = make_session_info(r, config.session_hash->hash_pool_parent, sessionid, json_string);
   }
  end:
+  if (slist) {
+    curl_slist_free_all(slist);
+  }
   if (session_curl) {
     curl_easy_cleanup(session_curl);
   }
@@ -360,20 +369,32 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
   return sinfo;
 }
 
-  static CURL *create_curl_handle(request_rec *r, const char *url, webauthn_http_data *data, char *errbuf)
+
+static int log_header(void *pool, const char *key, const char *value) {
+  ap_log_perror(APLOG_MARK, APLOG_ERR, 0, (apr_pool_t *)pool, "header '%s' = '%s'", (key ? key : "null"), (value ? value : "null"));
+  return 1;
+}
+  
+
+static CURL *create_curl_handle(request_rec *r, const char *url, webauthn_http_data *data, char *errbuf, struct curl_slist **slist)
 {
   CURL *curl = curl_easy_init();
-  if(curl) {
+  if (curl) {
     data->pool = r->pool;
     data->r = r;
     data->segment_count = 0;
-      
+    
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, webauthn_curl_write_callback); 
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)data); 
     curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, (void *)errbuf);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, (long) (config.verify_ssl_host > 0 ? 1 : 0));
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, (long) config.verify_ssl_host);
+    const char *authz_header_value = apr_table_get(r->headers_in, AUTHORIZATION_HEADER);
+    if (authz_header_value) {
+      *slist = curl_slist_append(*slist, apr_psprintf(data->pool, "%s: %s", AUTHORIZATION_HEADER, authz_header_value));
+      curl_easy_setopt(curl, CURLOPT_HTTPHEADER, *slist);
+    }
   }
   return(curl);
 }
@@ -827,7 +848,6 @@ static authz_status webauthn_group_check_authorization(request_rec *r, const cha
 static authz_status webauthn_optional_check_authorization(request_rec *r, const char *require_args, const void *parsed_require_args)
 {
   webauthn_local_config *local_config = (webauthn_local_config *) ap_get_module_config(r->per_dir_config, &webauthn_module);
-
   session_info *sinfo = find_or_create_session_info(r, local_config, 1);
 
   set_request_vals(r, sinfo);
@@ -900,4 +920,41 @@ static const char *webauthn_parse_config(cmd_parms *cmd, const char *require_lin
   *parsed_require_line = expr;
   
   return NULL;
+}
+
+#define BEARER_STRING "Bearer "
+#define OAUTH2_SESSION_PREFIX "oauth2-hash:"
+static const char *session_id_from_oauth2_bearer_token(request_rec *r, webauthn_local_config *local_config) {
+  const char *auth_header = apr_table_get(r->headers_in, AUTHORIZATION_HEADER);
+  const char *bstr;
+  unsigned char *digest;
+  char *retval = NULL;
+  if (auth_header != NULL) {
+    bstr = apr_cstr_skip_prefix(auth_header, BEARER_STRING);
+    if (bstr != NULL) {
+      if (*bstr != '\0') {
+	digest = apr_palloc(local_config->pool, APR_MD5_DIGESTSIZE);
+	if (apr_md5(digest, bstr, strlen(bstr)) != APR_SUCCESS) {
+	  ap_log_error(APLOG_MARK, APLOG_ERR, 0, r->server, "apr_md5 failed");
+	} else {
+	  unsigned char *s = digest;;
+	  retval = apr_palloc(local_config->pool, APR_MD5_DIGESTSIZE * 2 + strlen(OAUTH2_SESSION_PREFIX) + 1);
+	  strcpy(retval, OAUTH2_SESSION_PREFIX);
+	  char *r = retval + strlen(OAUTH2_SESSION_PREFIX);
+	  for (int i = 0; i < APR_MD5_DIGESTSIZE; i++, s++, r+=2) {
+	    sprintf(r, "%02x", *s);
+	  }
+	}
+      }
+    }
+  }
+  return retval;
+}
+
+static const char *session_id_from_request(request_rec *r, webauthn_local_config *local_config) {
+  const char *sessionid = session_id_from_oauth2_bearer_token(r, local_config);
+  if (sessionid == NULL) {
+    ap_cookie_read(r, config.cookie_name, &sessionid, 0);
+  }
+  return sessionid;
 }

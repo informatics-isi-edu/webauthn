@@ -1,0 +1,9 @@
+{
+    "scope": {
+	"name": "deriva-test-nodeps",
+	"description": "Toy scope for testing (no dependent scopes)",    
+	"scope_suffix": "deriva_test_nodeps",
+	"advertised": true,
+	"allows_refresh_tokens" : true
+    }
+}

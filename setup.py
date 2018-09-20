@@ -45,7 +45,7 @@ setup(
             "samples/globus_auth/discovery_globus.json",
         ])
     ],
-    requires=["web.py", "pytz", "psycopg2", "oauth", "oauth2client", "pyjwkest"],
+    requires=["web.py", "pytz", "psycopg2", "oauth", "oauth2client", "pyjwkest", "globus_sdk"],
     maintainer_email="support@misd.isi.edu",
     license='Apache License, Version 2.0',
     classifiers=[

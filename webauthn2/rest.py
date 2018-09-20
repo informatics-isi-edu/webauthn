@@ -409,7 +409,8 @@ class RestHandlerFactory (object):
 
 
                 if self.manager.clients.login != None:
-                    if self.manager.clients.login.accepts_login_get() and has_login_params():
+                    if ((self.manager.clients.login.accepts_login_get() and has_login_params())
+                        or self.manager.clients.login.request_has_relevant_auth_headers()):
                         if self.context.session is None:
                             return self._login_get_or_post(web.input())
                         else:
@@ -464,8 +465,15 @@ class RestHandlerFactory (object):
                 # just extend session and then act like GET
                 now = datetime.datetime.now(pytz.timezone('UTC'))
 
+                def db_body_get_context(db):
+                    return Context(self.manager, False, db)
+
+                self.context = self._db_wrapper(db_body_get_context)
+                
+                if self.context.session is None and self.manager.clients.login is not None and self.manager.clients.login.request_has_relevant_auth_headers():
+                    return self._login_get_or_post(web.input())
+                
                 def db_body(db):
-                    self.context = Context(self.manager, False, db)
                     self._session_authz(sessionids)
                     self.context.session.expires = now + self.session_duration
                     self.manager.sessions.extend(self.manager, self.context, db)
@@ -533,6 +541,7 @@ class RestHandlerFactory (object):
                 return response
 
             def _login_get_or_post(self, storage):
+
                 for key in self.manager.clients.login.login_keywords():
                     if key not in storage:
                         raise BadRequest('missing required parameter "%s"' % key)
@@ -544,7 +553,6 @@ class RestHandlerFactory (object):
                         raise Conflict('Login request conflicts with current client authentication state.')
 
                     self.context.session = Session()
-
                     # allocate new session ID first
                     self.manager.sessionids.create_unique_sessionids(self.manager, self.context)
 
