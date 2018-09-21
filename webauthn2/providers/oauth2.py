@@ -460,6 +460,7 @@ class OAuth2Login (ClientLogin):
 
         # Check issuer and (if applicable) audiende
         accepted_scopes = self.provider.cfg.get('oauth2_accepted_scopes')
+        found_scopes=[]
         if self.userinfo.get('scope') != None:
             found_scopes = self.userinfo.get('scope').split()
 
