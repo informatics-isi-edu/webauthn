@@ -19,7 +19,6 @@
 #include <apr_time.h>
 #include <unistd.h>
 #include <apr_md5.h>
-#include <apr_cstr.h>
 
 #define WEBAUTHN_GROUP "webauthn-group"
 #define WEBAUTHN_OPTIONAL "webauthn-optional"
@@ -926,11 +925,14 @@ static const char *webauthn_parse_config(cmd_parms *cmd, const char *require_lin
 #define OAUTH2_SESSION_PREFIX "oauth2-hash:"
 static const char *session_id_from_oauth2_bearer_token(request_rec *r, webauthn_local_config *local_config) {
   const char *auth_header = apr_table_get(r->headers_in, AUTHORIZATION_HEADER);
-  const char *bstr;
+  const char *bstr = NULL;
   unsigned char *digest;
   char *retval = NULL;
   if (auth_header != NULL) {
-    bstr = apr_cstr_skip_prefix(auth_header, BEARER_STRING);
+    /* Can't use apr_cstr_skip_prefix because it's not in the version of Ubuntu we use for travis builds. */
+    if (strncasecmp(auth_header, BEARER_STRING, sizeof(BEARER_STRING)-1) == 0) {
+      bstr = apr_pstrdup(local_config->pool, auth_header + sizeof(BEARER_STRING)-1);
+    }
     if (bstr != NULL) {
       if (*bstr != '\0') {
 	digest = apr_palloc(local_config->pool, APR_MD5_DIGESTSIZE);
