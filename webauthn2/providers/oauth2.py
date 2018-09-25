@@ -344,12 +344,17 @@ class OAuth2Login (ClientLogin):
         # confusing exceptions / log messages).
         try:
             self.payload=simplejson.load(u)
+#            web.debug("openid connect flow: payload is {p}".format(p=json.dumps(self.payload)))
         except ex:
             raise OAUth2Exception('Exception decoding token payload: http code {code}'.format(code=str(u.getcode())))
         u.close()
             
-        token_payload=simplejson.dumps(self.payload, separators=(',', ':'))
         raw_id_token=self.payload.get('id_token')
+        if raw_id_token is None:
+            web.debug("Illegal token response: didn't include an id token. Keys were {k}. Token type was {t}, scope was {s}".format(k=str(self.payload.keys()), t=str(self.payload.get('token_type')), s=str(self.payload.get('scope'))))
+            raise OAuth2Exception("Illegal token response: didn't include an id token")
+
+        web.debug("Good token response. Keys were {k}. Token type was {t}, scope was {s}".format(k=str(self.payload.keys()), t=str(self.payload.get('token_type')), s=str(self.payload.get('scope'))))        
 
         # Validate id token
         u=self.open_url(self.provider.cfg.get('jwks_uri'), "getting jwks info", False)
@@ -542,6 +547,8 @@ class OAuth2Login (ClientLogin):
       Raises:
         AppIdentityError if any checks are failed.
       """
+
+      assert jwt is not None
       segments = jwt.split('.')
     
       if len(segments) != 3:

@@ -569,6 +569,8 @@ class DatabaseConnection (PooledConnection):
                 except Exception, ev:
                     def trace():
                         et, ev2, tb = sys.exc_info()
+                        if tb is not None:
+                            web.debug('Exception in db_wrapper here: {t}'.format(t=traceback.format_tb(tb)))
 
                     # see if subclass told us how to handle exception
                     for cls, do_commit, do_trace in self.extended_exceptions:
