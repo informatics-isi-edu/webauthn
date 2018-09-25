@@ -15,9 +15,9 @@ Add an `oauth2_accepted_scopes` provider with the scope name and issuer you deci
 ```
     "oauth2_accepted_scopes": [
         {
-	}	
            "scope" : "https://auth.globus.org/scopes/0fb084ec-401d-41f4-990e-e236f325010a/deriva_all",
 	   "issuer" : "https://auth.globus.org"
+	}
 
     ],
 ```
