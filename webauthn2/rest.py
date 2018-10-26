@@ -113,7 +113,7 @@ def get_log_parts(start_time_key, request_guid_key, content_range_key, content_t
         client_identity_obj = client_identity_obj,
         reqid = web.ctx[request_guid_key],
         content_range = web.ctx[content_range_key],
-        content_type = web.ctx[content_range_key],
+        content_type = web.ctx[content_type_key],
         )
     return parts
 
