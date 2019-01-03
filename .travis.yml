@@ -46,6 +46,7 @@ install:
   - sudo cat /etc/apache2/envvars
   - sudo make testvars
   - sudo make install
+  - sudo head /usr/bin/webauthn2-db-init
   - sudo make deploy
   - sudo bash ./test/ubuntu-travis-setup.sh
   - sudo bash ./test/static-test-setup.sh
