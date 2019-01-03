@@ -429,6 +429,10 @@ class PooledConnection (object):
         """Create an actual connection object (abstract base method)."""
         raise NotImplementedError()
 
+def force_query(db, *args, **kwargs):
+    """Force db.query SELECT generator results as expected by legacy code here."""
+    return list(db.query(*args, **kwargs))
+
 class DatabaseConnection (PooledConnection):
     """
     Concrete base class for pooled web.database connections.
@@ -600,37 +604,46 @@ class DatabaseConnection (PooledConnection):
     def _view_exists(self, db, tablename):
         """Return True or False depending on whether (schema.)tablename view exists in our database."""
 
-        results = db.query("""
+        results = force_query(
+            db,
+            """
 SELECT * FROM information_schema.views
 WHERE table_schema = %(schema)s
   AND table_name = %(table)s
-"""
-                           % dict(schema=sql_literal(self.database_schema),
-                                  table=sql_literal(tablename))
-                           )
+""" % {
+    'schema': sql_literal(self.database_schema),
+    'table': sql_literal(tablename),
+}
+        )
         return len(results) > 0
     
     def _table_exists(self, db, tablename):
         """Return True or False depending on whether (schema.)tablename exists in our database."""
 
-        results = db.query("""
+        results = force_query(
+            db,
+            """
 SELECT * FROM information_schema.tables
 WHERE table_schema = %(schema)s
   AND table_name = %(table)s
-"""
-                           % dict(schema=sql_literal(self.database_schema),
-                                  table=sql_literal(tablename))
-                           )
+""" % {
+    'schema': sql_literal(self.database_schema),
+    'table': sql_literal(tablename),
+}
+        )
         return len(results) > 0
     
     def _schema_exists(self, db, schemaname):
         """Return True or False depending on whether schema exists in our database."""
 
-        results = db.query("""
+        results = force_query(
+            db,
+            """
 SELECT * FROM information_schema.schemata
 WHERE schema_name = %(schema)s
-"""
-                           % dict(schema=sql_literal(schemaname))
-                           )
+""" % {
+    'schema': sql_literal(schemaname),
+}
+        )
         return len(results) > 0
     

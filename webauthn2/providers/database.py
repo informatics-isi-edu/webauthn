@@ -82,10 +82,6 @@ __all__ = [
     'config_built_ins'
     ]
 
-def force_query(db, *args, **kwargs):
-    """Force db.query SELECT generator results as expected by legacy code here."""
-    return list(db.query(*args, **kwargs))
-
 def make_random_password(length=10, symbols=False):
     """Generate a random password of given length."""
     return generate_random_string(length, symbols=False)
@@ -157,7 +153,7 @@ class DatabaseConnection2 (DatabaseConnection):
         else:
             return None
 
-    def deploy_minor_upgrade(self, old_minor):
+    def deploy_minor_upgrade(self, old_minor, db=None):
         return False
 
     def deploy_guard(self, db, suffix=''):
