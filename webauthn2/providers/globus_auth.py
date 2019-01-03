@@ -1,6 +1,6 @@
 
 # 
-# Copyright 2010-2012 University of Southern California
+# Copyright 2010-2019 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -148,7 +148,7 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
                     if self.payload.get('dependent_tokens') == None:
                         self.payload['dependent_tokens'] = dict()
                     self.payload['dependent_tokens'] = token_response
-            except globus_sdk.exc.AuthAPIError, ex:
+            except globus_sdk.exc.AuthAPIError as ex:
                 web.debug("WARNING: dependent token request returned {ex}".format(ex=ex))
         else:
             web.debug("WARNING: No globus_sdk installed; skipping dependent token request. This means no group info and an empty wallet for sessions authenticated by bearer token.")

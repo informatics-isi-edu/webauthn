@@ -36,11 +36,11 @@ Provider-specific parameters for webcookie module:
 
 """
 
-from providers import *
-from webauthn2.util import *
 import web
-
 import random
+
+from .providers import *
+from ..util import *
 
 config_built_ins = web.storage(
     web_cookie_name= 'webauthn',

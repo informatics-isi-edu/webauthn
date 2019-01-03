@@ -21,8 +21,8 @@ Webauthn2 null provider stubs.
 
 """
 
-from providers import *
 import web
+from .providers import *
 
 config_built_ins = web.storage()
 

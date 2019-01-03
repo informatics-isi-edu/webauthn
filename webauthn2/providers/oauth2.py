@@ -1,5 +1,5 @@
 # 
-# Copyright 2010-2012 University of Southern California
+# Copyright 2010-2019 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -345,7 +345,7 @@ class OAuth2Login (ClientLogin):
         try:
             self.payload=simplejson.load(u)
 #            web.debug("openid connect flow: payload is {p}".format(p=json.dumps(self.payload)))
-        except ex:
+        except Exception as ex:
             raise OAUth2Exception('Exception decoding token payload: http code {code}'.format(code=str(u.getcode())))
         u.close()
             
@@ -445,7 +445,7 @@ class OAuth2Login (ClientLogin):
         # a urllib2.HTTPError
         try:
             return urllib2.urlopen(req)
-        except Exception, ev:
+        except Exception as ev:
             if repeatable:
                 web.debug("Got {t} exception {ev} while {text} (url {url}, headers {headers})".format(
                     t=str(type(ev)), ev=str(ev), text=str(text), url=str(req.get_full_url()), headers=str(req.header_items())))

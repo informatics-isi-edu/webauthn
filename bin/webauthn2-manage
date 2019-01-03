@@ -27,7 +27,8 @@ web.config.debug_sql = False
 import webauthn2
 
 def usage():
-    print """
+    print(
+        """
 usage: webauthn2-manage <cmd>...
 
 Run this utility to perform a sub-command to manipulate 
@@ -70,6 +71,7 @@ Exit status:
   3  for sub-command not supported by current service configuration
 
 """
+    )
 
 webauthn2_manager = webauthn2.Manager()
 
@@ -104,7 +106,7 @@ def main(args):
                 if len(args) == 3 and args[2] == 'random' or len(args) == 2:
                     passwd = webauthn2_manager.clients.passwd.create_noauthz(webauthn2_manager, None, args[1], None)
                     if len(args) == 3:
-                        print 'new random password: %s' % passwd
+                        print('new random password: %s' % passwd)
                 elif len(args) == 3:
                     webauthn2_manager.clients.passwd.create_noauthz(webauthn2_manager, None, args[1], args[2])
                 else:
@@ -163,12 +165,12 @@ def main(args):
         
         return 0
 
-    except KeyError, ev:
-        print 'not found: %s' % str(ev)
+    except KeyError as ev:
+        print('not found: %s' % ev)
         return 2
 
     except NotImplementedError:
-        print 'command not supported by current service configuration'
+        print('command not supported by current service configuration')
         return 3
 
 if __name__ == '__main__':
