@@ -7,20 +7,30 @@ dist: xenial
 python:
   - "3.7"
 
+services:
+  - postgresql
+
+addons:
+  postgresql: "10"
+  apt:
+    packages:
+      - libpq-dev
+      - postgresql-10
+      - postgresql-client-10
+      - postgresql-server-dev-10
+
 env:
   global:
     - COOKIES=~/cookies
     - VERBOSE=brief
     - HTTPD_ERROR_LOG=/var/log/apache2/error.log
     - PYTHONWARNINGS="ignore:Unverified HTTPS request"
+    - PGPORT=5433
 
 before_install:
   - sudo apt-get -y update
-  - sudo service postgresql stop
-  - sudo apt-get -y purge postgresql-9.4 postgresql-9.5 postgresql-9.6
-  - sudo apt-get -y install postgresql-10 libpq-dev postgresql-server-dev-10 python-dev
-  - sudo service postgresql start 10
   - sudo apt-get -y purge python-psycopg2 libapache2-mod-wsgi
+  - sudo apt-get -y install python-dev
   - sudo apt-get -y install apache2 apache2-dev libjson-c-dev ssl-cert libapache2-mod-wsgi-py3
   - sudo pip install web.py
   - sudo pip install psycopg2
