@@ -5,7 +5,7 @@ sudo: required
 dist: xenial
 
 python:
-  - "3.7"
+  - "3.5"
 
 services:
   - postgresql
@@ -18,6 +18,10 @@ addons:
       - postgresql-10
       - postgresql-client-10
       - postgresql-server-dev-10
+      - apache2
+      - apache2-dev
+      - ssl-cert
+      - libapache2-mod-wsgi-py3
 
 env:
   global:
@@ -28,17 +32,17 @@ env:
     - PGPORT=5433
 
 before_install:
-  - sudo apt-get -y update
-  - sudo apt-get -y purge python-psycopg2 libapache2-mod-wsgi
-  - sudo apt-get -y install python-dev
-  - sudo apt-get -y install apache2 apache2-dev libjson-c-dev ssl-cert libapache2-mod-wsgi-py3
-  - sudo pip install web.py
-  - sudo pip install psycopg2
   - sudo ln -s /etc/apache2/conf-enabled /etc/apache2/conf.d
   - sudo a2enmod ssl
   - sudo a2ensite default-ssl
 
 install:
+  - sudo which pip3
+  - sudo which python3
+  - sudo head -1 $(sudo which pip3)
+  - sudo ls -l $(sudo which python3)
+  - sudo ls -lR /etc/apache2
+  - sudo cat /etc/apache2/envvars
   - sudo make testvars
   - sudo make install
   - sudo make deploy
@@ -46,7 +50,6 @@ install:
   - sudo bash ./test/static-test-setup.sh
   - sudo a2enmod webauthn
   - sudo service apache2 restart
-  - sudo ls -lR /etc/apache2
   - sudo ls -lR /var/run/apache2
   - sudo ls -lR /var/log/apache2
 
