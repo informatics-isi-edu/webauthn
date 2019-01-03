@@ -15,6 +15,7 @@ addons:
   apt:
     packages:
       - libpq-dev
+      - libjson-c-dev
       - postgresql-10
       - postgresql-client-10
       - postgresql-server-dev-10
@@ -37,14 +38,12 @@ before_install:
   - sudo a2enmod ssl
   - sudo a2ensite default-ssl
   - sudo groupadd -o -g $(id -g www-data) apache
+  - sudo pip3 install psycopg2
+  - sudo pip3 install git+https://github.com/webpy/webpy.git
 
 install:
-  - sudo ls -lR /etc/apache2
   - sudo cat /etc/apache2/envvars
   - sudo make testvars
-  - sudo ls -l /usr/bin/python*
-  - sudo ls -l /usr/bin/pip*
-  - sudo head -1 /usr/bin/pip3
   - sudo make install
   - sudo make deploy
   - sudo bash ./test/ubuntu-travis-setup.sh
@@ -72,6 +71,7 @@ after_failure:
   - sudo cat /etc/apache2/conf.d/webauthn_test.conf
   - sudo cat /etc/apache2/mods-available/webauthn.load
   - sudo cat /etc/hosts
+  - sudo cat /etc/apache2/envvars
   - sudo cat /etc/apache2/apache2.conf
   - sudo cat /etc/apache2/sites-available/default-ssl.conf
   - sudo ls -lR /etc/apache2
