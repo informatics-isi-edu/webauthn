@@ -113,6 +113,7 @@ echo begin diagnostics...
 $SU -c "which webauthn2-db-init" - "${DAEMONUSER}"
 $SU -c "head -1 /usr/bin/webauthn2-db-init" - "${DAEMONUSER}"
 $SU -c "env" - "${DAEMONUSER}"
+$SU -c '/usr/bin/python3 -c "import sys;import pprint;pprint.pprint(sys.path)"' - "${DAEMONUSER}"
 
 $SU -c "webauthn2-db-init" - "${DAEMONUSER}"
 
