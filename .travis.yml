@@ -44,6 +44,7 @@ before_install:
   - sudo groupadd -o -g $(id -g www-data) apache
   - sudo pip3 install psycopg2
   - sudo pip3 install git+https://github.com/webpy/webpy.git
+  - sudo echo ../site-packages > /usr/lib/python3.5/dist-packages/site-packages.pth
 
 install:
   - sudo make testvars
