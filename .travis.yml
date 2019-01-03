@@ -24,6 +24,7 @@ addons:
       - ssl-cert
       - libapache2-mod-wsgi-py3
       - python3-pip
+      - python3-setuptools
 
 env:
   global:
