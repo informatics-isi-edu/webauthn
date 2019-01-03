@@ -2,25 +2,26 @@
 language: python
 
 sudo: required
-dist: trusty
+dist: xenial
 
-addons:
-  postgresq: "9.4"
+python:
+  - "3.7"
 
 env:
   global:
     - COOKIES=~/cookies
     - VERBOSE=brief
     - HTTPD_ERROR_LOG=/var/log/apache2/error.log
+    - PYTHONWARNINGS="ignore:Unverified HTTPS request"
 
 before_install:
   - sudo apt-get -y update
   - sudo service postgresql stop
-  - sudo apt-get -y purge postgresql-9.1 postgresql-9.2 postgresql-9.3
-  - sudo service postgresql start 9.4
-  - sudo apt-get -y install libpq-dev postgresql-server-dev-9.4 python-dev
-  - sudo apt-get -y install apache2 apache2-dev libjson-c-dev ssl-cert libapache2-mod-wsgi python python-dateutil python-tz
-  - sudo apt-get -y purge python-psycopg2
+  - sudo apt-get -y purge postgresql-9.4 postgresql-9.5 postgresql-9.6
+  - sudo apt-get -y install postgresql-10 libpq-dev postgresql-server-dev-10 python-dev
+  - sudo service postgresql start 10
+  - sudo apt-get -y purge python-psycopg2 libapache2-mod-wsgi
+  - sudo apt-get -y install apache2 apache2-dev libjson-c-dev ssl-cert libapache2-mod-wsgi-py3
   - sudo pip install web.py
   - sudo pip install psycopg2
   - sudo ln -s /etc/apache2/conf-enabled /etc/apache2/conf.d
