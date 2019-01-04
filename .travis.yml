@@ -36,7 +36,6 @@ env:
     - HTTPD_ERROR_LOG=/var/log/apache2/error.log
     - PYTHONWARNINGS="ignore:Unverified HTTPS request"
     - PGPORT=5433
-    - PYTHONPATH=/usr/lib/python3.5/site-packages
 
 before_install:
   - sudo ln -s /etc/apache2/conf-enabled /etc/apache2/conf.d
@@ -45,6 +44,9 @@ before_install:
   - sudo groupadd -o -g $(id -g www-data) apache
   - sudo pip3 install psycopg2
   - sudo pip3 install git+https://github.com/webpy/webpy.git
+  - sudo env
+  - /usr/bin/python3 -c "import sys;import pprint;pprint.pprint(sys.path)"
+  - sudo /usr/bin/python3 -c "import sys;import pprint;pprint.pprint(sys.path)"
 
 install:
   - sudo make testvars

@@ -109,8 +109,5 @@ then
 fi
 
 # this is supposed to be idempotent too...
-echo begin diagnostics...
-$SU -c '/usr/bin/python3 -c "import sys;import pprint;pprint.pprint(sys.path)"' - "${DAEMONUSER}"
-
 $SU -c "webauthn2-db-init" - "${DAEMONUSER}"
 
