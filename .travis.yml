@@ -51,7 +51,7 @@ before_install:
   - sudo su -c '/usr/bin/python3 -c "import sys;import pprint;pprint.pprint(sys.path)"' - webauthn
   - sudo ls -ld /usr/local/lib/python3.5/dist-packages
   - sudo ls -l /usr/lib/python3.5/site-packages
-  - sudo echo /usr/lib/python3.5/site-packages > /usr/local/lib/python3.5/dist-packages/sys-site-packages.pth
+  - sudo su -c 'echo /usr/lib/python3.5/site-packages > /usr/local/lib/python3.5/dist-packages/sys-site-packages.pth'
   - sudo su -c '/usr/bin/python3 -c "import sys;import pprint;pprint.pprint(sys.path)"' - webauthn
 
 install:
