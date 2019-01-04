@@ -44,9 +44,11 @@ before_install:
   - sudo groupadd -o -g $(id -g www-data) apache
   - sudo pip3 install psycopg2
   - sudo pip3 install git+https://github.com/webpy/webpy.git
+  - sudo useradd -m -r webauthn
   - sudo env
   - /usr/bin/python3 -c "import sys;import pprint;pprint.pprint(sys.path)"
   - sudo /usr/bin/python3 -c "import sys;import pprint;pprint.pprint(sys.path)"
+  - sudo su -c '/usr/bin/python3 -c "import sys;import pprint;pprint.pprint(sys.path)"' - webauthn
 
 install:
   - sudo make testvars
