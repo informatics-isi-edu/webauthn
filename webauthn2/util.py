@@ -82,7 +82,7 @@ def negotiated_content_type(supported_types=['text/csv', 'application/json', 'ap
         for p in parts[1:]:
             fields = p.split('=')
             if len(fields) == 2 and fields[0] == 'q':
-                q = fields[1]
+                q = float(fields[1])
         return (q, t)
 
     try:
