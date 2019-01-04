@@ -72,7 +72,7 @@ import re
 import logging
 from logging.handlers import SysLogHandler
 import datetime
-import pytz
+from datetime import timezone
 import struct
 import json
 import hashlib
@@ -104,7 +104,7 @@ def get_log_parts(start_time_key, request_guid_key, content_range_key, content_t
           content_range_key: key to entry in web.ctx w/ HTTP range
           content_type_key: key to entry in web.ctx w/ HTTP content type
     """
-    now = datetime.datetime.now(pytz.timezone('UTC'))
+    now = datetime.datetime.now(timezone.utc)
     elapsed = (now - web.ctx[start_time_key])
     client_identity_obj = web.ctx.webauthn2_context and web.ctx.webauthn2_context.client or None
     parts = dict(
@@ -223,7 +223,7 @@ def web_method():
         def wrapper(*args):
             # request context init
             web.ctx.webauthn_request_guid = base64.b64encode( struct.pack('Q', random.getrandbits(64)) )
-            web.ctx.webauthn_start_time = datetime.datetime.now(pytz.timezone('UTC'))
+            web.ctx.webauthn_start_time = datetime.datetime.now(timezone.utc)
             web.ctx.webauthn_request_content_range = None
             web.ctx.webauthn_content_type = None
             web.ctx.webauthn2_manager = args[0]
@@ -432,7 +432,7 @@ class RestHandlerFactory (object):
                 return self._login_response()
 
             def _login_response(self):
-                now = datetime.datetime.now(pytz.timezone('UTC'))
+                now = datetime.datetime.now(timezone.utc)
                 response = dict(
                     client=self.context.client,
                     attributes=list(self.context.attributes),
@@ -463,7 +463,7 @@ class RestHandlerFactory (object):
 
                 """
                 # just extend session and then act like GET
-                now = datetime.datetime.now(pytz.timezone('UTC'))
+                now = datetime.datetime.now(timezone.utc)
 
                 def db_body_get_context(db):
                     return Context(self.manager, False, db)

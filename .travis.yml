@@ -38,6 +38,7 @@ env:
     - PGPORT=5433
 
 before_install:
+  - sudo su -c 'echo /usr/lib/python3.5/site-packages > /usr/local/lib/python3.5/dist-packages/sys-site-packages.pth'
   - sudo ln -s /etc/apache2/conf-enabled /etc/apache2/conf.d
   - sudo a2enmod ssl
   - sudo a2ensite default-ssl
@@ -45,13 +46,6 @@ before_install:
   - sudo pip3 install psycopg2
   - sudo pip3 install git+https://github.com/webpy/webpy.git
   - sudo useradd -m -r webauthn
-  - sudo env
-  - /usr/bin/python3 -c "import sys;import pprint;pprint.pprint(sys.path)"
-  - sudo /usr/bin/python3 -c "import sys;import pprint;pprint.pprint(sys.path)"
-  - sudo su -c '/usr/bin/python3 -c "import sys;import pprint;pprint.pprint(sys.path)"' - webauthn
-  - sudo ls -ld /usr/local/lib/python3.5/dist-packages
-  - sudo ls -l /usr/lib/python3.5/site-packages
-  - sudo su -c 'echo /usr/lib/python3.5/site-packages > /usr/local/lib/python3.5/dist-packages/sys-site-packages.pth'
   - sudo su -c '/usr/bin/python3 -c "import sys;import pprint;pprint.pprint(sys.path)"' - webauthn
 
 install:

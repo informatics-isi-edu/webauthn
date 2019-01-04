@@ -54,7 +54,7 @@ import web
 import hmac
 import random
 import datetime
-import pytz
+from datetime import timezone
 import urllib
 import re
 import sys
@@ -296,7 +296,7 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
                 raise KeyError('key not unique')
 
             if not context.session.since:
-                context.session.since = datetime.datetime.now(pytz.timezone('UTC'))
+                context.session.since = datetime.datetime.now(timezone.utc)
             
             if not context.session.expires:
                 duration = datetime.timedelta(minutes=int(manager.config.get('session_expiration_minutes', 30)))
@@ -342,7 +342,7 @@ INSERT INTO %(stable)s (key, since, keysince, expires, client, attributes, %(use
         """
         def db_body(db):
             srow = self._session(db, context.session.keys)
-            now = datetime.datetime.now(pytz.timezone('UTC'))
+            now = datetime.datetime.now(timezone.utc)
             if duration is None:
                 newduration = datetime.timedelta(minutes=int(manager.config.get('session_expiration_minutes', 30)))
             else:
