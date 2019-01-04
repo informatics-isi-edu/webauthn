@@ -21,7 +21,6 @@ import web
 import urllib
 import urllib.error
 import datetime
-import pytz
 import math
 import random
 import time
