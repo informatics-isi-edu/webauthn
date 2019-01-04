@@ -49,7 +49,7 @@ deploy: install
 	env SHAREDIR=$(SHAREDIR) HTTPDCONFDIR=$(HTTPDCONFDIR) webauthn2-deploy
 	$(MAKE) -C apache_module deploy
 
-samples/wsgi_webauthn2.conf: samples/wsgi_webauthn2.conf.in
+samples/wsgi_webauthn2.conf: samples/wsgi_webauthn2.conf.in force
 	./install-script -M sed -R @PYLIBDIR@=$(PYLIBDIR) @WSGISOCKETPREFIX@=$(WSGISOCKETPREFIX) @DAEMONUSER@=$(DAEMONUSER) -o root -g root -m a+r -p -D $< $@
 
 # HACK: distutils doesn't have an uninstaller...
