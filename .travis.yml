@@ -35,11 +35,12 @@ env:
     - VERBOSE=brief
     - HTTPD_ERROR_LOG=/var/log/apache2/error.log
     - PYTHONWARNINGS="ignore:Unverified HTTPS request"
-    - PGPORT=5433
 
 before_install:
   - sudo su -c 'echo /usr/lib/python3.5/site-packages > /usr/local/lib/python3.5/dist-packages/sys-site-packages.pth'
   - sudo ln -s /etc/apache2/conf-enabled /etc/apache2/conf.d
+  - sudo service postgresql stop
+  - sudo service postgresql start 10
   - sudo a2enmod ssl
   - sudo a2ensite default-ssl
   - sudo groupadd -o -g $(id -g www-data) apache
