@@ -157,7 +157,7 @@ def main(args):
                     pass
 
                 # create new credentials file
-                with open(robot_credfilename, 'wb') as robot_credfile:
+                with open(robot_credfilename, 'w') as robot_credfile:
                     json.dump(new_creds, robot_credfile, indent=2)
         else:
             usage()
