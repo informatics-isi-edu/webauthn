@@ -133,7 +133,7 @@ def request_trace_json(tracedata, parts):
         ]
         if v
     ])
-    return json.dumps(od, separators=(', ', ':')).encode('utf-8')
+    return json.dumps(od, separators=(', ', ':'))
 
 def prune_excessive_dcctx(dcctx):
     """Heuristically prune content from dcctx to avoid overly long log entries.
@@ -204,7 +204,7 @@ def request_final_json(parts, extra={}):
     for k, v in extra.items():
         od[k] = v
 
-    return json.dumps(od, separators=(', ', ':')).encode('utf-8')
+    return json.dumps(od, separators=(', ', ':'))
     
 def log_parts():
     """Generate a dictionary of interpolation keys used by our logging template."""
