@@ -316,7 +316,7 @@ def session_from_environment():
 
     if b64_session_string == None or b64_session_string.strip() == '':
         return None
-    session_string=base64.standard_b64decode(b64_session_string)
+    session_string=base64.standard_b64decode(b64_session_string).decode()
     return jsonReader(session_string)
 
 def context_from_environment(fallback=True):
