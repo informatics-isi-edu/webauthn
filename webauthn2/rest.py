@@ -111,7 +111,7 @@ def get_log_parts(start_time_key, request_guid_key, content_range_key, content_t
         elapsed = elapsed.seconds + 0.001 * (elapsed.microseconds/1000),
         client_ip = web.ctx.ip,
         client_identity_obj = client_identity_obj,
-        reqid = web.ctx[request_guid_key].decode(),
+        reqid = web.ctx[request_guid_key],
         content_range = web.ctx[content_range_key],
         content_type = web.ctx[content_type_key],
         )
@@ -222,7 +222,7 @@ def web_method():
     def helper(original_method):
         def wrapper(*args):
             # request context init
-            web.ctx.webauthn_request_guid = base64.b64encode( struct.pack('Q', random.getrandbits(64)) )
+            web.ctx.webauthn_request_guid = base64.b64encode( struct.pack('Q', random.getrandbits(64)) ).decode()
             web.ctx.webauthn_start_time = datetime.datetime.now(timezone.utc)
             web.ctx.webauthn_request_content_range = None
             web.ctx.webauthn_content_type = None
