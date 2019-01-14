@@ -232,7 +232,7 @@ class GlobusAuthSessionStateProvider(oauth2.OAuth2SessionStateProvider):
                 args[key] = val
         if preferred_final_url != None:
             args['redirect_uri'] = preferred_final_url
-        globus_logout_url = logout_base + "?" + urllib.urlencode(args)
+        globus_logout_url = logout_base + "?" + urllib.parse.urlencode(args)
         retval = dict()
         retval[LOGOUT_URL] = globus_logout_url
         return retval
