@@ -33,7 +33,7 @@ UNINSTALL=$(UNINSTALL_DIRS) \
 
 # make this the default target
 install: samples/wsgi_webauthn2.conf force
-	python3 ./setup.py install
+	pip3 install --no-deps --upgrade .
 	$(MAKE) -C apache_module install
 
 testvars: force
