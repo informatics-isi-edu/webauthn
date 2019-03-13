@@ -142,6 +142,8 @@ def prune_excessive_dcctx(dcctx):
        descriptions, so limit those.
 
     """
+    if dcctx is None:
+        return None
     max_facet_len = 2000
 
     def prune_facet(container):
