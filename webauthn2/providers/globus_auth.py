@@ -1,6 +1,6 @@
 
 # 
-# Copyright 2010-2012 University of Southern California
+# Copyright 2010-2019 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,17 +18,16 @@
 Globus flavor of OAuth2. They require HTTP Basic authentication for token requests, and also provide group management.
 """
 
-from providers import *
-from webauthn2.util import *
-from webauthn2.providers import database
-import oauth2
 import base64
-import urllib2
 import urllib
-import urlparse
 import json
 
 import web
+
+from .providers import *
+from ..util import *
+from . import database
+from . import oauth2
 
 USE_GLOBUS_SDK = False
 try:
@@ -97,11 +96,11 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
 
             if group_base == None:
                 group_base = "https://nexus.api.globusonline.org/groups"
-            urltuple = urlparse.urlsplit(group_base)
-            token_request = urllib2.Request(urlparse.urlunsplit([urltuple[0], urltuple[1], urltuple[2], urllib.urlencode(group_args), None]))
+            urltuple = urllib.parse.urlsplit(group_base)
+            token_request = urllib.request.Request(urllib.parse.urlunsplit([urltuple[0], urltuple[1], urltuple[2], urllib.parse.urlencode(group_args), None]))
             token_request.add_header('Authorization', 'Bearer ' + group_token.get('access_token'))
             u = self.open_url(token_request, "getting groups", False)
-            groups = simplejson.load(u)
+            groups = json.load(u)
             u.close()
 #            web.debug("groups: " + str(groups))
             context.globus_groups = set()
@@ -124,12 +123,11 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
     def add_extra_token_request_headers(self, token_request):
         client_id = self.provider.cfg.get('client_id')
         client_secret = self.provider.cfg.get('client_secret')
-        basic_auth_token = base64.b64encode(client_id + ':' + client_secret)
-        token_request.add_header('Authorization', 'Basic ' + basic_auth_token)
+        basic_auth_token = base64.b64encode((client_id + ':' + client_secret).encode())
+        token_request.add_header('Authorization', 'Basic ' + basic_auth_token.decode())
 
     def make_userinfo_request(self, endpoint, access_token):
-        req = urllib2.Request(endpoint)
-        req.add_data(urllib.urlencode({'token' : access_token, 'include' : 'identities_set'}))
+        req = urllib.request.Request(endpoint, urllib.parse.urlencode({'token' : access_token, 'include' : 'identities_set'}).encode())
         self.add_extra_token_request_headers(req)
         return req
 
@@ -148,7 +146,7 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
                     if self.payload.get('dependent_tokens') == None:
                         self.payload['dependent_tokens'] = dict()
                     self.payload['dependent_tokens'] = token_response
-            except globus_sdk.exc.AuthAPIError, ex:
+            except globus_sdk.exc.AuthAPIError as ex:
                 web.debug("WARNING: dependent token request returned {ex}".format(ex=ex))
         else:
             web.debug("WARNING: No globus_sdk installed; skipping dependent token request. This means no group info and an empty wallet for sessions authenticated by bearer token.")
@@ -234,7 +232,7 @@ class GlobusAuthSessionStateProvider(oauth2.OAuth2SessionStateProvider):
                 args[key] = val
         if preferred_final_url != None:
             args['redirect_uri'] = preferred_final_url
-        globus_logout_url = logout_base + "?" + urllib.urlencode(args)
+        globus_logout_url = logout_base + "?" + urllib.parse.urlencode(args)
         retval = dict()
         retval[LOGOUT_URL] = globus_logout_url
         return retval

@@ -88,11 +88,11 @@ import os.path
 import platform
 import datetime
 import web
-import util
-import providers
+from . import util
+from . import providers
 
-from providers.providers import Session, ID
-from util import Context, urlquote
+from .providers.providers import Session, ID
+from .util import Context, urlquote
 
 source_checksum = None
 

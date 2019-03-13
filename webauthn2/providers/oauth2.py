@@ -1,5 +1,6 @@
+
 # 
-# Copyright 2010-2012 University of Southern California
+# Copyright 2010-2019 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -47,19 +48,13 @@ Provider-specific parameters specific to OAuth2:
 
 """
 
-from providers import *
-from webauthn2.util import *
-from webauthn2.providers import database, webcookie
-
 import web
 
 import random
 import urllib
-import urllib2
 import uuid
-import urlparse
 import web
-import simplejson
+import json
 import psycopg2
 import oauth2client.client
 import jwkest
@@ -74,12 +69,14 @@ import Crypto.Hash.SHA256
 import Crypto.Hash.SHA512
 from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_v1_5
-import json
-from datetime import datetime, timedelta
-import pytz
-import webauthn2.providers
+import datetime
+from datetime import timedelta, timezone
 import collections
 import hashlib
+
+from ..util import *
+from . import database, webcookie
+from .providers import *
 
 config_built_ins = web.storage(
     # Items needed for methods inherited from database provider
@@ -136,7 +133,7 @@ class nonce_util(database.DatabaseConnection2):
     def update_timeout(self, db, force=False):
         if not force:
             for k in self.keys:
-                if datetime.now(pytz.timezone('UTC')) + timedelta(0, self.config_params['soft_timeout']) < k[0]:
+                if datetime.datetime.now(timezone.utc) + timedelta(0, self.config_params['soft_timeout']) < k[0]:
                     return
         def db_body(db):
             db.query("delete from {referrer_table} where timeout < now()".format(referrer_table=self.config_params.get('referrer_table')))
@@ -171,7 +168,8 @@ insert into %(hash_key_table)s (key, timeout)
 
     def get_referrer(self, nonce):
         def db_body(db):
-            return db.query("select referrer from {referrer_table} where nonce={nonce}".format(referrer_table=self.config_params.get('referrer_table'), nonce=sql_literal(nonce)))
+            # use convert iterator to list...
+            return list(db.query("select referrer from {referrer_table} where nonce={nonce}".format(referrer_table=self.config_params.get('referrer_table'), nonce=sql_literal(nonce))))
         
         rows=self._db_wrapper(db_body)
         if len(rows) != 1:
@@ -187,7 +185,7 @@ insert into %(hash_key_table)s (key, timeout)
 
     @staticmethod
     def keytotext(key):
-        return base64.b64encode(key)
+        return base64.b64encode(key).decode()
 
     @staticmethod
     def texttokey(text):
@@ -200,7 +198,7 @@ insert into %(hash_key_table)s (key, timeout)
         return time.time() - value < self.config_params['hard_timeout']
 
     def encode(self, msg, db):
-        h = HMAC(self.get_current_key(db), msg, self.algorithm)
+        h = HMAC(self.get_current_key(db), msg.encode(), self.algorithm)
         return h.hexdigest()
 
     def hash_matches(self, msg, hashed, db):
@@ -212,7 +210,7 @@ insert into %(hash_key_table)s (key, timeout)
 
     def _check_hash_match(self, msg, hashed, db):
         for k in self.get_keys(db):
-            h = HMAC(k[1], msg, self.algorithm)
+            h = HMAC(k[1], msg.encode(), self.algorithm)
             if h.hexdigest() == hashed:
                 return True
         return False
@@ -262,7 +260,7 @@ class OAuth2Login (ClientLogin):
 
         bearer_token = bearer_token_util.token_from_request()
         nonce_vals = dict()
-        base_timestamp = datetime.now(pytz.timezone('UTC'))
+        base_timestamp = datetime.datetime.now(timezone.utc)
         context.wallet = dict()        
         if bearer_token == None:
             self.authorization_code_flow(context, db)
@@ -274,7 +272,7 @@ class OAuth2Login (ClientLogin):
         userinfo_endpoint = self.provider.cfg.get('userinfo_endpoint')
         req = self.make_userinfo_request(self.provider.cfg.get('userinfo_endpoint'), self.payload.get('access_token'))
         f = self.open_url(req, "getting userinfo", False)
-        self.userinfo=simplejson.load(f)
+        self.userinfo=json.load(f)
         self.validate_userinfo()
         f.close()
         if self.userinfo.get('active') != True or self.userinfo.get('iss') == None or self.userinfo.get('sub') == None:
@@ -323,7 +321,7 @@ class OAuth2Login (ClientLogin):
             raise OAuth2ProtocolError('nonce mismatch')
 
         # we'll write this to the db if all goes well
-        redirect_full_payload=simplejson.dumps(vals, separators=(',', ':'))
+        redirect_full_payload=json.dumps(vals, separators=(',', ':'))
 
         # Get id token
         token_args = {
@@ -334,7 +332,7 @@ class OAuth2Login (ClientLogin):
             'nonce' : nonce_vals['auth_url_nonce'],
             'grant_type' : 'authorization_code'}
 
-        token_request = urllib2.Request(self.provider.cfg.get('token_endpoint'), urllib.urlencode(token_args))
+        token_request = urllib.request.Request(self.provider.cfg.get('token_endpoint'), urllib.parse.urlencode(token_args).encode())
         self.add_extra_token_request_headers(token_request)
         u = self.open_url(token_request, "getting token", True)
         if (u == None):
@@ -343,9 +341,9 @@ class OAuth2Login (ClientLogin):
         # that will not cause db_wrapper to retry (because those retries will fail and generate
         # confusing exceptions / log messages).
         try:
-            self.payload=simplejson.load(u)
+            self.payload=json.load(u)
 #            web.debug("openid connect flow: payload is {p}".format(p=json.dumps(self.payload)))
-        except ex:
+        except Exception as ex:
             raise OAUth2Exception('Exception decoding token payload: http code {code}'.format(code=str(u.getcode())))
         u.close()
             
@@ -405,7 +403,7 @@ class OAuth2Login (ClientLogin):
         pass
 
     def make_userinfo_request(self, userinfo_endpoint, access_token):
-        return urllib2.Request(userinfo_endpoint, headers={'Authorization' : 'Bearer ' + access_token})
+        return urllib.request.Request(userinfo_endpoint, headers={'Authorization' : 'Bearer ' + access_token})
 
     def fill_context_from_userinfo(self, context, username, userinfo):
         context.user[ID] = username
@@ -426,11 +424,11 @@ class OAuth2Login (ClientLogin):
 
 
     def create_or_update_user(self, manager, context, username, id_token, userinfo, base_timestamp, token_payload, db):
-        context.user['id_token'] = simplejson.dumps(id_token, separators=(',', ':'))
-        context.user['userinfo'] = simplejson.dumps(userinfo, separators=(',', ':'))
+        context.user['id_token'] = json.dumps(id_token, separators=(',', ':'))
+        context.user['userinfo'] = json.dumps(userinfo, separators=(',', ':'))
         context.user['access_token'] = token_payload.get('access_token')
         if token_payload.get('exp') != None:
-            context.user['access_token_expiration'] = datetime.fromtimestamp(token_payload.get('exp'))
+            context.user['access_token_expiration'] = datetime.datetime.fromtimestamp(token_payload.get('exp'))
         else:
             context.user['access_token_expiration'] = base_timestamp + timedelta(seconds=int(token_payload.get('expires_in')))
         context.user['refresh_token'] = token_payload.get('refresh_token')
@@ -442,10 +440,10 @@ class OAuth2Login (ClientLogin):
     @staticmethod
     def open_url(req, text="opening url", repeatable=True):
         # This is called within db_wrapper, which will retry if it gets
-        # a urllib2.HTTPError
+        # a urllib.request.HTTPError
         try:
-            return urllib2.urlopen(req)
-        except Exception, ev:
+            return urllib.request.urlopen(req)
+        except Exception as ev:
             if repeatable:
                 web.debug("Got {t} exception {ev} while {text} (url {url}, headers {headers})".format(
                     t=str(type(ev)), ev=str(ev), text=str(text), url=str(req.get_full_url()), headers=str(req.header_items())))
@@ -555,7 +553,7 @@ class OAuth2Login (ClientLogin):
         raise AppIdentityError('Wrong number of segments in token: %s' % jwt)
       signed = '%s.%s' % (segments[0], segments[1])
     
-      header = simplejson.loads(cls.urlsafe_b64decode(segments[0]))
+      header = json.loads(cls.urlsafe_b64decode(segments[0]))
 
       signature = cls.urlsafe_b64decode(segments[2])
     
@@ -582,7 +580,7 @@ class OAuth2Login (ClientLogin):
       earliest = iat - CLOCK_SKEW_SECS
     
       # Check expiration timestamp.
-      now = long(time.time())
+      now = int(time.time())
       exp = parsed.get('exp')
       if exp is None:
         raise AppIdentityError('No exp field in token: %s' % json_body)
@@ -609,9 +607,8 @@ class OAuth2Login (ClientLogin):
 
     @staticmethod
     def urlsafe_b64decode(text):
-        padded = bytes(text) + b'=' * (4 - len(text) % 4)
+        padded = text.encode() + b'=' * (4 - len(text) % 4)
         return base64.urlsafe_b64decode(padded)
-
           
     def accepts_login_get(self):
         return True
@@ -627,7 +624,7 @@ class OAuth2Login (ClientLogin):
         hash_alg = hash_algs.get(alg_name)
         if hash_alg == None:
             raise AppIdentityError("Unknown signature algorithm: " + alg_name)
-        hash = hash_alg.new(signed)
+        hash = hash_alg.new(signed.encode())
         return PKCS1_v1_5.new(RSA.importKey(pem)).verify(hash, signature)
 
     def request_has_relevant_auth_headers(self):
@@ -644,7 +641,7 @@ class OAuth2PreauthProvider (PreauthProvider):
         self.nonce_cookie_name = config.oauth2_nonce_cookie_name
         self.cfg=OAuth2Config(config)
 
-        auth_url=urlparse.urlsplit(self.cfg.get('authorization_endpoint'))
+        auth_url=urllib.parse.urlsplit(self.cfg.get('authorization_endpoint'))
         self.authentication_uri_base = [auth_url.scheme, auth_url.netloc, auth_url.path]
         self.authentication_uri_args = {
             "client_id" : self.cfg.get("client_id"),
@@ -724,15 +721,15 @@ class OAuth2PreauthProvider (PreauthProvider):
 
     @staticmethod
     def generate_nonce():
-      nonce = str(int(time.time())) + '.' + base64.urlsafe_b64encode(Random.get_random_bytes(30)) + '.'
+      nonce = str(int(time.time())) + '.' + base64.urlsafe_b64encode(Random.get_random_bytes(30)).decode() + '.'
       return nonce
 
     def make_redirect_uriargs(self, args):
-        return urllib.urlencode(args)
+        return urllib.parse.urlencode(args)
 
     def make_redirect_uri(self, args):
         components = self.authentication_uri_base + [self.make_redirect_uriargs(args), None]
-        return urlparse.urlunsplit(components)
+        return urllib.parse.urlunsplit(components)
 
 class OAuth2ClientManage(database.DatabaseClientManage):
     def __init__(self, provider):
@@ -809,7 +806,7 @@ class OAuth2SessionStateProvider(database.DatabaseSessionStateProvider):
 
     def _new_session_extras(self, manager, context, db):
         if hasattr(context, "wallet"):
-            return [('wallet', simplejson.dumps(context.wallet, separators=(',', ':')))]
+            return [('wallet', json.dumps(context.wallet, separators=(',', ':')))]
         else:
             return []
 
@@ -932,7 +929,7 @@ class OAuth2Config(collections.MutableMapping):
         if config.oauth2_client_secret_file == None:
             raise OAuth2ConfigurationError("No oauth2_client_secret_file configured")
         f = open(config.oauth2_client_secret_file)
-        csd = simplejson.load(f).get('web')
+        csd = json.load(f).get('web')
         f.close()
         return csd
 
@@ -940,14 +937,14 @@ class OAuth2Config(collections.MutableMapping):
         if config.oauth2_discovery_uri == None:
             discovery_data = dict()
         else:
-            f = urllib2.urlopen(config.oauth2_discovery_uri)
-            discovery_data = simplejson.load(f)
+            f = urllib.request.urlopen(config.oauth2_discovery_uri)
+            discovery_data = json.load(f)
             f.close()
         return discovery_data
 
     def __getitem__(self, key):
         for d in self.dictionaries:
-            if d.has_key(key):
+            if key in d:
                 return d.get(key)
         return None
 
@@ -957,7 +954,7 @@ class OAuth2Config(collections.MutableMapping):
     def __delitem__(self, key):
         found_one = False
         for d in self.dictionaries:
-            if d.has_key(key):
+            if key in d:
                 found_one = True
                 d.__delitem__(key)
         if found_one == False:

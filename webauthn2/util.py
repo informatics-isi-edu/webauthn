@@ -1,6 +1,6 @@
 
 # 
-# Copyright 2010-2016 University of Southern California
+# Copyright 2010-2019 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,13 +19,11 @@ import psycopg2
 import psycopg2.extensions
 import web
 import urllib
-import urllib2
+import urllib.error
 import datetime
-import pytz
 import math
 import random
 import time
-import itertools
 import os
 import sys
 import traceback
@@ -36,40 +34,31 @@ psycopg2.extensions.register_type(psycopg2.extensions.JSONARRAY)
 psycopg2.extensions.register_type(psycopg2.extensions.JSONB)
 psycopg2.extensions.register_type(psycopg2.extensions.JSONBARRAY)
 
-try:
-    import simplejson
-    
-    jsonWriterRaw = simplejson.dumps
-    jsonReader = simplejson.loads
-    jsonFileReader = simplejson.load
-except:
-    import json
+import json
 
-    if hasattr(json, 'dumps'):
-        jsonWriterRaw = json.dumps
-        jsonReader = json.loads
-        jsonFileReader = json.load
-    else:
-        raise ValueError('Could not configure JSON library.')
+jsonReader = json.loads
+jsonFileReader = json.load
 
 LOGOUT_URL = "logout_url"
 DEFAULT_LOGOUT_PATH = "default_logout_path"
 
 def jsonWriter(o, indent=None):
     def munge(o):
-        if isinstance(o, dict) or type(o) == web.Storage:
-            return type(o)( itertools.imap( lambda p: (p[0], munge(p[1])),
-                                            o.iteritems() ))
-        elif hasattr(o, '__iter__'):
-            return map( munge, o )
-        elif type(o) in [ datetime.datetime, datetime.date ]:
+        if isinstance(o, (dict, web.Storage)):
+            return {
+                p[0]: munge(p[1])
+                for p in o.items()
+            }
+        elif isinstance(o, str):
+            return o
+        elif isinstance(o, (datetime.datetime, datetime.date)):
             return str(o)
-        #elif hasattr(o, '__dict__'):
-        #    return munge(o.__dict__)
+        elif hasattr(o, '__iter__'):
+            return [ munge(e) for e in o ]
         else:
             return o
 
-    return jsonWriterRaw( munge(o), indent=indent )
+    return json.dumps( munge(o), indent=indent, ensure_ascii=False ).encode()
 
 def negotiated_content_type(supported_types=['text/csv', 'application/json', 'application/x-json-stream'], default=None):
     """Determine negotiated response content-type from Accept header.
@@ -93,7 +82,7 @@ def negotiated_content_type(supported_types=['text/csv', 'application/json', 'ap
         for p in parts[1:]:
             fields = p.split('=')
             if len(fields) == 2 and fields[0] == 'q':
-                q = fields[1]
+                q = float(fields[1])
         return (q, t)
 
     try:
@@ -191,30 +180,16 @@ def is_authorized(context, acl):
 
 def urlquote(url, safe=""):
     "common URL quote mechanism for URL value embeddings"
-    if type(url) not in [ str, unicode ]:
-        url = str(url)
-
-    if type(url) == unicode:
-        url = url.encode('utf8')
-
-    url = urllib.quote(url, safe=safe)
-        
-    if type(url) == str:
-        url = unicode(url, 'utf8')
-        
-    return url
+    return urllib.parse.quote(url, safe=safe)
 
 def urlunquote(url):
     "common URL unquote mechanism for URL value embeddings"
-    if type(url) not in [ str, unicode ]:
-        url = str(url)
-        
-    url = urllib.unquote_plus(url)
-    
-    if type(url) == str:
-        url = unicode(url, 'utf8')
+    return urllib.parse.unquote_plus(url)
 
-    return url
+def urlunquote_webpy(url):
+    "common URL unquote mechanism for URL value embeddings"
+    # this hack works around broken URL decoding already done by web.py which somehow cast UTF-8 buffer as str w/o decoding
+    return url.encode('latin1').decode()
 
 def expand_relative_url(path):
     if path == None:
@@ -262,10 +237,9 @@ class Context (object):
     consistent with the Session class.  It may support additional
     provider-specific capabilities.
 
-    The client value should either be None or a str or unicode text
-    value.
+    The client value should either be None or a str value.
 
-    Each attribute value should be a str or unicode text value.
+    Each attribute value should be a str value.
 
     """
 
@@ -342,7 +316,7 @@ def session_from_environment():
 
     if b64_session_string == None or b64_session_string.strip() == '':
         return None
-    session_string=base64.standard_b64decode(b64_session_string)
+    session_string=base64.standard_b64decode(b64_session_string).decode()
     return jsonReader(session_string)
 
 def context_from_environment(fallback=True):
@@ -454,6 +428,10 @@ class PooledConnection (object):
         """Create an actual connection object (abstract base method)."""
         raise NotImplementedError()
 
+def force_query(db, *args, **kwargs):
+    """Force db.query SELECT generator results as expected by legacy code here."""
+    return list(db.query(*args, **kwargs))
+
 class DatabaseConnection (PooledConnection):
     """
     Concrete base class for pooled web.database connections.
@@ -539,18 +517,18 @@ class DatabaseConnection (PooledConnection):
                     t.commit()
                     return val
 
-                except web.SeeOther, ev:
+                except web.SeeOther as ev:
                     t.commit() # this is a psuedo-exceptional success case
                     raise ev
 
-                except psycopg2.InterfaceError, ev:
+                except psycopg2.InterfaceError as ev:
                     web.debug("got psycopg2 InterfaceError")
                     db = None # abandon stale db connection and retry
                     last_ev = ev
 
                 except (psycopg2.IntegrityError, 
                         psycopg2.extensions.TransactionRollbackError, 
-                        IOError, urllib2.URLError), ev:
+                        IOError, urllib.error.URLError) as ev:
                     et, ev2, tb = sys.exc_info()
                     web.debug('got exception "%s" during _db_wrapper(), retries = %d' % (str(ev2), retries),
                               traceback.format_exception(et, ev2, tb))
@@ -558,7 +536,7 @@ class DatabaseConnection (PooledConnection):
                     t.rollback()
                     last_ev = ev
 
-                except web.HTTPError, ev:
+                except web.HTTPError as ev:
                     # don't log these "normal" exceptions
                     try:
                         t.rollback()
@@ -566,7 +544,7 @@ class DatabaseConnection (PooledConnection):
                         pass
                     raise ev
 
-                except Exception, ev:
+                except Exception as ev:
                     def trace():
                         et, ev2, tb = sys.exc_info()
                         if tb is not None:
@@ -625,37 +603,46 @@ class DatabaseConnection (PooledConnection):
     def _view_exists(self, db, tablename):
         """Return True or False depending on whether (schema.)tablename view exists in our database."""
 
-        results = db.query("""
+        results = force_query(
+            db,
+            """
 SELECT * FROM information_schema.views
 WHERE table_schema = %(schema)s
   AND table_name = %(table)s
-"""
-                           % dict(schema=sql_literal(self.database_schema),
-                                  table=sql_literal(tablename))
-                           )
+""" % {
+    'schema': sql_literal(self.database_schema),
+    'table': sql_literal(tablename),
+}
+        )
         return len(results) > 0
     
     def _table_exists(self, db, tablename):
         """Return True or False depending on whether (schema.)tablename exists in our database."""
 
-        results = db.query("""
+        results = force_query(
+            db,
+            """
 SELECT * FROM information_schema.tables
 WHERE table_schema = %(schema)s
   AND table_name = %(table)s
-"""
-                           % dict(schema=sql_literal(self.database_schema),
-                                  table=sql_literal(tablename))
-                           )
+""" % {
+    'schema': sql_literal(self.database_schema),
+    'table': sql_literal(tablename),
+}
+        )
         return len(results) > 0
     
     def _schema_exists(self, db, schemaname):
         """Return True or False depending on whether schema exists in our database."""
 
-        results = db.query("""
+        results = force_query(
+            db,
+            """
 SELECT * FROM information_schema.schemata
 WHERE schema_name = %(schema)s
-"""
-                           % dict(schema=sql_literal(schemaname))
-                           )
+""" % {
+    'schema': sql_literal(schemaname),
+}
+        )
         return len(results) > 0
     

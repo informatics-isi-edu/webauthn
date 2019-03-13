@@ -18,15 +18,16 @@ Webauthn2 provider maps.
 
 """
 
-import providers
-import null
-import webcookie
-import database
 import web
+
+from . import providers
+from . import null
+from . import webcookie
+from . import database
 
 __doc__ += null.__doc__ + webcookie.__doc__ + database.__doc__
 
-from providers import Session
+from .providers import Session
 
 __all__ = [
     'sessionids',
@@ -78,7 +79,7 @@ config_built_ins.update( providers.config_built_ins )
 
 try:
     # conditionalize oauth2 module since it has oddball dependencies
-    import oauth2
+    from . import oauth2
     _enable_oauth2 = True
 except:
     _enable_oauth2 = False
@@ -93,7 +94,7 @@ if _enable_oauth2:
 
 try:
     # conditionalize globus_auth module since it has oddball dependencies
-    import globus_auth
+    from . import globus_auth
     _enable_globus_auth = True
 except:
     _enable_globus_auth = False

@@ -8,8 +8,8 @@ webauthn2_manager = webauthn2.Manager()
 def main(args):
     try:
         webauthn2_manager.deploy()
-    except Exception, te:
-        print 'Deployment failed: %s' % str(te)
+    except Exception as te:
+        print ('Deployment failed: %s' % str(te))
         return 1
     return 0
 

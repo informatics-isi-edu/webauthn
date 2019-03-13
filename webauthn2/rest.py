@@ -1,5 +1,5 @@
 # 
-# Copyright 2012-2017 University of Southern California
+# Copyright 2012-2019 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -65,14 +65,14 @@ just use the Manager instance directly in its own message handlers:
 """
 
 from __future__ import print_function
-from util import *
-from manager import Manager, Context
-from providers import Session
+from .util import *
+from .manager import Manager, Context
+from .providers import Session
 import re
 import logging
 from logging.handlers import SysLogHandler
 import datetime
-import pytz
+from datetime import timezone
 import struct
 import json
 import hashlib
@@ -104,7 +104,7 @@ def get_log_parts(start_time_key, request_guid_key, content_range_key, content_t
           content_range_key: key to entry in web.ctx w/ HTTP range
           content_type_key: key to entry in web.ctx w/ HTTP content type
     """
-    now = datetime.datetime.now(pytz.timezone('UTC'))
+    now = datetime.datetime.now(timezone.utc)
     elapsed = (now - web.ctx[start_time_key])
     client_identity_obj = web.ctx.webauthn2_context and web.ctx.webauthn2_context.client or None
     parts = dict(
@@ -133,7 +133,7 @@ def request_trace_json(tracedata, parts):
         ]
         if v
     ])
-    return json.dumps(od, separators=(', ', ':')).encode('utf-8')
+    return json.dumps(od, separators=(', ', ':'))
 
 def prune_excessive_dcctx(dcctx):
     """Heuristically prune content from dcctx to avoid overly long log entries.
@@ -142,6 +142,8 @@ def prune_excessive_dcctx(dcctx):
        descriptions, so limit those.
 
     """
+    if dcctx is None:
+        return None
     max_facet_len = 2000
 
     def prune_facet(container):
@@ -165,9 +167,10 @@ def prune_excessive_dcctx(dcctx):
 def request_final_json(parts, extra={}):
     try:
         dcctx = web.ctx.env.get('HTTP_DERIVA_CLIENT_CONTEXT', 'null')
-        dcctx = urllib.unquote(dcctx)
+        dcctx = urllib.parse.unquote(dcctx)
         dcctx = prune_excessive_dcctx(json.loads(dcctx))
-    except:
+    except Exception as e:
+        web.debug('Error during dcctx decoding: %s' % e)
         dcctx = None
 
     od = OrderedDict([
@@ -204,7 +207,7 @@ def request_final_json(parts, extra={}):
     for k, v in extra.items():
         od[k] = v
 
-    return json.dumps(od, separators=(', ', ':')).encode('utf-8')
+    return json.dumps(od, separators=(', ', ':'))
     
 def log_parts():
     """Generate a dictionary of interpolation keys used by our logging template."""
@@ -222,8 +225,8 @@ def web_method():
     def helper(original_method):
         def wrapper(*args):
             # request context init
-            web.ctx.webauthn_request_guid = base64.b64encode( struct.pack('Q', random.getrandbits(64)) )
-            web.ctx.webauthn_start_time = datetime.datetime.now(pytz.timezone('UTC'))
+            web.ctx.webauthn_request_guid = base64.b64encode( struct.pack('Q', random.getrandbits(64)) ).decode()
+            web.ctx.webauthn_start_time = datetime.datetime.now(timezone.utc)
             web.ctx.webauthn_request_content_range = None
             web.ctx.webauthn_content_type = None
             web.ctx.webauthn2_manager = args[0]
@@ -358,7 +361,7 @@ class RestHandlerFactory (object):
 
                 if sessionids:
                     # format is /key,... so unpack
-                    sessionids = [ urlunquote(i) for i in sessionids[1:].split(',') ]
+                    sessionids = [ urlunquote_webpy(i) for i in sessionids[1:].split(',') ]
 
                     for uri_key in sessionids:
                         if uri_key not in self.context.session.keys:
@@ -432,7 +435,7 @@ class RestHandlerFactory (object):
                 return self._login_response()
 
             def _login_response(self):
-                now = datetime.datetime.now(pytz.timezone('UTC'))
+                now = datetime.datetime.now(timezone.utc)
                 response = dict(
                     client=self.context.client,
                     attributes=list(self.context.attributes),
@@ -442,7 +445,7 @@ class RestHandlerFactory (object):
                     vary_headers=list(self.manager.get_http_vary()),
                     tracking=self.context.tracking,
                     )
-                response = jsonWriter(response) + '\n'
+                response = jsonWriter(response) + b'\n'
                 if 'env' in web.ctx:
                     web.ctx.status = '200 OK'
                     web.header('Content-Type', 'application/json')
@@ -463,7 +466,7 @@ class RestHandlerFactory (object):
 
                 """
                 # just extend session and then act like GET
-                now = datetime.datetime.now(pytz.timezone('UTC'))
+                now = datetime.datetime.now(timezone.utc)
 
                 def db_body_get_context(db):
                     return Context(self.manager, False, db)
@@ -524,7 +527,7 @@ class RestHandlerFactory (object):
                 status = "200 OK"
                 try:
                     retval = self._db_wrapper(db_body)
-                except NotFound, ex:
+                except NotFound as ex:
                     no_session_url = expand_relative_url(self.manager.config.get('logout_no_session_path'))
                     if no_session_url == None:
                         no_session_url = preferred_final_url
@@ -533,7 +536,7 @@ class RestHandlerFactory (object):
 
                 if 'env' in web.ctx:
                     if isinstance(retval, dict):
-                        response=jsonWriter(retval) + '\n'
+                        response=jsonWriter(retval) + b'\n'
                         web.ctx.status = status
                         web.header('Content-Type', 'application/json')
                         web.header('Content-Length', len(response))
@@ -559,7 +562,7 @@ class RestHandlerFactory (object):
                     try:
                         # perform authentication
                         self.context.client = self.manager.clients.login.login(self.manager, self.context, db, **storage)
-                    except (KeyError, ValueError), ev:
+                    except (KeyError, ValueError) as ev:
                         request_trace('session establishment failed: %s %s' % (type(ev), ev))
                         # we don't reveal detailed reason for failed login 
                         msg = 'session establishment with (%s) failed' \
@@ -615,7 +618,7 @@ class RestHandlerFactory (object):
 
                 if userids:
                     # format is /user,...
-                    userids = set([ urlunquote(i) for i in userids[1:].split(',') ])
+                    userids = set([ urlunquote_webpy(i) for i in userids[1:].split(',') ])
                 elif self.context.get_client_id():
                     userids = [ self.context.client.get_client_id() ]
                 else:
@@ -665,14 +668,14 @@ class RestHandlerFactory (object):
                                                                                        password,
                                                                                        old_password,
                                                                                        db)
-                        except KeyError, ev:
+                        except KeyError as ev:
                             # this is only raised by password provider if authorized
                             raise NotFound('user "%s"' % userid)
-                        except ValueError, ev:
+                        except ValueError as ev:
                             raise Forbidden('update of password for user "%s" forbidden' % userid)
                     return new_passwords
         
-                response = jsonWriter(self._db_wrapper(db_body)) + '\n'
+                response = jsonWriter(self._db_wrapper(db_body)) + b'\n'
                 if 'env' in web.ctx:
                     web.ctx.status = '200 OK'
                     web.header('Content-Type', 'application/json')
@@ -715,10 +718,10 @@ class RestHandlerFactory (object):
                                                                  userid,
                                                                  old_password,
                                                                  db)
-                        except KeyError, ev:
+                        except KeyError as ev:
                             # this is only raised by password provider if authorized
                             raise NotFound('user "%s"' % userid)
-                        except ValueError, ev:
+                        except ValueError as ev:
                             raise Forbidden('delete of password for user "%s" forbidden' % userid)
     
                 self._db_wrapper(db_body)
@@ -758,7 +761,8 @@ class RestHandlerFactory (object):
                 """
                 if userids:
                     # format is /user,...
-                    userids = set([ urlunquote(i) for i in userids[1:].split(',') ])
+                    userids_orig = userids
+                    userids = set([ urlunquote_webpy(i) for i in userids[1:].split(',') ])
                 else:
                     userids = set()
 
@@ -781,12 +785,12 @@ class RestHandlerFactory (object):
                         # request with userids means list only specific users other than self
                         clients = self.manager.clients.search.get_all_clients(self.manager, self.context)
                         if clients and userids.difference( clients ):
+                            web.debug(clients, userids)
                             raise NotFound('Some client identities not found: %s.' % ', '.join(userids.difference( clients )))
                         response = clients and list(clients)
-                    else:
+                    elif len(userids) == 1 \
+                         and list(userids)[0] == self.context.get_client_id():
                         # request with userid equal to self.context.client can be answered without search API
-                        assert len(userids) == 1
-                        assert userids[0] == self.context.get_client_id()
                         response = [ self.context.get_client_id() ]
 
                     if response == None:
@@ -795,10 +799,11 @@ class RestHandlerFactory (object):
                     return response
 
                 try:
-                    response = jsonWriter( self._db_wrapper(db_body) ) + '\n'
-                except ValueError:
+                    response = self._db_wrapper(db_body)
+                except ValueError as ev:
                     raise Forbidden('listing of other client identities forbidden')
 
+                response = jsonWriter(response) + b'\n'
                 if 'env' in web.ctx:
                     web.ctx.status = '200 OK'
                     web.header('Content-Type', 'application/json')
@@ -821,7 +826,7 @@ class RestHandlerFactory (object):
                 """
                 if userids:
                     # format is /user,...
-                    userids = set([ urlunquote(i) for i in userids[1:].split(',') ])
+                    userids = set([ urlunquote_webpy(i) for i in userids[1:].split(',') ])
                 else:
                     userids = set()
 
@@ -840,12 +845,12 @@ class RestHandlerFactory (object):
                                                                self.context,
                                                                userid,
                                                                db)
-                        except ValueError, ev:
+                        except ValueError as ev:
                             raise Forbidden('creation of client identity forbidden')
 
                     return list(userids)
         
-                response = jsonWriter( self._db_wrapper(db_body) ) + '\n'
+                response = jsonWriter( self._db_wrapper(db_body) ) + b'\n'
                 if 'env' in web.ctx:
                     web.ctx.status = '200 OK'
                     web.header('Content-Type', 'application/json')
@@ -864,7 +869,7 @@ class RestHandlerFactory (object):
                 """
                 if userids:
                     # format is /user,...
-                    userids = set([ urlunquote(i) for i in userids[1:].split(',') ])
+                    userids = set([ urlunquote_webpy(i) for i in userids[1:].split(',') ])
                 else:
                     userids = set()
 
@@ -880,10 +885,10 @@ class RestHandlerFactory (object):
                                                                self.context,
                                                                userid,
                                                                db)
-                        except KeyError, ev:
+                        except KeyError as ev:
                             # this is only raised by password provider if authorized
                             raise NotFound('user "%s"' % userid)
-                        except ValueError, ev:
+                        except ValueError as ev:
                             raise Forbidden('delete of client identity forbidden')
     
                 self._db_wrapper(db_body)
@@ -923,7 +928,7 @@ class RestHandlerFactory (object):
                 """
                 if attrs:
                     # format is /attr,...
-                    attrs = set([ urlunquote(i) for i in attrs[1:].split(',') ])
+                    attrs = set([ urlunquote_webpy(i) for i in attrs[1:].split(',') ])
                 else:
                     attrs = set()
 
@@ -955,7 +960,7 @@ class RestHandlerFactory (object):
                     return response
 
                 try:
-                    response = jsonWriter( self._db_wrapper(db_body) ) + '\n'
+                    response = jsonWriter( self._db_wrapper(db_body) ) + b'\n'
                 except ValueError:
                     raise Forbidden('listing of other attributes forbidden')
 
@@ -981,7 +986,7 @@ class RestHandlerFactory (object):
                 """
                 if attrs:
                     # format is /attr,...
-                    attrs = set([ urlunquote(i) for i in attrs[1:].split(',') ])
+                    attrs = set([ urlunquote_webpy(i) for i in attrs[1:].split(',') ])
                 else:
                     attrs = set()
 
@@ -1000,12 +1005,12 @@ class RestHandlerFactory (object):
                                                                   self.context,
                                                                   attr,
                                                                   db)
-                        except ValueError, ev:
+                        except ValueError as ev:
                             raise Forbidden('creation of attribute forbidden')
 
                     return list(attrs)
         
-                response = jsonWriter( self._db_wrapper(db_body) ) + '\n'
+                response = jsonWriter( self._db_wrapper(db_body) ) + b'\n'
                 if 'env' in web.ctx:
                     web.ctx.status = '200 OK'
                     web.header('Content-Type', 'application/json')
@@ -1024,7 +1029,7 @@ class RestHandlerFactory (object):
                 """
                 if attrs:
                     # format is /attr,...
-                    attrs = set([ urlunquote(i) for i in attrs[1:].split(',') ])
+                    attrs = set([ urlunquote_webpy(i) for i in attrs[1:].split(',') ])
                 else:
                     attrs = set()
 
@@ -1040,10 +1045,10 @@ class RestHandlerFactory (object):
                                                                   self.context,
                                                                   attr,
                                                                   db)
-                        except KeyError, ev:
+                        except KeyError as ev:
                             # this is only raised by password provider if authorized
                             raise NotFound('attribute "%s"' % attr)
-                        except ValueError, ev:
+                        except ValueError as ev:
                             raise Forbidden('delete of attribute forbidden')
     
                 self._db_wrapper(db_body)
@@ -1083,7 +1088,7 @@ class RestHandlerFactory (object):
                 """
                 if attrs:
                     # format is /attr,...
-                    attrs = set([ urlunquote(i) for i in attrs[1:].split(',') ])
+                    attrs = set([ urlunquote_webpy(i) for i in attrs[1:].split(',') ])
                 else:
                     attrs = set()
 
@@ -1113,7 +1118,7 @@ class RestHandlerFactory (object):
                     return response
 
                 try:
-                    response = jsonWriter( self._db_wrapper(db_body) ) + '\n'
+                    response = jsonWriter( self._db_wrapper(db_body) ) + b'\n'
                 except ValueError:
                     raise Forbidden('listing of user attributes forbidden')
 
@@ -1139,7 +1144,7 @@ class RestHandlerFactory (object):
                 """
                 if attrs:
                     # format is /attr,...
-                    attrs = set([ urlunquote(i) for i in attrs[1:].split(',') ])
+                    attrs = set([ urlunquote_webpy(i) for i in attrs[1:].split(',') ])
                 else:
                     attrs = set()
 
@@ -1159,12 +1164,12 @@ class RestHandlerFactory (object):
                                                                   attr,
                                                                   userid,
                                                                   db)
-                        except ValueError, ev:
+                        except ValueError as ev:
                             raise Forbidden('creation of attribute assignment forbidden')
 
                     return list(attrs)
         
-                response = jsonWriter( self._db_wrapper(db_body) ) + '\n'
+                response = jsonWriter( self._db_wrapper(db_body) ) + b'\n'
                 if 'env' in web.ctx:
                     web.ctx.status = '200 OK'
                     web.header('Content-Type', 'application/json')
@@ -1183,7 +1188,7 @@ class RestHandlerFactory (object):
                 """
                 if attrs:
                     # format is /attr,...
-                    attrs = set([ urlunquote(i) for i in attrs[1:].split(',') ])
+                    attrs = set([ urlunquote_webpy(i) for i in attrs[1:].split(',') ])
                 else:
                     attrs = set()
 
@@ -1203,10 +1208,10 @@ class RestHandlerFactory (object):
                                                                   attr,
                                                                   userid,
                                                                   db)
-                        except KeyError, ev:
+                        except KeyError as ev:
                             # this is only raised by password provider if authorized
                             raise NotFound(str(ev))
-                        except ValueError, ev:
+                        except ValueError as ev:
                             raise Forbidden('delete of attribute assignment forbidden')
     
                 self._db_wrapper(db_body)
@@ -1247,7 +1252,7 @@ class RestHandlerFactory (object):
                 """
                 if parents:
                     # format is /attr,...
-                    parents = set([ urlunquote(i) for i in parents[1:].split(',') ])
+                    parents = set([ urlunquote_webpy(i) for i in parents[1:].split(',') ])
                 else:
                     parents = set()
 
@@ -1274,7 +1279,7 @@ class RestHandlerFactory (object):
                     return response
 
                 try:
-                    response = jsonWriter( self._db_wrapper(db_body) ) + '\n'
+                    response = jsonWriter( self._db_wrapper(db_body) ) + b'\n'
                 except KeyError:
                     raise NotFound('attribute not found')
                 except ValueError:
@@ -1303,7 +1308,7 @@ class RestHandlerFactory (object):
                 """
                 if parents:
                     # format is /attr,...
-                    parents = set([ urlunquote(i) for i in parents[1:].split(',') ])
+                    parents = set([ urlunquote_webpy(i) for i in parents[1:].split(',') ])
                 else:
                     parents = set()
 
@@ -1323,12 +1328,12 @@ class RestHandlerFactory (object):
                                                                 parent,
                                                                 child,
                                                                 db)
-                        except ValueError, ev:
+                        except ValueError as ev:
                             raise Forbidden('creation of attribute nesting forbidden')
 
                     return list(parents)
         
-                response = jsonWriter( self._db_wrapper(db_body) ) + '\n'
+                response = jsonWriter( self._db_wrapper(db_body) ) + b'\n'
                 if 'env' in web.ctx:
                     web.ctx.status = '200 OK'
                     web.header('Content-Type', 'application/json')
@@ -1348,7 +1353,7 @@ class RestHandlerFactory (object):
                 """
                 if parents:
                     # format is /attr,...
-                    parents = set([ urlunquote(i) for i in parents[1:].split(',') ])
+                    parents = set([ urlunquote_webpy(i) for i in parents[1:].split(',') ])
                 else:
                     parents = set()
 
@@ -1368,9 +1373,9 @@ class RestHandlerFactory (object):
                                                                 parent,
                                                                 child,
                                                                 db)
-                        except KeyError, ev:
+                        except KeyError as ev:
                             raise NotFound(str(ev))
-                        except ValueError, ev:
+                        except ValueError as ev:
                             raise Forbidden('delete of attribute nesting forbidden')
     
                 self._db_wrapper(db_body)
