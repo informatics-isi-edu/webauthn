@@ -195,7 +195,7 @@ def request_final_json(parts, extra={}):
     ])
     if len(od.get('referrer', '')) > 1000:
         # truncate overly long URL
-        od['referrer_md5'] = hashlib.md5(od['referrer']).hexdigest()
+        od['referrer_md5'] = hashlib.md5(od['referrer'].encode()).hexdigest()
         od['referrer'] = od['referrer'][0:500]
 
     if web.ctx.webauthn2_context and web.ctx.webauthn2_context.session:
