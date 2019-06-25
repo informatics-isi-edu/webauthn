@@ -185,15 +185,9 @@ class Manager (util.DatabaseConnection):
         Perform provider-specific deployment of database content if required.
 
         """
-        def db_body(db):
-            for p in [ self.sessionids, self.sessions, self.clients, self.attributes ]:
-                if hasattr(p, 'deploy'):
-                    p.deploy(db)
-
-        if db:
-            db_body(db)
-        else:
-            self._db_wrapper( db_body )
+        for p in [ self.sessionids, self.sessions, self.clients, self.attributes ]:
+            if hasattr(p, 'deploy'):
+                p.deploy(db)
 
     def get_request_context(self, require_client=None, require_attributes=None, setheader=None, db=None, extend_session=None):
         """
