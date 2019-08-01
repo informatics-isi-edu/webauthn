@@ -993,7 +993,7 @@ class OAuth2SessionIdProvider (webcookie.WebcookieSessionIdProvider, database.Da
         bearer_token = bearer_token_util.token_from_request()
         if bearer_token != None:
             m = hashlib.md5()
-            m.update(bearer_token)
+            m.update(bearer_token.encode())
             return(["oauth2-hash:{hash}".format(hash=m.hexdigest())])
             
         return webcookie.WebcookieSessionIdProvider.get_request_sessionids(self, manager, context, db)
