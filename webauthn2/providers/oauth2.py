@@ -987,7 +987,24 @@ class OAuth2SessionIdProvider (webcookie.WebcookieSessionIdProvider, database.Da
     def __init__(self, config):
         database.DatabaseConnection2.__init__(self, config)
         webcookie.WebcookieSessionIdProvider.__init__(self, config)
-    
+        # validate oauth2 discovery scope, if specified
+        discovery_scopes = config.get("oauth2_discovery_scopes")
+        accepted_scope_string = config.get("oauth2_scope")
+        if accepted_scope_string is None:
+            web.debug("oauth2_discovery_scopes is configured, but no accepted scopes are configured")
+        else:
+            accepted_scopes = accepted_scope_string.split()
+            final_scopes = dict()
+            for key in discovery_scopes.keys():
+                if discovery_scopes[key] in accepted_scopes:
+                    final_scopes[key] = discovery_scopes[key]
+                else:
+                    web.debug("'{s}' is configured as a discovery scope but not an accepted scope".format(s=discovery_scopes[key]))
+        self.discovery_info = {"oauth2_scopes" : final_scopes}
+
+    def get_discovery_info(self):
+        return(self.discovery_info)
+
     def get_request_sessionids(self, manager, context, db=None):
         # Use md5 because apr library (used by webauthn apache module) doesn't support sha256
         bearer_token = bearer_token_util.token_from_request()
