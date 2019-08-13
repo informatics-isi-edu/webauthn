@@ -1446,7 +1446,7 @@ class RestHandlerFactory (object):
             
             """
             def __init(self):
-                Resthandler.__init__(self)
+                RestHandler.__init__(self)
 
             @web_method()
             def GET(self, sessionids, db=None):
@@ -1462,7 +1462,7 @@ class RestHandlerFactory (object):
             
             """
             def __init(self):
-                Resthandler.__init__(self)
+                RestHandler.__init__(self)
 
             @web_method()
             def GET(self, db=None):
