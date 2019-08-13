@@ -352,7 +352,7 @@ class OAuth2Login (ClientLogin):
             web.debug("Illegal token response: didn't include an id token. Keys were {k}. Token type was {t}, scope was {s}".format(k=str(self.payload.keys()), t=str(self.payload.get('token_type')), s=str(self.payload.get('scope'))))
             raise OAuth2Exception("Illegal token response: didn't include an id token")
 
-        web.debug("Good token response. Keys were {k}. Token type was {t}, scope was {s}".format(k=str(self.payload.keys()), t=str(self.payload.get('token_type')), s=str(self.payload.get('scope'))))        
+#        web.debug("Good token response. Keys were {k}. Token type was {t}, scope was {s}".format(k=str(self.payload.keys()), t=str(self.payload.get('token_type')), s=str(self.payload.get('scope'))))        
 
         # Validate id token
         u=self.open_url(self.provider.cfg.get('jwks_uri'), "getting jwks info", False)
@@ -989,18 +989,21 @@ class OAuth2SessionIdProvider (webcookie.WebcookieSessionIdProvider, database.Da
         webcookie.WebcookieSessionIdProvider.__init__(self, config)
         # validate oauth2 discovery scope, if specified
         discovery_scopes = config.get("oauth2_discovery_scopes")
-        accepted_scope_string = config.get("oauth2_scope")
-        if accepted_scope_string is None:
-            web.debug("oauth2_discovery_scopes is configured, but no accepted scopes are configured")
+        if discovery_scopes is not None:
+            accepted_scope_string = config.get("oauth2_scope")
+            if accepted_scope_string is None:
+                web.debug("oauth2_discovery_scopes is configured, but no accepted scopes are configured")
+            else:
+                accepted_scopes = accepted_scope_string.split()
+                final_scopes = dict()
+                for key in discovery_scopes.keys():
+                    if discovery_scopes[key] in accepted_scopes:
+                        final_scopes[key] = discovery_scopes[key]
+                    else:
+                        web.debug("'{s}' is configured as a discovery scope but not an accepted scope".format(s=discovery_scopes[key]))
+            self.discovery_info = {"oauth2_scopes" : final_scopes}
         else:
-            accepted_scopes = accepted_scope_string.split()
-            final_scopes = dict()
-            for key in discovery_scopes.keys():
-                if discovery_scopes[key] in accepted_scopes:
-                    final_scopes[key] = discovery_scopes[key]
-                else:
-                    web.debug("'{s}' is configured as a discovery scope but not an accepted scope".format(s=discovery_scopes[key]))
-        self.discovery_info = {"oauth2_scopes" : final_scopes}
+            self.discovery_info = {}
 
     def get_discovery_info(self):
         return(self.discovery_info)
