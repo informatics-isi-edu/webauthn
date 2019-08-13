@@ -30,6 +30,7 @@ AttrManage = webauthn2_handler_factory.AttrManage
 AttrAssign = webauthn2_handler_factory.AttrAssign
 AttrNest = webauthn2_handler_factory.AttrNest
 Preauth = webauthn2_handler_factory.Preauth
+Discovery = webauthn2_handler_factory.Discovery
 
 def web_urls():
     """Builds and returns the web_urls for web.py.
@@ -52,6 +53,8 @@ def web_urls():
         '/attribute/([^/]+)/implies/?()', AttrNest,
         '/preauth(/[^/]+)', Preauth,
         '/preauth/?()', Preauth,
+        '/discovery(/[^/]+)', Discovery,
+        '/discovery/?()', Discovery,	
     )
     return tuple(urls)
 

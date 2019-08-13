@@ -1452,7 +1452,30 @@ class RestHandlerFactory (object):
             def GET(self, sessionids, db=None):
                 return self.DELETE(sessionids)
                 
+        class Discovery(RestHandler):
+            """
+            This class is used to provide discovery information (e.g., oauth2 sessions accepted in request headers).
 
+            Register it at a web.py URI pattern like:
+
+               "your_session_prefix(/?)"
+            
+            """
+            def __init(self):
+                Resthandler.__init__(self)
+
+            @web_method()
+            def GET(self, db=None):
+                return self.manager.discovery_info
+
+            def PUT(self):
+                raise NoMethod()
+
+            def POST(self):
+                raise NoMethod()
+
+            def DELETE(self):
+                raise NoMethod()
 
         # make these classes available from factory instance
         self.RestHandler = RestHandler
@@ -1464,6 +1487,7 @@ class RestHandlerFactory (object):
         self.AttrNest = AttrNest
         self.Preauth = Preauth
         self.DebugUserSession = DebugUserSession
+        self.Discovery = Discovery
 
 
 

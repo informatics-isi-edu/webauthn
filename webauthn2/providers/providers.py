@@ -172,6 +172,9 @@ class Provider (object):
     def get_http_vary(self):
         return set()
 
+    def get_discovery_info(self):
+        return {}
+
 class ProviderInterface (object):
 
     def __init__(self, provider):

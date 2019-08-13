@@ -179,6 +179,14 @@ class Manager (util.DatabaseConnection):
         self.attributes = providers.attributes[config['attributes_provider']](config)
         self.preauth = providers.preauths[config['preauth_provider']](config)
         self.config = config
+        self.set_discovery_info()
+
+    def set_discovery_info(self):
+        self.discovery_info = {}
+        for provider in [self.sessionids, self.sessions, self.clients, self.attributes, self.preauth]:
+            d = provider.get_discovery_info()
+            for key in d.keys():
+                self.discovery_info[key] = d[key]
         
     def deploy(self, db=None):
         """
