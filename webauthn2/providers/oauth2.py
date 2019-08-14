@@ -990,20 +990,26 @@ class OAuth2SessionIdProvider (webcookie.WebcookieSessionIdProvider, database.Da
         # validate oauth2 discovery scope, if specified
         discovery_scopes = config.get("oauth2_discovery_scopes")
         if discovery_scopes is not None:
-            accepted_scope_string = config.get("oauth2_scope")
-            if accepted_scope_string is None:
-                web.debug("oauth2_discovery_scopes is configured, but no accepted scopes are configured")
-            else:
-                accepted_scopes = accepted_scope_string.split()
-                final_scopes = dict()
-                for key in discovery_scopes.keys():
-                    if discovery_scopes[key] in accepted_scopes:
-                        final_scopes[key] = discovery_scopes[key]
-                    else:
-                        web.debug("'{s}' is configured as a discovery scope but not an accepted scope".format(s=discovery_scopes[key]))
+            accepted_scopes = self.accepted_scopes_to_set(config)
+            final_scopes = dict()
+            for key in discovery_scopes.keys():
+                if discovery_scopes[key] in accepted_scopes:
+                    final_scopes[key] = discovery_scopes[key]
+                else:
+                    web.debug("'{s}' is configured as a discovery scope but not an accepted scope".format(s=discovery_scopes[key]))
             self.discovery_info = {"oauth2_scopes" : final_scopes}
         else:
             self.discovery_info = {}
+
+    def accepted_scopes_to_set(self, config):
+        scopes = set()
+        acs = config.get("oauth2_accepted_scopes")
+        if isinstance(acs, list):
+            for s in acs:
+                scope = s.get("scope")
+                if scope is not None:
+                    scopes.add(scope)
+        return scopes
 
     def get_discovery_info(self):
         return(self.discovery_info)
