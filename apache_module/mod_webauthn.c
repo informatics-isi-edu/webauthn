@@ -657,6 +657,8 @@ static managed_hash *create_alias_overlay(apr_pool_t *pool, apr_hash_t *overlay,
   char *key;
   const group_alias *value;
   apr_hash_index_t *entry;
+  ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, pool,
+		"create_alias_overlay, hash is %pp", base);
 
   /* Add all "overlay" entries */
   for (entry = apr_hash_first(pool, overlay); entry; entry = apr_hash_next(entry)) {
@@ -961,8 +963,8 @@ static session_info *get_cached_session_info(const char *sessionid, request_rec 
 
 static void add_managed_hash_entry(managed_hash *mhash, const char *key, void *data) {
   ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, mhash->hash_pool_parent,
-		"add_managed_hash_entry: getting write lock for hash %pp, lock %pp",
-		mhash->hash, mhash->hash_lock);
+		"add_managed_hash_entry: getting write lock for hash %pp, lock %pp, value %pp",
+		mhash->hash, mhash->hash_lock, data);
   apr_thread_rwlock_wrlock(mhash->hash_lock);
   apr_hash_set(mhash->hash, key, APR_HASH_KEY_STRING, data);
   apr_thread_rwlock_unlock(mhash->hash_lock);
