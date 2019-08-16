@@ -11,6 +11,8 @@
 #include <apr_tables.h>
 #include <apr_pools.h>
 #include <apr_thread_rwlock.h>
+#include <apr_thread_mutex.h>
+#include <apr_atomic.h>
 #include <apr_base64.h>
 #include <ap_expr.h>
 #include <curl/curl.h>
@@ -61,7 +63,7 @@ typedef struct {
 
 static void *get_managed_hash_entry(managed_hash *mhash, const char *key);
 static void add_managed_hash_entry(managed_hash *mhash, const char *key, void *data);
-static void delete_managed_hash_entry(managed_hash *mhash, const char *key, apr_pool_t *data_pool);
+static void delete_managed_hash_entry(managed_hash *mhash, const char *key);
 static managed_hash *create_managed_hash(apr_pool_t *pool);
 static const char *webauthn_set_if_unauthn(cmd_parms *cmd, void *cfg, const char *arg);
 static authz_status webauthn_optional_check_authorization(request_rec *r, const char *require_args, const void *parsed_require_args);
@@ -75,6 +77,7 @@ typedef struct {
   managed_hash *alias_hash;
   int max_cache_seconds;
   int verify_ssl_host;
+  apr_thread_mutex_t *global_config_mutex;
 } webauthn_config;
 
 
@@ -135,6 +138,7 @@ typedef struct {
   webauthn_group *groups;
   apr_pool_t *pool;
   const char *base64_session_string;
+  int pool_allocated_for_session;
 } session_info;
 
 typedef struct {
@@ -145,7 +149,7 @@ typedef struct {
 
 
 static group_alias *clone_group_alias(apr_pool_t *pool, const group_alias *old);
-static session_info *get_cached_session_info(const char *sessionid);
+static session_info *get_cached_session_info(const char *sessionid, request_rec *r);
 static session_info *make_session_info(request_rec *r, apr_pool_t *parent_pool, const char *sessionid, char *json_string);
 static session_info *webauthn_make_session_info_from_scratch(request_rec * r, webauthn_local_config *local_config, int never_redirect);
 static void cache_sessioninfo(session_info *sinfo, request_rec *r);
@@ -222,7 +226,7 @@ static session_info *find_or_create_session_info(request_rec *r, webauthn_local_
   session_info *sinfo = 0;
 
   if (sessionid != NULL) {
-    sinfo = get_cached_session_info(sessionid);
+    sinfo = get_cached_session_info(sessionid, r);
   }
 
   if (! valid_unexpired_session(sinfo)) {
@@ -471,6 +475,7 @@ static session_info *make_session_info(request_rec *r, apr_pool_t *parent_pool, 
   apr_pool_create(&pool, parent_pool);
   session_info *sess = apr_pcalloc(pool, sizeof(session_info));
   sess->pool = pool;
+  sess->pool_allocated_for_session = 1;
   sess->sessionid = apr_pstrdup(pool, sessionid);
   sess->base64_session_string = ap_pbase64encode(pool, json_string);
 
@@ -506,6 +511,46 @@ static session_info *make_session_info(request_rec *r, apr_pool_t *parent_pool, 
     }
   }
   return(sess);
+}
+
+static webauthn_group *clone_groups(apr_pool_t *pool, webauthn_group *old_grps)
+{
+  webauthn_group *new_grps;
+  int ngrps;
+  
+  if (old_grps == NULL) {
+    return(NULL);
+  }
+
+  for(ngrps = 0; old_grps[ngrps].id; ngrps++) {
+    ;
+  }
+
+  new_grps = (webauthn_group *)apr_pcalloc(pool, sizeof(webauthn_group) * (ngrps+1));
+  for (int i=0; i < ngrps; i++) {
+    new_grps[i].id = old_grps[i].id;
+    new_grps[i].display_name = clone_string(pool, old_grps[i].display_name);
+  }
+  return new_grps;
+}
+
+static session_info *clone_session_info(session_info *osess, request_rec *r)
+{
+  session_info *nsess;
+  
+  if (osess == NULL) {
+    return(NULL);
+  }
+  
+  nsess = (session_info *)apr_pcalloc(r->pool, sizeof(session_info));
+  nsess->sessionid = clone_string(r->pool, osess->sessionid);
+  nsess->timeout = osess->timeout;
+  nsess->user = clone_user(r->pool, osess->user);
+  nsess->groups = clone_groups(r->pool, osess->groups);
+  nsess->pool = r->pool;
+  nsess->pool_allocated_for_session = 0;
+  nsess->base64_session_string = clone_string(r->pool, osess->base64_session_string);
+  return(nsess);
 }
 
 static const char *webauthn_set_login_path(cmd_parms *cmd, void *cfg, const char *arg)
@@ -635,19 +680,43 @@ static managed_hash *create_alias_overlay(apr_pool_t *pool, apr_hash_t *overlay,
 
 static int webauthn_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *ptemp)
 {
+  apr_thread_mutex_t *my_mutex;
+  apr_status_t status;
+  
+  if ((status = apr_thread_mutex_create(&my_mutex, APR_THREAD_MUTEX_UNNESTED, pconf)) == APR_SUCCESS) {
+    apr_atomic_casptr((volatile void **)&config.global_config_mutex, my_mutex, 0);
+  } else {
+    char errstr[1024];
+    ap_log_perror(APLOG_MARK, APLOG_ERR, 0, plog,
+		  "mutex create failed: %s", apr_strerror(status, errstr, sizeof(errstr)));
+  }
+
+  ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, plog,
+		"global config mutex is %pp", config.global_config_mutex);
+
   config.session_path = NULL;
   config.login_path = NULL;
   config.verify_ssl_host = VERIFY_SSL_HOST_ON;
   config.cookie_name = "webauthn";
   config.tracking_cookie_name = "webauthn_track";  
   curl_global_init(CURL_GLOBAL_SSL);
-  config.session_hash = create_managed_hash(pconf);
-  config.alias_hash = create_managed_hash(pconf);
+
+  if (config.global_config_mutex != NULL) {
+    apr_thread_mutex_lock(config.global_config_mutex);
+  }
+  if (config.session_hash == NULL) {
+    config.session_hash = create_managed_hash(pconf);
+  }
+  if (config.alias_hash == NULL) {  
+    config.alias_hash = create_managed_hash(pconf);
+  }
+  if (config.global_config_mutex != NULL) {
+    apr_thread_mutex_unlock(config.global_config_mutex);
+  }    
   ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, plog,
 		"created managed hashes: session (hash %pp, lock %pp), alias (hash %pp, lock %pp)",
 		config.session_hash->hash, config.session_hash->hash_lock,
 		config.alias_hash->hash, config.alias_hash->hash_lock);
-  
   config.max_cache_seconds = -1;
   return OK;
 }
@@ -882,11 +951,12 @@ static void *get_managed_hash_entry(managed_hash *mhash, const char *key) {
 		"get_managed_hash_entry: released read lock for hash %pp, lock %pp, returning %pp",
 		mhash->hash, mhash->hash_lock, data);    
   return(data);
-}  
+}
+
     
-static session_info *get_cached_session_info(const char *sessionid)
+static session_info *get_cached_session_info(const char *sessionid, request_rec *r)
 {
-  return (session_info *)get_managed_hash_entry(config.session_hash, sessionid);
+  return clone_session_info((session_info *)get_managed_hash_entry(config.session_hash, sessionid), r);
 }
 
 static void add_managed_hash_entry(managed_hash *mhash, const char *key, void *data) {
@@ -919,23 +989,28 @@ static int valid_unexpired_session(session_info *sinfo)
   return (sinfo && (apr_time_now() < sinfo->timeout));
 }
 
-static void delete_managed_hash_entry(managed_hash *mhash, const char *key, apr_pool_t *data_pool) {
-  ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, data_pool,
-		"deleting hash entry: acquiring write lock for (hash %pp, lock %pp)",
-		mhash->hash, mhash->hash_lock);  
+static void delete_managed_hash_entry(managed_hash *mhash, const char *key) {
   apr_thread_rwlock_wrlock(mhash->hash_lock);
   apr_hash_set(mhash->hash, key, APR_HASH_KEY_STRING, NULL);
   apr_thread_rwlock_unlock(mhash->hash_lock);
-  ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, data_pool,
-		"after deleting hash entry for: released write lock for (hash %pp, lock %pp, pool %pp",
-		mhash->hash, mhash->hash_lock, data_pool);
-  apr_pool_destroy(data_pool);
 }
 
 static void delete_cached_session_info(session_info *sinfo)
 {
   if (sinfo) {
-    delete_managed_hash_entry(config.session_hash, sinfo->sessionid, sinfo->pool);
+    ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, sinfo->pool,
+		  "before deleting cached session hash entry (and acquiring write lock) for (hash %pp, lock %pp)",
+		  config.session_hash->hash, config.session_hash->hash_lock);  
+    delete_managed_hash_entry(config.session_hash, sinfo->sessionid);
+    ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, sinfo->pool,
+		  "after deleting hash entry (and releasing write lock) for: released write lock for (hash %pp, lock %pp",
+		  config.session_hash->hash, config.session_hash->hash_lock);
+    if (sinfo->pool_allocated_for_session) {
+      ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, sinfo->pool,
+		    "deleting session pool %pp",
+		    sinfo->pool);
+      apr_pool_destroy(sinfo->pool);
+    }
   }
 }
 
