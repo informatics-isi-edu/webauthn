@@ -319,7 +319,9 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
     if (debug) {
       ccode = do_simple_perform(session_curl);
     } else {
+      ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, "webauthn: before curl");
       multi_codes *curl_codes = do_multi_perform(session_curl, r);
+      ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, "webauthn: after curl");      
       if (curl_codes->mcode != CURLM_OK) {
 	ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 		      "multi_perform (%s) failed: %s\n",
