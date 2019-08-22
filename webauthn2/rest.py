@@ -1466,7 +1466,12 @@ class RestHandlerFactory (object):
 
             @web_method()
             def GET(self, db=None):
-                return self.manager.discovery_info
+                response = jsonWriter(self.manager.discovery_info) + b'\n'
+                if 'env' in web.ctx:
+                    web.ctx.status = '200 OK'
+                    web.header('Content-Type', 'application/json')
+                    web.header('Content-Length', len(response))
+                return response
 
             def PUT(self):
                 raise NoMethod()
