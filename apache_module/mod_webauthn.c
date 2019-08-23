@@ -21,6 +21,7 @@
 #include <apr_time.h>
 #include <unistd.h>
 #include <apr_md5.h>
+#include <time.h>
 
 #define WEBAUTHN_GROUP "webauthn-group"
 #define WEBAUTHN_OPTIONAL "webauthn-optional"
@@ -31,7 +32,7 @@
 /* These next two are defined by curl */
 #define VERIFY_SSL_HOST_OFF 0
 #define VERIFY_SSL_HOST_ON 2
-#define MULTI_WAIT_USECS 100000
+#define WAIT_NANOSECS (100 * 1000 * 1000)
 
 #define VERIFY_STRING "verify"
 #define NOVERIFY_STRING "noverify"
@@ -319,9 +320,9 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
     if (debug) {
       ccode = do_simple_perform(session_curl);
     } else {
-      ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, "webauthn: before curl");
+      ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "webauthn: before curl");
       multi_codes *curl_codes = do_multi_perform(session_curl, r);
-      ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, "webauthn: after curl");      
+      ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "webauthn: after curl");      
       if (curl_codes->mcode != CURLM_OK) {
 	ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 		      "multi_perform (%s) failed: %s\n",
@@ -453,9 +454,9 @@ static session_info *make_session_info(request_rec *r, apr_pool_t *parent_pool, 
     return 0;
   }
 
-  ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, "before call to json_tokener_parse_verbose");
+  ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "before call to json_tokener_parse_verbose");
   json_object *jobj = json_tokener_parse_verbose(json_string, &json_err);
-  ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, "after call to json_tokener_parse_verbose");
+  ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "after call to json_tokener_parse_verbose");
 
   if (jobj == 0 || json_err != json_tokener_success) {
     ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
@@ -474,7 +475,7 @@ static session_info *make_session_info(request_rec *r, apr_pool_t *parent_pool, 
   webauthn_group *groups = 0;
   int session_seconds = 0;
   webauthn_user *temp_user = 0; /* values not allocated in session_info pool */
-  ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, "make_session_info: before json_object_object_foreach loop");
+  int loopcount = 0;
   json_object_object_foreach(jobj, key, val) {
     if ((strcmp(key, "attributes") == 0) && json_object_is_type(val, json_type_array)) {
       groups = get_groups_from_json_array(val, r);
@@ -483,8 +484,11 @@ static session_info *make_session_info(request_rec *r, apr_pool_t *parent_pool, 
     } else if ((strcmp(key, "seconds_remaining") == 0) && json_object_is_type(val, json_type_int)) {
       session_seconds = json_object_get_int(val);
     }
+    if (++loopcount % 10 == 0) {
+      ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, "make_session_info: json_object_object_foreach loop, iteration %d", loopcount);
+    }
   }
-  ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, "make_session_info: after json_object_object_foreach loop");
+  ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, "make_session_info: json_object_object_foreach loop took %d iterations", loopcount);
 
   if (temp_user) {
     sess->user = clone_user(pool, temp_user);
@@ -838,7 +842,11 @@ static multi_codes *do_multi_perform(CURL *curl, request_rec *r)
   curl_multi_add_handle(multi, curl);
   int still_running = 1;
   multi_codes *codes = apr_pcalloc(r->pool, sizeof(multi_codes));
-
+  struct timespec sleeptime;
+  sleeptime.tv_sec = 0;
+  sleeptime.tv_nsec = WAIT_NANOSECS;
+  
+  int loopcount=0;
   do {
     int numfds;
     codes->mcode = curl_multi_perform(multi, &still_running);
@@ -855,9 +863,15 @@ static multi_codes *do_multi_perform(CURL *curl, request_rec *r)
        wait for. */
 
     if(!numfds) {
-	usleep(100000); /* sleep 100 milliseconds */ 
+      nanosleep(&sleeptime, NULL); /* sleep 100 milliseconds */
+    }
+    
+    if (++loopcount % 10 == 0) {
+      ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, "in multi_perform loop, iteration %d", loopcount);
+      nanosleep(&sleeptime, NULL); /* sleep 100 milliseconds */      
     }
   } while (still_running);
+  ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, "multi_perform loop took %d iterations", loopcount);  
 
   CURLMsg *m;
   do {
