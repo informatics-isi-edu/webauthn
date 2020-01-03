@@ -32,6 +32,8 @@
 /* These next two are defined by curl */
 #define VERIFY_SSL_HOST_OFF 0
 #define VERIFY_SSL_HOST_ON 2
+
+/* 100 millisecond */
 #define WAIT_NANOSECS (100 * 1000 * 1000)
 
 #define VERIFY_STRING "verify"
@@ -488,7 +490,10 @@ static session_info *make_session_info(request_rec *r, apr_pool_t *parent_pool, 
       ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, "make_session_info: json_object_object_foreach loop, iteration %d", loopcount);
     }
   }
-  ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, "make_session_info: json_object_object_foreach loop took %d iterations", loopcount);
+
+  if (loopcount > 10) {
+    ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, "make_session_info: json_object_object_foreach loop took %d iterations", loopcount);
+  }
 
   if (temp_user) {
     sess->user = clone_user(pool, temp_user);
@@ -854,24 +859,26 @@ static multi_codes *do_multi_perform(CURL *curl, request_rec *r)
       goto end;
     }
 
+    /* wait up to a second for activity on the file descriptor */
     codes->mcode = curl_multi_wait(multi, NULL, 0, 1000, &numfds);
     if (codes->mcode != CURLM_OK) {
       goto end;
     }
-    
-    /* 'numfds' being zero means either a timeout or no file descriptors to
-       wait for. */
 
-    if(!numfds) {
-      nanosleep(&sleeptime, NULL); /* sleep 100 milliseconds */
-    }
-    
     if (++loopcount % 10 == 0) {
       ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, "in multi_perform loop, iteration %d", loopcount);
-      nanosleep(&sleeptime, NULL); /* sleep 100 milliseconds */      
     }
+    
+    /* 'numfds' being zero means either a timeout or no file descriptors to wait for */
+    if(!numfds) {
+      nanosleep(&sleeptime, NULL);
+    }
+
   } while (still_running);
-  ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, "multi_perform loop took %d iterations", loopcount);  
+
+  if (loopcount > 10) {
+    ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, "multi_perform loop took %d iterations", loopcount);
+  }
 
   CURLMsg *m;
   do {
