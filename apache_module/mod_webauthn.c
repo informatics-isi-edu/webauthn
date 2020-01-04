@@ -153,7 +153,7 @@ typedef struct {
 
 static group_alias *clone_group_alias(apr_pool_t *pool, const group_alias *old);
 static session_info *get_cached_session_info(const char *sessionid, request_rec *r);
-static session_info *make_session_info(request_rec *r, apr_pool_t *parent_pool, const char *sessionid, char *json_string);
+static session_info *make_session_info(request_rec *r, const char *sessionid, char *json_string);
 static session_info *webauthn_make_session_info_from_scratch(request_rec * r, webauthn_local_config *local_config, int never_redirect);
 static void cache_sessioninfo(session_info *sinfo, request_rec *r);
 static int valid_unexpired_session(session_info *sinfo);
@@ -209,7 +209,6 @@ static const authz_provider authz_webauthn_optional_provider =
 
 static void register_hooks(apr_pool_t *pool)
 {
-  /* Create a hook in the request handler, so we get called when a request arrives */
   ap_hook_check_authn(webauthn_check_user_id, NULL, NULL, APR_HOOK_FIRST, AP_AUTH_INTERNAL_PER_URI);
   ap_hook_pre_config(webauthn_pre_config, NULL, NULL, APR_HOOK_FIRST);
   ap_register_auth_provider(pool, AUTHZ_PROVIDER_GROUP, WEBAUTHN_GROUP,
@@ -347,7 +346,7 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
     }
 
     char *json_string = consolidate_segments(data);
-    sinfo = make_session_info(r, config.pool, sessionid, json_string);
+    sinfo = make_session_info(r, sessionid, json_string);
   }
  end:
   if (slist) {
@@ -369,11 +368,12 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
   return sinfo;
 }
 
-
-static int log_header(void *pool, const char *key, const char *value) {
-  ap_log_perror(APLOG_MARK, APLOG_ERR, 0, (apr_pool_t *)pool, "header '%s' = '%s'", (key ? key : "null"), (value ? value : "null"));
-  return 1;
-}
+/* May be useful for debugging at some point */
+/* static int log_header(void *pool, const char *key, const char *value) {
+ *   ap_log_perror(APLOG_MARK, APLOG_ERR, 0, (apr_pool_t *)pool, "header '%s' = '%s'", (key ? key : "null"), (value ? value : "null"));
+ *   return 1;
+ * }
+ */
   
 
 static CURL *create_curl_handle(request_rec *r, const char *url, webauthn_http_data *data, char *errbuf, struct curl_slist **slist)
@@ -390,6 +390,7 @@ static CURL *create_curl_handle(request_rec *r, const char *url, webauthn_http_d
     curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, (void *)errbuf);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, (long) (config.verify_ssl_host > 0 ? 1 : 0));
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, (long) config.verify_ssl_host);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     const char *authz_header_value = apr_table_get(r->headers_in, AUTHORIZATION_HEADER);
     if (authz_header_value) {
       *slist = curl_slist_append(*slist, apr_psprintf(data->pool, "%s: %s", AUTHORIZATION_HEADER, authz_header_value));
@@ -442,7 +443,7 @@ static apr_time_t make_session_timeout(int server_seconds) {
   }
     return apr_time_from_sec(secs);
 }
-static session_info *make_session_info(request_rec *r, apr_pool_t *parent_pool, const char *sessionid, char *json_string)
+static session_info *make_session_info(request_rec *r, const char *sessionid, char *json_string)
 {
   /*
    * If we're caching, the session info can't go into the request's pool (because that's subject to being
@@ -467,7 +468,9 @@ static session_info *make_session_info(request_rec *r, apr_pool_t *parent_pool, 
   }
 
   apr_pool_t *pool = 0;
-  apr_pool_create(&pool, parent_pool);
+  apr_thread_mutex_lock(config.global_config_mutex);
+  apr_pool_create(&pool, config.pool);
+  apr_thread_mutex_unlock(config.global_config_mutex);
   session_info *sess = apr_pcalloc(pool, sizeof(session_info));
   sess->pool = pool;
   sess->pool_allocated_for_session = 1;
@@ -680,12 +683,11 @@ static managed_hash *create_alias_overlay(apr_pool_t *pool, apr_hash_t *overlay,
   return mhash;
 }
 
-
 static int webauthn_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *ptemp)
 {
   apr_thread_mutex_t *my_mutex;
   apr_status_t status;
-  
+
   if ((status = apr_thread_mutex_create(&my_mutex, APR_THREAD_MUTEX_UNNESTED, pconf)) == APR_SUCCESS) {
     apr_atomic_casptr((volatile void **)&config.global_config_mutex, my_mutex, 0);
   } else {
@@ -723,6 +725,7 @@ static int webauthn_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *
   if (config.session_hash == NULL) {
     config.session_hash = create_managed_hash(config.pool);
   }
+
   if (config.alias_hash == NULL) {  
     config.alias_hash = create_managed_hash(config.pool);
   }
