@@ -61,6 +61,7 @@ static char *make_anon_session_string(request_rec *r);
 typedef struct {
   apr_hash_t *hash;
   apr_thread_rwlock_t *hash_lock;
+  apr_pool_t *pool;
 } managed_hash;
 
 static void *get_managed_hash_entry(managed_hash *mhash, const char *key);
@@ -97,7 +98,6 @@ const static unauthn_response DEFAULT_UNAUTHN_RESPONSE = ua_fail;
 typedef struct {
   char *context;
   apr_pool_t *pool;
-  managed_hash *alias_hash;
   unauthn_response if_unauthn;
 } webauthn_local_config;
 
@@ -224,6 +224,7 @@ static void register_hooks(apr_pool_t *pool)
 
 
 static session_info *find_or_create_session_info(request_rec *r, webauthn_local_config *local_config, int never_redirect) {
+  ap_log_rerror(APLOG_MARK, APLOG_TRACE4, 0, r, "find_or_create: session hash is %pp", config.session_hash->hash);
   const char *sessionid = session_id_from_request(r, local_config);
   session_info *sinfo = 0;
 
@@ -238,8 +239,8 @@ static session_info *find_or_create_session_info(request_rec *r, webauthn_local_
   }
 
   if (sinfo) {
-    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "pool for session %s is %pp", sinfo->sessionid, sinfo->pool);
-    }
+    ap_log_rerror(APLOG_MARK, APLOG_TRACE4, 0, r, "pool for session %s is %pp", sinfo->sessionid, sinfo->pool);
+  }
   return sinfo;
 }
 
@@ -321,9 +322,9 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
     if (debug) {
       ccode = do_simple_perform(session_curl);
     } else {
-      ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "webauthn: before curl");
+      ap_log_rerror(APLOG_MARK, APLOG_TRACE4, 0, r, "webauthn: before curl");
       multi_codes *curl_codes = do_multi_perform(session_curl, r);
-      ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "webauthn: after curl");      
+      ap_log_rerror(APLOG_MARK, APLOG_TRACE4, 0, r, "webauthn: after curl");
       if (curl_codes->mcode != CURLM_OK) {
 	ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
 		      "multi_perform (%s) failed: %s\n",
@@ -333,10 +334,10 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
       ccode = curl_codes->ccode;
     }
     if (ccode != CURLE_OK) {
-	ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
-		      "easy_perform (%s) failed: %s\n",
-		      session_uri, (*errbuf ? errbuf : curl_easy_strerror(ccode)));
-	goto end;
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+		    "multi_perform (%s) failed: %s\n",
+		    session_uri, (*errbuf ? errbuf : curl_easy_strerror(ccode)));
+      goto end;
     }
 
     long http_code;
@@ -457,9 +458,9 @@ static session_info *make_session_info(request_rec *r, const char *sessionid, ch
     return 0;
   }
 
-  ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "before call to json_tokener_parse_verbose");
+  ap_log_rerror(APLOG_MARK, APLOG_TRACE4, 0, r, "before call to json_tokener_parse_verbose");
   json_object *jobj = json_tokener_parse_verbose(json_string, &json_err);
-  ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "after call to json_tokener_parse_verbose");
+  ap_log_rerror(APLOG_MARK, APLOG_TRACE4, 0, r, "after call to json_tokener_parse_verbose");
 
   if (jobj == 0 || json_err != json_tokener_success) {
     ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
@@ -468,9 +469,19 @@ static session_info *make_session_info(request_rec *r, const char *sessionid, ch
   }
 
   apr_pool_t *pool = 0;
-  apr_thread_mutex_lock(config.global_config_mutex);
-  apr_pool_create(&pool, config.pool);
-  apr_thread_mutex_unlock(config.global_config_mutex);
+
+  ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
+		"make_session_info: getting lock for apr_pool_create, lock %pp from hash %pp, parent pool %pp",
+		config.session_hash->hash_lock, config.session_hash, config.session_hash->pool);
+  
+  apr_thread_rwlock_wrlock(config.session_hash->hash_lock);
+  apr_pool_create(&pool, config.session_hash->pool);
+  apr_thread_rwlock_unlock(config.session_hash->hash_lock);
+  ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
+		"make_session_info: released lock for apr_pool_create, lock %pp from hash %pp, parent pool %pp",
+		config.session_hash->hash_lock, config.session_hash, config.session_hash->pool);
+  
+
   session_info *sess = apr_pcalloc(pool, sizeof(session_info));
   sess->pool = pool;
   sess->pool_allocated_for_session = 1;
@@ -636,52 +647,25 @@ static const char *webauthn_add_group_alias(cmd_parms *cmd, void *cfg, const cha
   }
   new_alias->alias = apr_pstrdup(cmd->pool, alias);
   new_alias->group = apr_pstrdup(cmd->pool, group);
-  ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, cmd->server,
-		"add_group_alias: calling add_managed_hash_entry, cfg=%pp", cfg);
-  if (cfg == NULL) {
-    add_managed_hash_entry(config.alias_hash, new_alias->alias, new_alias);
-  } else {
-    webauthn_local_config *lcfg = (webauthn_local_config *)cfg;
-    add_managed_hash_entry(lcfg->alias_hash, new_alias->alias, new_alias);    
-  }
+  ap_log_error(APLOG_MARK, APLOG_TRACE4, 0, cmd->server,
+	       "add_group_alias: calling add_managed_hash_entry, cfg=%pp", cfg);
+  add_managed_hash_entry(config.alias_hash, new_alias->alias, new_alias);
   return NULL;
 }
 
 static managed_hash *create_managed_hash(apr_pool_t *pool)
 {
   managed_hash *mhash = (managed_hash *)apr_pcalloc(pool, sizeof(managed_hash));
-  mhash->hash = apr_hash_make(pool);
+  apr_pool_create(&(mhash->pool), pool);
+  mhash->hash = apr_hash_make(mhash->pool);
   apr_thread_rwlock_create(&(mhash->hash_lock), pool);
+  ap_log_perror(APLOG_MARK, APLOG_TRACE1, 0, pool,
+		"create_managed_hash: created hash %pp with pool %pp, lock %pp, parent pool %pp",
+		mhash->hash, mhash->pool, mhash->hash_lock, pool);
+  
   return mhash;
 }
 
-static managed_hash *create_alias_overlay(apr_pool_t *pool, apr_hash_t *overlay, apr_hash_t *base)
-{
-  managed_hash *mhash = (managed_hash *)apr_pcalloc(pool, sizeof(managed_hash));
-  mhash->hash = apr_hash_make(pool);
-  char *key;
-  const group_alias *value;
-  apr_hash_index_t *entry;
-  ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, pool,
-		"create_alias_overlay, hash is %pp", base);
-
-  /* Add all "overlay" entries */
-  for (entry = apr_hash_first(pool, overlay); entry; entry = apr_hash_next(entry)) {
-    apr_hash_this(entry, (void *)&key, NULL, (void *)&value);
-    group_alias *alias = clone_group_alias(pool, value);
-    apr_hash_set(mhash->hash, alias->alias, APR_HASH_KEY_STRING, alias);
-  }
-  /* Add "base" entries whose key hasn't already been added */
-  for (entry = apr_hash_first(pool, base); entry; entry = apr_hash_next(entry)) {
-    apr_hash_this(entry, (void *)&key, NULL, (void *)&value);
-    if (apr_hash_get(mhash->hash, key, APR_HASH_KEY_STRING) == NULL) {
-      group_alias *alias = clone_group_alias(pool, value);
-      apr_hash_set(mhash->hash, alias->alias, APR_HASH_KEY_STRING, alias);
-    }
-  }
-  apr_thread_rwlock_create(&(mhash->hash_lock), pool);
-  return mhash;
-}
 
 static int webauthn_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *ptemp)
 {
@@ -696,7 +680,7 @@ static int webauthn_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *
 		  "mutex create failed: %s", apr_strerror(status, errstr, sizeof(errstr)));
   }
 
-  ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, plog,
+  ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, plog,
 		"global config mutex is %pp", config.global_config_mutex);
 
   config.session_path = NULL;
@@ -706,36 +690,39 @@ static int webauthn_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *
   config.tracking_cookie_name = "webauthn_track";  
   curl_global_init(CURL_GLOBAL_SSL);
 
-  if (config.global_config_mutex != NULL) {
+  if (config.global_config_mutex == NULL) {
+    ap_log_perror(APLOG_MARK, APLOG_ERR, 0, plog, "global mutex is null");
+  } else {
     apr_thread_mutex_lock(config.global_config_mutex);
-  }
-  if (config.pool == NULL) {
-    apr_status_t status = apr_pool_create(&config.pool, NULL);
-    if (status != APR_SUCCESS) {
-      char buf[1024];
-      apr_strerror(status, buf, sizeof(buf));
-      buf[sizeof(buf)-1] = '\0';
-      ap_log_perror(APLOG_MARK, APLOG_ERR, 0, plog,
- 		    "error creating config memory pool: %s",
- 		    buf);
-      return(HTTP_INTERNAL_SERVER_ERROR);
+    if (config.pool == NULL) {
+      apr_status_t status = apr_pool_create(&config.pool, NULL);
+      ap_log_perror(APLOG_MARK, APLOG_TRACE1, 0, plog,
+		    "webauthn_pre_config: created global config.pool %pp", config.pool);
+      if (status != APR_SUCCESS) {
+	char buf[1024];
+	apr_strerror(status, buf, sizeof(buf));
+	buf[sizeof(buf)-1] = '\0';
+	ap_log_perror(APLOG_MARK, APLOG_ERR, 0, plog,
+		      "error creating config memory pool: %s",
+		      buf);
+	apr_thread_mutex_unlock(config.global_config_mutex);	
+	return(HTTP_INTERNAL_SERVER_ERROR);
+      }
     }
-  }
 
-  if (config.session_hash == NULL) {
-    config.session_hash = create_managed_hash(config.pool);
-  }
+    if (config.session_hash == NULL) {
+      config.session_hash = create_managed_hash(config.pool);
+    }
 
-  if (config.alias_hash == NULL) {  
-    config.alias_hash = create_managed_hash(config.pool);
-  }
-  if (config.global_config_mutex != NULL) {
+    if (config.alias_hash == NULL) {  
+      config.alias_hash = create_managed_hash(config.pool);
+    }
     apr_thread_mutex_unlock(config.global_config_mutex);
-  }    
-  ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, plog,
-		"created managed hashes: session (hash %pp, lock %pp), alias (hash %pp, lock %pp)",
-		config.session_hash->hash, config.session_hash->hash_lock,
-		config.alias_hash->hash, config.alias_hash->hash_lock);
+    ap_log_perror(APLOG_MARK, APLOG_WARNING, 0, plog,
+		  "created managed hashes: session (hash %pp, lock %pp), alias (hash %pp, lock %pp)",
+		  config.session_hash->hash, config.session_hash->hash_lock,
+		  config.alias_hash->hash, config.alias_hash->hash_lock);
+  }
   config.max_cache_seconds = -1;
   return OK;
 }
@@ -820,12 +807,7 @@ static void *create_local_conf(apr_pool_t *pool, char *context) {
   webauthn_local_config *cfg = apr_pcalloc(pool, sizeof(webauthn_local_config));
   cfg->context = apr_pstrdup(pool, context);
   cfg->pool = pool;
-  cfg->alias_hash = create_managed_hash(pool);
   cfg->if_unauthn = ua_unset;
-  ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, pool,
-		"created local alias hash (hash %pp, lock %pp)",
-		cfg->alias_hash->hash, cfg->alias_hash->hash_lock);
-  
   return cfg;
 }
 
@@ -835,11 +817,7 @@ static void *merge_local_conf(apr_pool_t *pool, void *parent_cfg, void *child_cf
   webauthn_local_config *merged = apr_pcalloc(pool, sizeof(webauthn_local_config));
   merged->context = "merged configuration";
   merged->pool = pool;
-  merged->alias_hash = create_alias_overlay(pool, child->alias_hash->hash, parent->alias_hash->hash);
   merged->if_unauthn = (child->if_unauthn == ua_unset ? parent->if_unauthn : child->if_unauthn);
-  ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, pool,
-		"created merged alias hash (hash %pp, lock %pp)",
-		merged->alias_hash->hash, merged->alias_hash->hash_lock);  
   return merged;
 }
 
@@ -925,7 +903,7 @@ static authz_status webauthn_group_check_authorization(request_rec *r, const cha
   const char *err = NULL;
   const char *groups_string = ap_expr_str_exec(r, expr, &err);
 
-  managed_hash *group_alias_hash = local_config->alias_hash;
+  managed_hash *group_alias_hash = config.alias_hash;
 
   session_info *sinfo = find_or_create_session_info(r, local_config, 0);
 
@@ -972,15 +950,15 @@ static authz_status webauthn_optional_check_authorization(request_rec *r, const 
 }
 
 static void *get_managed_hash_entry(managed_hash *mhash, const char *key) {
-  ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, config.pool,
-		"get_managed_hash_entry: getting read lock for hash %pp, lock %pp, key %s",
-		mhash->hash, mhash->hash_lock, key);
+  ap_log_perror(APLOG_MARK, APLOG_TRACE1, 0, config.pool,
+  		"get_managed_hash_entry: getting read lock for hash %pp, lock %pp, key %s",
+  		mhash->hash, mhash->hash_lock, key);
   apr_thread_rwlock_rdlock(mhash->hash_lock);
   void *data = (session_info *)apr_hash_get(mhash->hash, key, APR_HASH_KEY_STRING);
   apr_thread_rwlock_unlock(mhash->hash_lock);
-  ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, config.pool,
-		"get_managed_hash_entry: released read lock for hash %pp, lock %pp, returning %pp",
-		mhash->hash, mhash->hash_lock, data);    
+  ap_log_perror(APLOG_MARK, APLOG_TRACE1, 0, config.pool,
+  		"get_managed_hash_entry: released read lock for hash %pp, lock %pp, returning %pp",
+  		mhash->hash, mhash->hash_lock, data);
   return(data);
 }
 
@@ -988,19 +966,23 @@ static session_info *get_cached_session_info(const char *sessionid, request_rec 
 {
   session_info *sinfo = NULL;
 
-  ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, config.pool,
-		"get_cached_session_info: getting read lock for hash %pp, lock %pp, sessionid %s",
-		config.session_hash->hash,config.session_hash->hash_lock, sessionid);  
+  ap_log_perror(APLOG_MARK, APLOG_TRACE1, 0, config.pool,
+  		"get_cached_session_info: getting read lock for hash %pp, lock %pp, sessionid %s",
+  		config.session_hash->hash,config.session_hash->hash_lock, sessionid);
   apr_thread_rwlock_rdlock(config.session_hash->hash_lock);
+  ap_log_perror(APLOG_MARK, APLOG_TRACE1, 0, config.pool,
+  		"get_cached_session_info: released read lock for hash %pp, lock %pp, sessionid %s",
+  		config.session_hash->hash,config.session_hash->hash_lock, sessionid);
+  
   session_info *cached_session_info = (session_info *)apr_hash_get(config.session_hash->hash, sessionid, APR_HASH_KEY_STRING);
-  ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "get_cached_session_info: got sinfo %pp", cached_session_info);  
+  ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r, "get_cached_session_info: got sinfo %pp", cached_session_info);
   if (valid_unexpired_session(cached_session_info)) {
     sinfo = clone_session_info(cached_session_info, r);
   }
   apr_thread_rwlock_unlock(config.session_hash->hash_lock);
-  ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, config.pool,
-		"get_cached_session_info: released read lock for hash %pp, lock %pp, returning %pp",
-		config.session_hash->hash, config.session_hash->hash_lock, sinfo);  
+  ap_log_perror(APLOG_MARK, APLOG_TRACE4, 0, config.pool,
+  		"get_cached_session_info: released read lock for hash %pp, lock %pp, returning %pp",
+  		config.session_hash->hash, config.session_hash->hash_lock, sinfo);
 
   if (sinfo == NULL) {
     delete_cached_session_info(cached_session_info);
@@ -1009,15 +991,15 @@ static session_info *get_cached_session_info(const char *sessionid, request_rec 
 }
 
 static void add_managed_hash_entry(managed_hash *mhash, const char *key, void *data) {
-  ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, config.pool,
-		"add_managed_hash_entry: getting write lock for hash %pp, lock %pp, value %pp",
-		mhash->hash, mhash->hash_lock, data);
+  ap_log_perror(APLOG_MARK, APLOG_TRACE1, 0, config.pool,
+  		"add_managed_hash_entry: getting write lock for hash %pp, lock %pp, value %pp",
+  		mhash->hash, mhash->hash_lock, data);
   apr_thread_rwlock_wrlock(mhash->hash_lock);
   apr_hash_set(mhash->hash, key, APR_HASH_KEY_STRING, data);
   apr_thread_rwlock_unlock(mhash->hash_lock);
-  ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, config.pool,
-		"add_managed_hash_entry: released write lock for hash %pp, lock %pp",
-		mhash->hash, mhash->hash_lock);  
+  ap_log_perror(APLOG_MARK, APLOG_TRACE1, 0, config.pool,
+  		"add_managed_hash_entry: released write lock for hash %pp, lock %pp",
+  		mhash->hash, mhash->hash_lock);
 }
 
 static void cache_sessioninfo(session_info *sinfo, request_rec *r)
@@ -1026,8 +1008,8 @@ static void cache_sessioninfo(session_info *sinfo, request_rec *r)
     if (sinfo) {
       char ts[APR_CTIME_LEN];
       apr_ctime(ts, sinfo->timeout);
-      ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "cache: adding session %s wih timeout %s (hash %pp, lock %pp)",
-		   sinfo->sessionid, ts, config.session_hash->hash, config.session_hash->hash_lock);
+      ap_log_rerror(APLOG_MARK, APLOG_TRACE4, 0, r, "cache: adding session %s wih timeout %s (hash %pp, lock %pp)",
+		    sinfo->sessionid, ts, config.session_hash->hash, config.session_hash->hash_lock);
       add_managed_hash_entry(config.session_hash, sinfo->sessionid, sinfo);
     }
   }
@@ -1039,26 +1021,37 @@ static int valid_unexpired_session(session_info *sinfo)
 }
 
 static void delete_managed_hash_entry(managed_hash *mhash, const char *key) {
+  ap_log_perror(APLOG_MARK, APLOG_TRACE1, 0, config.pool,
+  		"delete_managed_hash_entry: getting read lock for hash %pp, lock %pp, key %s",
+  		mhash->hash, mhash->hash_lock, key);
   apr_thread_rwlock_wrlock(mhash->hash_lock);
   apr_hash_set(mhash->hash, key, APR_HASH_KEY_STRING, NULL);
   apr_thread_rwlock_unlock(mhash->hash_lock);
+  ap_log_perror(APLOG_MARK, APLOG_TRACE1, 0, config.pool,
+  		"delete_managed_hash_entry: released read lock for hash %pp, lock %pp, key %s",
+  		mhash->hash, mhash->hash_lock, key);  
 }
 
 static void delete_cached_session_info(session_info *sinfo)
 {
   if (sinfo) {
-    ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, sinfo->pool,
-		  "before deleting cached session hash entry (and acquiring write lock) for (hash %pp, lock %pp)",
-		  config.session_hash->hash, config.session_hash->hash_lock);
+    ap_log_perror(APLOG_MARK, APLOG_TRACE4, 0, sinfo->pool,
+    		  "before deleting cached session hash entry (and acquiring write lock) for (hash %pp, lock %pp)",
+    		  config.session_hash->hash, config.session_hash->hash_lock);
     delete_managed_hash_entry(config.session_hash, sinfo->sessionid);
-    ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, sinfo->pool,
-		  "after deleting hash entry (and releasing write lock) for: released write lock for (hash %pp, lock %pp",
-		  config.session_hash->hash, config.session_hash->hash_lock);
+    ap_log_perror(APLOG_MARK, APLOG_TRACE4, 0, sinfo->pool,
+    		  "after deleting hash entry (and releasing write lock) for: released write lock for (hash %pp, lock %pp",
+    		  config.session_hash->hash, config.session_hash->hash_lock);
     if (sinfo->pool_allocated_for_session) {
-      ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, sinfo->pool,
-		    "destroying session pool %pp",
-		    sinfo->pool);
+      ap_log_perror(APLOG_MARK, APLOG_TRACE1, 0, sinfo->pool,
+      		    "delete_cached_session_info: getting lock for apr_pool_destroy, lock %pp for pool %pp",
+      		    config.session_hash->hash_lock, sinfo->pool);
+      apr_thread_rwlock_wrlock(config.session_hash->hash_lock);      
       apr_pool_destroy(sinfo->pool);
+      apr_thread_rwlock_unlock(config.session_hash->hash_lock);
+      ap_log_perror(APLOG_MARK, APLOG_TRACE1, 0, sinfo->pool,
+      		    "delete_cached_session_info: released lock for apr_pool_destroy, lock %pp for pool %pp",
+      		    config.session_hash->hash_lock, sinfo->pool);      
     }
   }
 }
