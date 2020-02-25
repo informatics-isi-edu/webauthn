@@ -1,88 +1,83 @@
-from deriva.core import DerivaServer, BaseCLI, HatracStore, get_credential
-from datetime import datetime
+from deriva.core import DerivaServer, BaseCLI, HatracStore, get_credential, DEFAULT_HEADERS
 from random import randrange
-import time
-import threading
+import json
+from requests.exceptions import HTTPError
+from auth_test_util import AuthTestUtil
+from pprint import pprint
 
 class StressTest:
-    def __init__(self, host, credential, hatrac_path, catalog_number, ermrest_path,
-                 ermrest_min, ermrest_max, hatrac_min, hatrac_max):
+    def __init__(self, host, credential_map, catalog_number, threads, ermrest_path,
+                 ermrest_min, ermrest_max, verbose=False):
+        self.threads = threads
+        credential_map["anon"] = {"credential": None, "expected_statuses": [401]}
+        self.credential_map = credential_map
         self.host = host
-        self.credential = credential
-        self.ermrest_path = ermrest_path
-        self.hatrac_path = hatrac_path
         self.catalog_number = catalog_number
-        self.ermrest_min = ermrest_min
-        self.ermrest_max = ermrest_max
-        self.hatrac_min = hatrac_min
-        self.hatrac_max = hatrac_max
+        self.handled_statuses = [200, 304, 401, 403]
+        self.verbose=verbose
+        self.params = {
+            "ermrest_path" : ermrest_path,
+            "ermrest_min" :  ermrest_min,
+            "ermrest_max" : ermrest_max,
 
-    @classmethod
-    def run_many(cls, test_obj, threads=5, iterations=100, sleeptime=180):
-        for i in range(0, threads):
-            print(str(i))
-            t = threading.Timer(randrange(1, 1000)/1000, cls.run_threaded, args=(test_obj, iterations, sleeptime))
-            t.start()
+        }
+        self.nocache_headers = {}
+        self.keys = sorted(self.credential_map.keys())
+        if self.threads > len(self.keys):
+            raise ValueError("thread count {t} greater than credential count{c}".format
+                             (t=self.threads, c=len(self.keys)))
+        for k in DEFAULT_HEADERS.keys():
+            self.nocache_headers[k] = DEFAULT_HEADERS[k]
+        self.nocache_headers["Cache-Control"] = "no-cache"
 
-    @classmethod
-    def run_threaded(cls, test_obj, iterations, sleeptime):
-        print("{n} {t}: starting".format(n=threading.current_thread().name, t=datetime.isoformat(datetime.now())))
-        for i in range(0, iterations):
-            threading.Timer(sleeptime if i > 1 else 0, cls.run_one, args=[test_obj]).run()
-                     
-    @classmethod
-    def run_one(cls, test_obj):
-        try:
-            cls.one_test(test_obj)
-        except Exception as ex:
-            print("{n} {t}: {e}".format(t=datetime.isoformat(datetime.now()), n=threading.current_thread().name, e=str(ex)))
+    def make_label(self, iteration, lable_params):
+        return self.keys[iteration]
 
-    @classmethod
-    def one_test(cls, test_obj):
-        server = DerivaServer("https", test_obj.host, test_obj.credential)
-        catalog = server.connect_ermrest(test_obj.catalog_number)
-        hatrac_server = HatracStore("https", test_obj.host, test_obj.credential)
+    def test_func(self, label, params):
+        credential = self.credential_map[label].get("credential")
+        expected_statuses = self.credential_map[label]["expected_statuses"]
+        server = DerivaServer("https", self.host, credential)
+        catalog = server.connect_ermrest(self.catalog_number)
         
-        ermrest_iterations = randrange(test_obj.ermrest_min, test_obj.ermrest_max) if test_obj.ermrest_max else 0
-        hatrac_iterations = randrange(test_obj.hatrac_min, test_obj.hatrac_max) if test_obj.hatrac_max else 0
-
+        ermrest_iterations = randrange(params.get("ermrest_min"), params.get("ermrest_max"))
+        path = "{base}?authz_test_label={label}".format(base=params.get("ermrest_path"), label=label)
+        
+        resp = None
         for i in range(0, ermrest_iterations):
             try:
-                resp = catalog.get(test_obj.ermrest_path)
-            except Exception as ex:
-                raise RuntimeError("ermrest failed with {e}".format(e=str(ex)))
-
-        for i in range(0, hatrac_iterations):
-            try:
-                resp = hatrac_server.head(test_obj.hatrac_path)
-            except Exception as ex:
-                raise RuntimeError("hatrac failed with {e}".format(e=str(ex)))
-    
+                resp = catalog.get(path)
+            except HTTPError as ex:
+                if ex.response.status_code not in self.handled_statuses:
+                    server.destroy()
+                    raise(ex)
+                resp = ex.response
+            if self.verbose and (resp.status_code not in expected_statuses):
+                print("ERROR: unexpected http status {s} for user {u} (expected {e}".format(s=resp.status_code, u=label, e=str(expected_statuses)))
+                server.destroy()
+            return(resp.status_code in expected_statuses)
 
 if __name__ == '__main__':
     cli = BaseCLI("ad-hoc table tool", None, 1, hostname_required=True)
-    cli.parser.add_argument("hatrac_path", help="Path for hatrac request (e.g. /hatrac/resources/my_file.txt)")
+    cli.parser.add_argument("session_map", help="File with credential list -- json array {label: session_cookie}")
     cli.parser.add_argument("--ermrest-path", help="Path for ermrest request", default="/entity/public:ERMrest_Client");
     cli.parser.add_argument("--catalog-number", help="ermrest catalog number", type=int, default=1)
     cli.parser.add_argument("--ermrest-min", help="minimum number of ermrest calls per thread per iteration",
                             type=int, default=4)
     cli.parser.add_argument("--ermrest-max", help="minimum number of ermrest calls per thread per iteration",
                             type=int, default=10)
-    cli.parser.add_argument("--hatrac-min", help="minimum number of hatrac calls per thread per iteration",
-                            type=int, default=0)
-    cli.parser.add_argument("--hatrac-max", help="minimum number of hatrac calls per thread per iteration",
-                            type=int, default=50)
     cli.parser.add_argument("--iterations-per-thread", help="number of iterations per thread",
                             type=int, default=100)
     cli.parser.add_argument("--sleeptime", help="number of seconds to sleep between iterations",
                             type=int, default=180)
-    cli.parser.add_argument("--threads", help="number of threads to start",
+    cli.parser.add_argument("--threads-per-session", help="number of threads to start per session (as listed in session_file)",
                             type=int, default=5)
+    cli.parser.add_argument('-v', '--verbose', help="verbose", action="store_true")
 
     args = cli.parse_cli()
-    credential = get_credential(args.host)
-    
-    test_obj = StressTest(args.host, credential, args.hatrac_path, args.catalog_number, args.ermrest_path,
-                          args.ermrest_min, args.ermrest_max, args.hatrac_min, args.hatrac_max)
-    StressTest.run_many(test_obj, args.threads, args.iterations_per_thread, args.sleeptime)
-
+    credential_map=json.load(open(args.session_map))
+    param_obj = StressTest(args.host, credential_map, args.catalog_number, args.threads_per_session, args.ermrest_path,
+                           args.ermrest_min, args.ermrest_max, verbose=args.verbose)
+    test_obj = AuthTestUtil(param_obj.test_func, param_obj, verbose=args.verbose, threads=args.threads_per_session, iterations_per_thread=args.iterations_per_thread, sleeptime=args.sleeptime, label_func = param_obj.make_label)
+    test_obj.run_many(param_obj.params, threads=args.threads_per_session,
+                      iterations=args.iterations_per_thread, sleeptime=args.sleeptime)
+    test_obj.summarize_results()
