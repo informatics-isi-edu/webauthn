@@ -4,6 +4,7 @@ import sys
 import pprint
 
 CLIENT_CRED_FILE='/home/secrets/oauth2/client_secret_globus.json'
+SCOPES="openid,email,profile,urn:globus:auth:scope:auth.globus.org:view_identity_set"
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
@@ -18,10 +19,12 @@ if __name__ == '__main__':
 
     client = ConfidentialAppAuthClient(client_id, client_secret)
     print("Using client id '{client_id}'\n".format(client_id=client_id))
-    if client.oauth2_validate_token(token).data.get('active') != True:
-        print "not an active token"
-        sys.exit(1)
+    # if client.oauth2_validate_token(token).data.get('active') != True:
+    #     print("not an active token")
+    #     sys.exit(1)
+    pprint.pprint(client.oauth2_validate_token(token).data)
     introspect_response = client.oauth2_token_introspect(token)
-    print "token scope is '{scope}'\n".format(scope=introspect_response.get('scope'))
-    print "dependent token response is:"
+    print("token scope is '{scope}'\n".format(scope=introspect_response.get('scope')))
+    print("dependent token response is:")
     pprint.pprint(client.oauth2_get_dependent_tokens(token).data)
+
