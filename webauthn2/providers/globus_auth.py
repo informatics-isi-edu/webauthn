@@ -51,19 +51,111 @@ class GlobusAuth (database.DatabaseConnection2):
     def __init__(self, config):
         database.DatabaseConnection2.__init__(self, config)
 
-class GlobusAuthLogin(oauth2.OAuth2Login):
+class GlobusGroupTokenProcessor(oauth2.GroupTokenProcessor):
+    default_accepted_roles=['admin', 'manager', 'member']
+    def __init__(self, issuer, expected_scopes, group_base_url, accepted_roles=None):
+        oauth2.GroupTokenProcessor.__init__(self, expected_scopes)
+        self.issuer = issuer
+        self.accepted_roles = accepted_roles if accepted_roles else self.default_accepted_roles
+        self.group_base_url = group_base_url
+        self.token = None
 
+    def set_token(self, token):
+        self.token = token
+
+    def get_raw_groups(self, group_request):
+        group_request.add_header('Authorization', 'Bearer ' + self.token.get('access_token'))
+        u = oauth2.OAuth2Login.open_url(group_request, "getting groups", False)
+        raw_groups = json.load(u)
+        u.close()
+        return(raw_groups)
+
+    def get_groups(self):
+        raise NotImplementedError()
+
+    def make_group(self, id, name):
+        return KeyedDict({ID : self.issuer + "/" + id,
+                          DISPLAY_NAME : name})    
+        
+
+class GlobusViewGroupTokenProcessor(GlobusGroupTokenProcessor):
+    default_base_url = "https://groups.api.globus.org/v2/groups/my_groups"
+    def __init__(self, issuer, group_base_url=None):
+        GlobusGroupTokenProcessor.__init__(self, issuer,
+                                           ["urn:globus:auth:scope:groups.api.globus.org:view_my_groups_and_memberships"],
+                                           group_base_url if group_base_url else self.default_base_url)
+
+    def get_groups(self):
+        web.debug("trying view_my_groups, token is {t}".format(t=str(self.token)))
+        final_groups = set()
+        if self.token != None:
+            group_request = urllib.request.Request(self.group_base_url)
+            raw_groups = self.get_raw_groups(group_request)
+            web.debug("raw_groups is {r}".format(r=raw_groups))
+            
+            for g in raw_groups:
+                # Unlike the old API, this will only return
+                # "groups in which the user is an active member, manager, or admin"
+                # so no need to descend into memberships and check status/role
+                
+                final_groups.add(self.make_group(g["id"], g.get("name")))                
+        return final_groups
+        
+
+class GlobusLegacyGroupTokenProcessor(GlobusGroupTokenProcessor):
+    default_base_url="https://nexus.api.globusonline.org/groups"    
+    def __init__(self, issuer, group_base_url=None, accepted_roles=None):
+        GlobusGroupTokenProcessor.__init__(self, issuer,
+                                           ["urn:globus:auth:scope:nexus.api.globus.org:groups"],
+                                           group_base_url if group_base_url else self.default_base_url,
+                                           accepted_roles=accepted_roles)
+        self.group_args = {
+            'include_identity_set_properties' : 'true',
+            'my_roles' : ','.join(self.accepted_roles),
+            'my_statuses' : 'active',
+            'for_all_identities' : 'true'
+        }
+
+    def get_groups(self):
+        web.debug("Using legacy Globus group processor")
+        web.debug("trying group request, token is {t}".format(t=str(self.token)))        
+        final_groups = set()
+        if self.token != None:
+            urltuple = urllib.parse.urlsplit(self.group_base_url)
+            group_request = urllib.request.Request(urllib.parse.urlunsplit([urltuple[0], urltuple[1], urltuple[2], urllib.parse.urlencode(self.group_args), None]))
+            raw_groups = self.get_raw_groups(group_request)
+            web.debug("raw_groups is {r}".format(r=raw_groups))            
+            for g in raw_groups:
+                group = self.make_group(g["id"], g.get("name"))
+                if g["my_status"] == "active":
+                    final_groups.add(group)
+                else:
+                    idprops = g.get("identity_set_properties")
+                    if idprops != None:
+                        for props in idprops.values():
+                            if props.get("role") in self.accepted_roles and props.get("status") == "active":
+                                final_groups.add(group)
+                                break
+        return(final_groups)
+        
+
+class GlobusAuthLogin(oauth2.OAuth2Login):
+    
     def login(self, manager, context, db, **kwargs):
         user_id = oauth2.OAuth2Login.login(self, manager, context, db, **kwargs)
         other_tokens = self.payload.get('other_tokens')
         dependent_tokens = self.payload.get('dependent_tokens')
         dependent_tokens_source = self.payload.get('dependent_tokens_source')
-        group_token = None
+        group_base = self.provider.cfg.get('globus_auth_group_endpoint')
+        group_token_processor = None
         context.globus_identities = set()
         context.globus_identities.add(user_id)
         identity_set = self.userinfo.get('identities_set')
-
         issuer = self.userinfo.get('iss')
+        all_group_processors = [
+            GlobusViewGroupTokenProcessor(group_base_url=group_base, issuer=issuer),
+            GlobusLegacyGroupTokenProcessor(group_base_url=group_base, issuer=issuer)
+        ]
         context.client[IDENTITIES] = []
         if identity_set != None:
             for id in identity_set:
@@ -74,54 +166,33 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
         if other_tokens != None:
             for token in other_tokens:
                 self.add_to_wallet(context, issuer, token)
-                if self.token_has_scope(token, "urn:globus:auth:scope:nexus.api.globus.org:groups"):
-                    group_token = token                        
+                if group_token_processor is None:
+                    for processor in all_group_processors:
+                        if processor.token_recognized(token):
+                            processor.set_token(token)
+                            group_token_processor = processor
 
         if dependent_tokens != None:
             for token in dependent_tokens:
                 self.add_to_wallet(context, issuer, token)
-                if group_token == None and self.token_has_scope(token, "urn:globus:auth:scope:nexus.api.globus.org:groups"):
-                    group_token = token                        
+                if group_token_processor is None:
+                    for processor in all_group_processors:
+                        if processor.token_recognized(token):
+                            processor.set_token(token)
+                            group_token_processor = processor
                     
-        #web.debug("wallet: " + str(context.wallet))
-        if group_token != None:
-            accepted_roles = ['admin', 'manager', 'member']
-            group_args = {
-                'include_identity_set_properties' : 'true',
-                'my_roles' : ','.join(accepted_roles),
-                'my_statuses' : 'active',
-                'for_all_identities' : 'true'
-            }
-            group_base = self.provider.cfg.get('globus_auth_group_endpoint')
-
-            if group_base == None:
-                group_base = "https://nexus.api.globusonline.org/groups"
-            urltuple = urllib.parse.urlsplit(group_base)
-            token_request = urllib.request.Request(urllib.parse.urlunsplit([urltuple[0], urltuple[1], urltuple[2], urllib.parse.urlencode(group_args), None]))
-            token_request.add_header('Authorization', 'Bearer ' + group_token.get('access_token'))
-            u = self.open_url(token_request, "getting groups", False)
-            groups = json.load(u)
-            u.close()
-#            web.debug("groups: " + str(groups))
-            context.globus_groups = set()
-            for g in groups:
-                group = KeyedDict({ID : issuer + "/" + g["id"],
-                                   DISPLAY_NAME : g.get('name')})
-                if g["my_status"] == "active":
-                    context.globus_groups.add(group)
-                else:
-                    idprops = g.get("identity_set_properties")
-                    if idprops != None:
-                        for props in idprops.values():
-                            if props.get("role") in accepted_roles and props.get("status") == "active":
-                                context.globus_groups.add(group)
-                                break
+        web.debug("wallet: " + str(context.wallet))
+        web.debug("token processor: " + str(group_token_processor))
+        if group_token_processor is not None:
+            context.globus_groups = group_token_processor.get_groups()
+            
         self.provider.manage.update_last_login(manager, context, context.client[ID], db)
         self.provider.manage.update_last_group_update(manager, context, context.client[ID], db)
         return context.client
 
     def add_extra_token_request_headers(self, token_request):
         client_id = self.provider.cfg.get('client_id')
+        web.debug("client id is {i}".format(i=client_id))
         client_secret = self.provider.cfg.get('client_secret')
         basic_auth_token = base64.b64encode((client_id + ':' + client_secret).encode())
         token_request.add_header('Authorization', 'Basic ' + basic_auth_token.decode())

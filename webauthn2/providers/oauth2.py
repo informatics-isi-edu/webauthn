@@ -380,15 +380,7 @@ class OAuth2Login (ClientLogin):
         self.payload = {'access_token': bearer_token}
         self.id_token = None
 
-    @staticmethod
-    def token_has_scope(token, scope):
-        if token == None:
-            return False
-        scopes = token.get('scope')
-        if scopes == None:
-            return False
-        return scope in scopes.split()
-        
+       
     @staticmethod
     def add_to_wallet(context, issuer, token):
         # If the wallet format is ever changed, the function get_wallet_entries in deriva-py will also need to be updated.
@@ -442,8 +434,10 @@ class OAuth2Login (ClientLogin):
         # This is called within db_wrapper, which will retry if it gets
         # a urllib.request.HTTPError
         try:
+            web.debug("before urlopen")
             return urllib.request.urlopen(req)
         except Exception as ev:
+            web.debug("urlopen exception {e}".format(e=str(ev)))
             if repeatable:
                 web.debug("Got {t} exception {ev} while {text} (url {url}, headers {headers})".format(
                     t=str(type(ev)), ev=str(ev), text=str(text), url=str(req.get_full_url()), headers=str(req.header_items())))
@@ -1028,7 +1022,25 @@ class OAuth2SessionIdProvider (webcookie.WebcookieSessionIdProvider, database.Da
         context.session.keys = self.get_request_sessionids(manager, context, db)
         if context.session.keys == None or len(context.session.keys) == 0:
             webcookie.WebcookieSessionIdProvider.create_unique_sessionids(self, manager, context, db)
-    
+
+class GroupTokenProcessor:
+    def __init__(self, expected_scopes):
+        self.expected_scopes = expected_scopes
+
+    def token_recognized(self, token):
+        for scope in self.expected_scopes:
+            if self.token_has_scope(token, scope):
+                return True
+        return False
+
+    @classmethod
+    def token_has_scope(cls, token, scope):
+        if token == None:
+            return False
+        scopes = token.get('scope')
+        if scopes == None:
+            return False
+        return scope in scopes.split()
 
 class OAuth2Exception(ValueError):
     pass
