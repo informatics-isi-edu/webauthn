@@ -2,9 +2,39 @@
 
 Making these changes will cause webauthn to look for HTTP headers of the form "Authorization: Bearer xxxxx") and use them for authentication if found. If no valid header of that format is found (e.g., no Authorization header at all, one with an invalid token, etc.), webauthn will revert to the webcookie / OpenID Connect authentication method used by Chaise and other clients.
 
-1. Decide what scope you want to require for your service. One scope that we've set up already is the generic `https://auth.globus.org/scopes/0fb084ec-401d-41f4-990e-e236f325010a/deriva_all` scope, which will be displayed in the user's consent dialogue as "use Deriva services". A better practice is to set up a host-specific scope (e.g., `https://auth.globus.org/scopes/nih-commons.derivacloud.org/deriva_all`, which can be displayed as a more specific permission, like "use Deriva services on nih-commons.derivacloud.org").
+1. Preliminary steps
+Find your client's client id. On ISRD systems, that will be in a file called `/home/secrets/oauth2/client_secret_globus.json`, and the client id is the value of the `client_id` attribute. You can also find it on the [Globus Developers page](https://auth.globus.org/v2/web/developers). Add a DNS text record linking your host's fully qualified domain name to your client ID, like this:
+```
+webauthn-dev.isrd.isi.edu    text = "576d9c54-0788-4278-bb31-69432e7088ac"
+```
 
-2. Decide what OAuth2 server you trust to provide those tokens.
+2. Create a scope for your server. There are several ways to do this, including the `deriva-client-globus=utis` application included in the `deriva-py` distribution. Whichever way you choose, the underlying scope definition sent to the Globus server should look basically like this.
+```
+{
+    "scope": {
+        "name": "test-scope",
+        "description": "This is a scope for testing",
+        "scope_suffix": "test_scope",
+        "advertised": true,
+        "allows_refresh_tokens" : true,
+        "dependent_scopes": [
+            "openid",
+            "email",
+            "profile",
+            "urn:globus:auth:scope:auth.globus.org:view_identities",
+            "urn:globus:auth:scope:auth.globus.org:view_identity_set",
+            "urn:globus:auth:scope:groups.api.globus.org:view_my_groups_and_memberships"
+        ]
+    }
+}
+```
+
+When this request succeeds, you'll wind up with two scopes, with names like
+`https://auth.globus.org/scopes/webauthn-dev.isrd.isi.edu/test_scope`
+and
+`https://auth.globus.org/scopes/576d9c54-0788-4278-bb31-69432e7088ac/test-scope`
+
+with `test_scope` replaced with the scope_suffix from the body of the request, the host name replaced with the fully qualified domain name of the host that the request was run from, and the client id replaced with your host's client id.
 
 3. Make three changes to your `webauthn2_config.json` file:
 
@@ -15,14 +45,18 @@ Add an `oauth2_accepted_scopes` provider with the scope name and issuer you deci
 ```
     "oauth2_accepted_scopes": [
         {
-           "scope" : "https://auth.globus.org/scopes/0fb084ec-401d-41f4-990e-e236f325010a/deriva_all",
+           "scope" : "https://auth.globus.org/scopes/webauthn-dev.isrd.isi.edu/test_scope",
 	   "issuer" : "https://auth.globus.org"
 	}
 
     ],
 ```
-
-Add your scope to the list of scopes in the `oauth2_scope` section of your `webauthn_config`. This isn't strictly necessary, but it makes testing easier.
+Add the scope to the list of scopes your server advertises (this will cause your server to advertise this information on https://yourhost/authn/discovery, to give clients a hint as to what scopes to request):
+```
+    "oauth2_discovery_scopes" : {
+        "deriva-test" : "https://auth.globus.org/scopes/webauthn-dev.isrd.isi.edu/deriva_test_deps_3"
+    },
+```
 
 4. Restart httpd.
 
@@ -75,6 +109,8 @@ will return something like:
 
 ## Adding a host-specific Deriva scope
 
+If you want, you can create separate scopes for each individual 
+
 There are four steps to adding a host-specific version of an existing scope:
 
 1. Find the Globus Client ID associated with the Globus client that owns the scope. For example, the Deriva scope is owned by the NIH-Commons Globus client; its client id (which you can find at https://auth.globus.org/v2/web/developers) is 0fb084ec-401d-41f4-990e-e236f325010a.
@@ -101,9 +137,6 @@ There's a sample Globus client class in webauthn2/scripts/globus_client_util tha
        "description" : "Use all Deriva services on my-host.org"
       })
 ```    
-4. Arrange with the Globus team to add the groups scope as a dependent scope to your new host-specific scope
-
-Right now the process is "ask Kyle to add the Globus auth team to add the groups scope as a dependent scope to your newly-created scope". If you've completed steps 1-3 but not this step, you'll be able to do everything (find the user's identity, fill the wallet with tokens for external services) except determine the user's groups.
 
 ## Troubleshooting ##
 
