@@ -3,6 +3,7 @@
 Making these changes will cause webauthn to look for HTTP headers of the form "Authorization: Bearer xxxxx") and use them for authentication if found. If no valid header of that format is found (e.g., no Authorization header at all, one with an invalid token, etc.), webauthn will revert to the webcookie / OpenID Connect authentication method used by Chaise and other clients.
 
 1. Preliminary steps
+
 Find your client's client id. On ISRD systems, that will be in a file called `/home/secrets/oauth2/client_secret_globus.json`, and the client id is the value of the `client_id` attribute. You can also find it on the [Globus Developers page](https://auth.globus.org/v2/web/developers). Add a DNS text record linking your host's fully qualified domain name to your client ID, like this:
 ```
 webauthn-dev.isrd.isi.edu    text = "576d9c54-0788-4278-bb31-69432e7088ac"
@@ -30,8 +31,11 @@ webauthn-dev.isrd.isi.edu    text = "576d9c54-0788-4278-bb31-69432e7088ac"
 ```
 
 When this request succeeds, you'll wind up with two scopes, with names like
+
 `https://auth.globus.org/scopes/webauthn-dev.isrd.isi.edu/test_scope`
+
 and
+
 `https://auth.globus.org/scopes/576d9c54-0788-4278-bb31-69432e7088ac/test-scope`
 
 with `test_scope` replaced with the scope_suffix from the body of the request, the host name replaced with the fully qualified domain name of the host that the request was run from, and the client id replaced with your host's client id.
@@ -45,7 +49,7 @@ Add an `oauth2_accepted_scopes` provider with the scope name and issuer you deci
 ```
     "oauth2_accepted_scopes": [
         {
-           "scope" : "https://auth.globus.org/scopes/webauthn-dev.isrd.isi.edu/test_scope",
+           "scope" : "https://auth.globus.org/scopes/576d9c54-0788-4278-bb31-69432e7088ac/test-scope",
 	   "issuer" : "https://auth.globus.org"
 	}
 
