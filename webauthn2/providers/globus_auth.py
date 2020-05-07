@@ -86,12 +86,10 @@ class GlobusViewGroupTokenProcessor(GlobusGroupTokenProcessor):
                                            group_base_url if group_base_url else self.default_base_url)
 
     def get_groups(self):
-        web.debug("trying view_my_groups, token is {t}".format(t=str(self.token)))
         final_groups = set()
         if self.token != None:
             group_request = urllib.request.Request(self.group_base_url)
             raw_groups = self.get_raw_groups(group_request)
-            web.debug("raw_groups is {r}".format(r=raw_groups))
             
             for g in raw_groups:
                 # Unlike the old API, this will only return
@@ -118,13 +116,11 @@ class GlobusLegacyGroupTokenProcessor(GlobusGroupTokenProcessor):
 
     def get_groups(self):
         web.debug("Using legacy Globus group processor")
-        web.debug("trying group request, token is {t}".format(t=str(self.token)))        
         final_groups = set()
         if self.token != None:
             urltuple = urllib.parse.urlsplit(self.group_base_url)
             group_request = urllib.request.Request(urllib.parse.urlunsplit([urltuple[0], urltuple[1], urltuple[2], urllib.parse.urlencode(self.group_args), None]))
             raw_groups = self.get_raw_groups(group_request)
-            web.debug("raw_groups is {r}".format(r=raw_groups))            
             for g in raw_groups:
                 group = self.make_group(g["id"], g.get("name"))
                 if g["my_status"] == "active":
@@ -181,8 +177,6 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
                             processor.set_token(token)
                             group_token_processor = processor
                     
-        web.debug("wallet: " + str(context.wallet))
-        web.debug("token processor: " + str(group_token_processor))
         if group_token_processor is not None:
             context.globus_groups = group_token_processor.get_groups()
             
@@ -192,7 +186,6 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
 
     def add_extra_token_request_headers(self, token_request):
         client_id = self.provider.cfg.get('client_id')
-        web.debug("client id is {i}".format(i=client_id))
         client_secret = self.provider.cfg.get('client_secret')
         basic_auth_token = base64.b64encode((client_id + ':' + client_secret).encode())
         token_request.add_header('Authorization', 'Basic ' + basic_auth_token.decode())
