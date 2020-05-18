@@ -434,7 +434,7 @@ class OAuth2Login (ClientLogin):
         # This is called within db_wrapper, which will retry if it gets
         # a urllib.request.HTTPError
         try:
-            web.debug("before urlopen")
+#            web.debug("before urlopen")
             return urllib.request.urlopen(req)
         except Exception as ev:
             web.debug("urlopen exception {e}".format(e=str(ev)))
