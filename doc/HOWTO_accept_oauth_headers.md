@@ -9,7 +9,7 @@ Find your client's client id. On ISRD systems, that will be in a file called `/h
 webauthn-dev.isrd.isi.edu    text = "576d9c54-0788-4278-bb31-69432e7088ac"
 ```
 
-2. Create a scope for your server. There are several ways to do this, including the `deriva-client-globus=utis` application included in the `deriva-py` distribution. Whichever way you choose, the underlying scope definition sent to the Globus server should look basically like this.
+2. Create a scope for your server. There are several ways to do this, including the [deriva-globus-auth-utils](http://docs.derivacloud.org/users-guide/managing-data.html) application included in the `deriva-py` distribution. Whichever way you choose, the underlying scope definition sent to the Globus server should look basically like this.
 ```
 {
     "scope": {
@@ -23,7 +23,6 @@ webauthn-dev.isrd.isi.edu    text = "576d9c54-0788-4278-bb31-69432e7088ac"
             "email",
             "profile",
             "urn:globus:auth:scope:auth.globus.org:view_identities",
-            "urn:globus:auth:scope:auth.globus.org:view_identity_set",
             "urn:globus:auth:scope:groups.api.globus.org:view_my_groups_and_memberships"
         ]
     }
@@ -66,10 +65,11 @@ Add the scope to the list of scopes your server advertises (this will cause your
 
 ## Testing with OAuth2 Bearer tokens
 
-To test, first get a token. If you're using Globus as an OAuth2 provider, you can use a program like the one in webauthn2/scripts/globus_oauth_client.py to request a token -- edit the line:
+To test, first get a token. If you're using Globus as an OAuth2 provider, you can use `deriva-globus-auth-utils`, like:
 
 ```
-client.oauth2_start_flow(requested_scopes="https://auth.globus.org/scopes/0fb084ec-401d-41f4-990e-e236f325010a/deriva_all")
+deriva-globus-auth-utils login --no-local-server --no-browser --hosts my-host.org
+
 ```
 
 to request the appropriate scope.
@@ -113,9 +113,7 @@ will return something like:
 
 ## Adding a host-specific Deriva scope
 
-If you want, you can create separate scopes for each individual 
-
-There are four steps to adding a host-specific version of an existing scope:
+You can choose to either use one scope for all servers associated with the same Globus client ID (e.g., dev, staging, and production hosts associated with a project), or you can have separate scopes for each host (e.g., have one scope that allows access to the dev server and a different one for the production server). There are four steps to adding a host-specific version of an existing scope:
 
 1. Find the Globus Client ID associated with the Globus client that owns the scope. For example, the Deriva scope is owned by the NIH-Commons Globus client; its client id (which you can find at https://auth.globus.org/v2/web/developers) is 0fb084ec-401d-41f4-990e-e236f325010a.
 
@@ -125,22 +123,14 @@ There are four steps to adding a host-specific version of an existing scope:
 nih-commons.derivacloud.org	text = "0fb084ec-401d-41f4-990e-e236f325010a"
 ```
 
-3. Using REST or Python API calls:
+3. Use the [deriva-globus-auth-utils utility or deriva-client API](http://docs.derivacloud.org/users-guide/managing-data.html) to:
 
-- Add your host to the scope-owning Globus client (NIH-Commons for the Deriva scope)
+- Add your host to the scope-owning Globus client
 - Update the name and description of your new scope
 
-There's a sample Globus client class in webauthn2/scripts/globus_client_util that's a thin wrapper around the Globus python sdk, so one way to do this would be:
+## Discovering what scopes a particular host accepts ##
 
-```
-   client = GlobusClientUtil()
-   client.add_fqdn_to_client("my-host.org")
-   my_scope = client.get_scopes_by_name("https://auth.globus.org/scopes/my-host.org/deriva_all")[0]
-   client.update_scope(my_scope.get("id"),
-      {"name" : "Use Deriva services on my-host.org",
-       "description" : "Use all Deriva services on my-host.org"
-      })
-```    
+The `/authn/discovery` endpoint (`https://my-host.org/authn/discovery`) will return a structure showing what scopes a server accepts.
 
 ## Troubleshooting ##
 
@@ -160,7 +150,6 @@ will appear in the server logs each time someone uses a bearer token to authenti
 
 Make sure the scope that you're using for authentication (which should be in `oauth2_accepted_scopes` in your webauthn_config.json file) is able to retrieve a token with the group scopes. There are some sample test programs in .../webauthn2/scripts that can help with that: globus_oauth_client.py can be used to request a bearer token (be sure to edit the script to specify your scope), and globus_test_client.py can be used to send a dependent tokens request to globus (usage is "python globus_test_client.py _token_"), where _token_ is the token output by globus_oauth_client.py.
 
-If the dependent token requests succeeds but does not include the scope `urn:globus:auth:scope:auth.globus.org:view_identities`, that scope will need to be added as a dependency to your scope by the Globus team.
 
 
 
