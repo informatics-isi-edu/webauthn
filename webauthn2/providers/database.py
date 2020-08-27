@@ -116,7 +116,7 @@ def hash_password(password, salthex=None, reps=1000):
 
     msg = password.encode()
     for r in range(0,reps):
-        msg = hmac.HMAC(salt, msg).hexdigest().encode()
+        msg = hmac.HMAC(salt, msg, digestmod='MD5').hexdigest().encode()
 
     return (msg.decode(), salthex, reps)
 
