@@ -293,9 +293,9 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
   session_info *sinfo = 0;
   unauthn_response if_unauthn = (local_config->if_unauthn == ua_unset ? DEFAULT_UNAUTHN_RESPONSE : local_config->if_unauthn);
 
-  const char *session_uri=apr_psprintf(r->pool, "https://%s%s", r->hostname, config.session_path);
+  const char *session_uri=apr_psprintf(r->pool, "https://%s%s", "localhost", config.session_path);
   const char *login_uri=apr_psprintf(r->pool, "https://%s%s?%sreferrer=%s",
-				     r->hostname, config.login_path,
+				     "localhost", config.login_path,
 				     (if_unauthn == ua_redirect ? "do_redirect=true&" : ""),
 				     /*				     ap_escape_urlencoded(r->pool, r->unparsed_uri)); */
   				     ap_escape_uri(r->pool, r->unparsed_uri)); 
@@ -353,8 +353,10 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
   if (slist) {
     curl_slist_free_all(slist);
   }
-  if (session_curl) {
-    curl_easy_cleanup(session_curl);
+  if (debug) {
+    if (session_curl) {
+        curl_easy_cleanup(session_curl);
+    }
   }
   if (sinfo == NULL) {
     if (if_unauthn == ua_fail) {
@@ -872,6 +874,8 @@ static multi_codes *do_multi_perform(CURL *curl, request_rec *r)
 
  end:
   curl_multi_remove_handle(multi, curl);
+  curl_easy_cleanup(curl);
+  curl_multi_cleanup(multi);
   return(codes);
 }
 

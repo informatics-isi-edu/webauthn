@@ -166,9 +166,10 @@ def prune_excessive_dcctx(dcctx):
 
 def request_final_json(parts, extra={}):
     try:
-        dcctx = web.ctx.env.get('HTTP_DERIVA_CLIENT_CONTEXT', 'null')
-        dcctx = urllib.parse.unquote(dcctx)
-        dcctx = prune_excessive_dcctx(json.loads(dcctx))
+        dcctx = web.ctx.env.get('HTTP_DERIVA_CLIENT_CONTEXT')
+        if dcctx:
+            dcctx = urllib.parse.unquote(dcctx)
+            dcctx = prune_excessive_dcctx(json.loads(dcctx))
     except Exception as e:
         web.debug('Error during dcctx decoding: %s' % e)
         dcctx = None

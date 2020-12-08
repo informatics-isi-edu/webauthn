@@ -208,7 +208,9 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
             client = globus_sdk.ConfidentialAppAuthClient(self.provider.cfg.get('client_id'), self.provider.cfg.get('client_secret'))            
             # attempt to get dependent tokens
             try:
-#                introspect_response = client.oauth2_token_introspect(bearer_token)
+                introspect_response = client.oauth2_token_introspect(bearer_token)
+                if 'active' in introspect_response and introspect_response['active'] is False:
+                    raise OAuth2Exception("Invalid (inactive) token")
                 token_response = client.oauth2_get_dependent_tokens(bearer_token).data
                 if token_response != None and len(token_response) > 0:
                     self.payload['dependent_tokens_source'] = client.base_url

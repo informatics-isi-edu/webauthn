@@ -271,7 +271,7 @@ if __name__ == '__main__':
     # print s.delete_scope("https://auth.globus.org/scopes/nih-commons.derivacloud.org/deriva_test_3")
     # print s.delete_scope("https://auth.globus.org/scopes/0fb084ec-401d-41f4-990e-e236f325010a/deriva_test_4")
     # print s.delete_scope("https://auth.globus.org/scopes/nih-commons.derivacloud.org/deriva_test_4")    
-    print str(s.list_all_scopes())
+    print(str(s.list_all_scopes()))
 #    scope = s.get_scopes_by_name("https://auth.globus.org/scopes/0fb084ec-401d-41f4-990e-e236f325010a/deriva_all")[0]
 #    pprint.pprint(s.get_dependent_scopes(scope))
 #    print s.verify_access_token(token)
