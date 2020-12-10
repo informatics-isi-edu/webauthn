@@ -124,7 +124,7 @@ class GlobusLegacyGroupTokenProcessor(GlobusGroupTokenProcessor):
             urltuple = urllib.parse.urlsplit(self.group_base_url)
             group_request = urllib.request.Request(urllib.parse.urlunsplit([urltuple[0], urltuple[1], urltuple[2], urllib.parse.urlencode(self.group_args), None]))
             raw_groups = self.get_raw_groups(group_request)
-            web.debug("raw_groups is {r}".format(r=raw_groups))            
+#            web.debug("raw_groups is {r}".format(r=raw_groups))
             for g in raw_groups:
                 group = self.make_group(g["id"], g.get("name"))
                 if g["my_status"] == "active":
@@ -182,7 +182,7 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
                             group_token_processor = processor
                     
 #        web.debug("wallet: " + str(context.wallet))
-        web.debug("token processor: " + str(group_token_processor))
+#        web.debug("token processor: " + str(group_token_processor))
         if group_token_processor is not None:
             context.globus_groups = group_token_processor.get_groups()
             
