@@ -11,7 +11,7 @@ on:
 
 jobs:
   install-and-test:
-    runs-on: ubuntu-16.04
+    runs-on: ubuntu-20.04
     env:
       COOKIES: ~/cookies
       VERBOSE: brief
@@ -26,7 +26,7 @@ jobs:
         run: |
           sudo apt-get -y install libcurl4-openssl-dev libjson-c-dev
           sudo service postgresql stop || true
-          sudo service postgresql start 10
+          sudo service postgresql start 12
           sudo apt-get install apache2 apache2-dev ssl-cert libapache2-mod-wsgi-py3
           sudo ln -s /etc/apache2/conf-enabled /etc/apache2/conf.d
           sudo a2enmod ssl
