@@ -57,7 +57,7 @@ jobs:
         id: webauthn-test
         continue-on-error: true
         run: |
-          cd webautn
+          cd webauthn
           sudo -H -u webauthn webauthn2-manage adduser test1
           sudo -H -u webauthn webauthn2-manage passwd test1 dummypassword1
           sudo -H -u webauthn webauthn2-manage addattr admin
