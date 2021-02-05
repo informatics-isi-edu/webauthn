@@ -69,7 +69,7 @@ jobs:
           sudo -H -u webauthn webauthn2-manage addrobot robot123 /tmp/robot123cred.json 5
           sudo bash ./test/robot-cred-test.sh /tmp/robot123cred.json
       - name: Check on test cases
-        if: always() && steps.webautn-test.outcome != 'success'
+        if: always() && steps.webauthn-test.outcome != 'success'
         run: exit 1
       - name: Diagnosis after failure
         if: ${{ failure() }}
