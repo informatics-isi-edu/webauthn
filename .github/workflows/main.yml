@@ -1,0 +1,89 @@
+
+name: Webauthn tests
+
+on: 
+  push:
+    branches: 
+      - 'master'
+  pull_request:
+    branches:
+      - 'master'
+
+jobs:
+  install-and-test:
+    runs-on: ubuntu-20.04
+    env:
+      COOKIES: ~/cookies
+      VERBOSE: brief
+      HTTPD_ERROR_LOG: /var/log/apache2/error.log
+      PYTHONWARNINGS: ignore:Unverified HTTPS request
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v2
+        with:
+          path: webauthn
+      - name: Setup the system
+        run: |
+          sudo apt-get -y install libcurl4-openssl-dev libjson-c-dev
+          sudo service postgresql stop || true
+          sudo service postgresql start 12
+          sudo apt-get install apache2 apache2-dev ssl-cert libapache2-mod-wsgi-py3
+          sudo ln -s /etc/apache2/conf-enabled /etc/apache2/conf.d
+          sudo a2enmod ssl
+          sudo a2ensite default-ssl
+          sudo groupadd -o -g $(id -g www-data) apache 
+          sudo apt-get install -y python3-setuptools python3-ply
+          sudo pip3 --version
+          sudo su -c 'echo /usr/lib/python3.8/site-packages > /usr/local/lib/python3.8/dist-packages/sys-site-packages.pth'
+          sudo su -c 'python3 -c "import site;print(site.PREFIXES);"'
+          sudo su -c 'python3 -c "import site;print(site.getsitepackages())"'
+          sudo pip3 install psycopg2-binary
+          sudo pip3 install git+https://github.com/informatics-isi-edu/webpy.git
+          sudo useradd -m -r webauthn
+          sudo su -c '/usr/bin/python3 -c "import sys;import pprint;pprint.pprint(sys.path)"' - webauthn
+      - name: Install webauthn
+        run: |
+          cd webauthn
+          sudo make testvars
+          sudo make install
+          sudo make deploy
+          sudo bash ./test/ubuntu-travis-setup.sh
+          sudo bash ./test/static-test-setup.sh
+          sudo a2enmod webauthn
+          sudo service apache2 restart
+          sudo ls -lR /var/run/apache2
+          sudo ls -lR /var/log/apache2
+      - name: Run test cases
+        id: webauthn-test
+        continue-on-error: true
+        run: |
+          cd webauthn
+          sudo -H -u webauthn webauthn2-manage adduser test1
+          sudo -H -u webauthn webauthn2-manage passwd test1 dummypassword1
+          sudo -H -u webauthn webauthn2-manage addattr admin
+          sudo -H -u webauthn webauthn2-manage assign test1 admin
+          sudo -H -u webauthn webauthn2-manage adduser test2
+          sudo -H -u webauthn webauthn2-manage passwd test2 dummypassword2
+          sudo bash ./test/rest-tests.sh test1 dummypassword1
+          sudo bash ./test/static-tests.sh test1 dummypassword1
+          sudo -H -u webauthn webauthn2-manage addrobot robot123 /tmp/robot123cred.json 5
+          sudo bash ./test/robot-cred-test.sh /tmp/robot123cred.json
+      - name: Check on test cases
+        if: always() && steps.webauthn-test.outcome != 'success'
+        run: exit 1
+      - name: Diagnosis after failure
+        if: ${{ failure() }}
+        run: |
+          sudo cat /etc/apache2/conf.d/webauthn.conf
+          sudo cat /etc/apache2/conf.d/wsgi_webauthn2.conf
+          sudo cat /etc/apache2/conf.d/webauthn_test.conf
+          sudo cat /etc/apache2/mods-available/webauthn.load
+          sudo cat /etc/hosts
+          sudo cat /etc/apache2/envvars
+          sudo cat /etc/apache2/apache2.conf
+          sudo cat /etc/apache2/sites-available/default-ssl.conf
+          sudo ls -lR /etc/apache2
+          sudo cat ${HTTPD_ERROR_LOG}
+          sudo cat /var/log/apache2/access.log
+          sudo cat /tmp/robot123cred.json
+                    
