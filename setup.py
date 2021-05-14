@@ -15,8 +15,7 @@
 # limitations under the License.
 #
 
-import distutils.sysconfig
-from distutils.core import setup
+from setuptools import setup
 import sys
 
 # this will be relative to sys.prefix e.g. /usr/share/webauthn2
@@ -25,7 +24,7 @@ datadir = 'share/webauthn2'
 setup(
     name="webauthn2",
     description="web app security context management system",
-    version="0.1-prerelease",
+    version="0.2",
     packages=["webauthn2", "webauthn2.providers"],
     scripts=["bin/webauthn2-db-init", "bin/webauthn2-manage", "bin/webauthn2-deploy"],
     package_data={
@@ -46,7 +45,7 @@ setup(
         ])
     ],
     requires=["web.py", "psycopg2", "oauth", "oauth2client", "pyjwkest", "globus_sdk"],
-    maintainer_email="support@misd.isi.edu",
+    maintainer_email="isrd-support@isi.edu",
     license='Apache License, Version 2.0',
     classifiers=[
       "Intended Audience :: Developers",

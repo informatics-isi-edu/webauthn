@@ -23,14 +23,6 @@ DAEMONUSER=webauthn
 
 INSTALL_SCRIPT=./install-script
 
-UNINSTALL_DIRS=$(PYLIBDIR)/webauthn2 \
-	$(SHAREDIR) \
-	$(VARLIBDIR)
-
-UNINSTALL=$(UNINSTALL_DIRS) \
-	$(BINDIR)/webauthn-db-init \
-	$(BINDIR)/webauthn-manage
-
 # make this the default target
 install: samples/wsgi_webauthn2.conf force
 	pip3 install --no-deps --upgrade .
@@ -52,9 +44,8 @@ deploy: install
 samples/wsgi_webauthn2.conf: samples/wsgi_webauthn2.conf.in force
 	./install-script -M sed -R @PYLIBDIR@=$(PYLIBDIR) @WSGISOCKETPREFIX@=$(WSGISOCKETPREFIX) @DAEMONUSER@=$(DAEMONUSER) -o root -g root -m a+r -p -D $< $@
 
-# HACK: distutils doesn't have an uninstaller...
 uninstall: force
-	rm -rf $(UNINSTALL)
+	pip3 uninstall -y webauthn2
 
 
 preinstall_centos: force
