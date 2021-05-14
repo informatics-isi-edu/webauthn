@@ -151,7 +151,6 @@ typedef struct {
 } group_alias;
 
 
-static group_alias *clone_group_alias(apr_pool_t *pool, const group_alias *old);
 static session_info *get_cached_session_info(const char *sessionid, request_rec *r);
 static session_info *make_session_info(request_rec *r, const char *sessionid, char *json_string);
 static session_info *webauthn_make_session_info_from_scratch(request_rec * r, webauthn_local_config *local_config, int never_redirect);
@@ -872,6 +871,7 @@ static multi_codes *do_multi_perform(CURL *curl, request_rec *r)
 
  end:
   curl_multi_remove_handle(multi, curl);
+  curl_multi_cleanup(multi);
   return(codes);
 }
 
