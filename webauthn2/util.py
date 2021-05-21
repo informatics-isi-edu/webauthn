@@ -237,9 +237,14 @@ class Context (object):
     consistent with the Session class.  It may support additional
     provider-specific capabilities.
 
-    The client value should either be None or a str value.
+    The client value should either be None or a dict.
+    Each attribute value should be a dict.
 
-    Each attribute value should be a str value.
+    The client and attribute dicts should have the form:
+
+      {'id': ..., 'display_name': ... }
+
+    and may have additional, provider-specific information fields.
 
     """
 
