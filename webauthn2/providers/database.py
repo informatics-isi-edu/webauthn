@@ -32,7 +32,7 @@ Provider-specific parameters for database module:
    : The database type (e.g., postgres).
 
 `database_dsn`
-   : The database source name (e.g., "host=localhost user=ermrest password=... dbname=ermrest").
+   : The database source name (e.g., "host=localhost user=webauthn password=... dbname=webauthn").
 
 `database_schema`
    : The schema name qualifier for provider tables within the database (text or None).

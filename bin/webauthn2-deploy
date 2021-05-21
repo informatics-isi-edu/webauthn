@@ -42,7 +42,7 @@ DAEMONUSER="webauthn" # Unix and DB user name for service daemon
 export PGADMIN
 export DAEMONUSER
 
-TMP_SQL=$(mktemp /tmp/ermrest-deploy.sql.XXXXX)
+TMP_SQL=$(mktemp /tmp/webauthn-deploy.sql.XXXXX)
 
 cleanup()
 {
@@ -82,10 +82,6 @@ chmod og+rx /home/${DAEMONUSER}
 chgrp apache /home/${DAEMONUSER}
 
 pgid ${DAEMONUSER} || pgcreateuser -D -R -S ${DAEMONUSER}
-
-# temporary ugliness for backwards-compatibility
-$SU -c "psql -c 'GRANT ${DAEMONUSER} TO ermrest'" - ${PGADMIN}
-$SU -c "psql -c 'GRANT ${DAEMONUSER} TO hatrac'" - ${PGADMIN}
 
 if [[ -r /etc/redhat-release ]]
 then
