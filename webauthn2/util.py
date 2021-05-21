@@ -289,11 +289,24 @@ class Context (object):
                 # look for embedded client attributes
                 manager.attributes.msgauthn.set_msg_context(manager, self, db)
 
+    @property
+    def client_id(self):
+        """Get self.client.id value or None if client is unknown."""
+        return self.client.get('id') if self.client is not None else None
+
     def get_client_id(self):
-        if self.client == None:
-            return None
-        else:
-            return self.client.get("id")
+        """Backwards-compatibility alias for self.client_id property."""
+        return self.client_id
+
+    @property
+    def attribute_ids(self):
+        """Flat list of each attr.id for attr in self.attributes, e.g. to compare to ACLs.
+
+        This list ignores attributes which lack an 'id' field or where
+        the value is None.
+
+        """
+        return [ a.get('id') for a in self.attributes if a.get('id') is not None ]
 
     def __repr__(self):
         return '<%s %s>' % (
