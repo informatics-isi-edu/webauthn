@@ -355,7 +355,7 @@ class OAuth2Login (ClientLogin):
 #        web.debug("Good token response. Keys were {k}. Token type was {t}, scope was {s}".format(k=str(self.payload.keys()), t=str(self.payload.get('token_type')), s=str(self.payload.get('scope'))))        
 
         # Validate id token
-        u=self.open_url(self.provider.cfg.get('jwks_uri'), "getting jwks info", False)
+        u=self.open_url(urllib.request.Request(self.provider.cfg.get('jwks_uri')), "getting jwks info", False)
         raw_keys = jwk.KEYS()
         raw_keys.load_jwks(u.read())
         u.close()
