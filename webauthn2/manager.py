@@ -266,7 +266,7 @@ class Manager (util.DatabaseConnection):
            deployment:  https://local.host.fqdn/webauthn_robot/
 
         """
-        if not self.sessionids or self.sessionids.key != 'webcookie':
+        if not self.sessionids or not isinstance(self.sessionids, providers.sessionids['webcookie']):
             raise NotImplementedError('robot session requires webcookie sessionids provider')
         if not self.sessions:
             raise NotImplementedError('robot session requires sessions provider')
