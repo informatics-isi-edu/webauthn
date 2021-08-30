@@ -1,4 +1,3 @@
-
 # 
 # Copyright 2010-2019 University of Southern California
 # 
@@ -91,7 +90,6 @@ class GlobusViewGroupTokenProcessor(GlobusGroupTokenProcessor):
         if self.token != None:
             group_request = urllib.request.Request(self.group_base_url)
             raw_groups = self.get_raw_groups(group_request)
-            web.debug("raw_groups is {r}".format(r=raw_groups))
             
             for g in raw_groups:
                 # Unlike the old API, this will only return
@@ -117,7 +115,7 @@ class GlobusLegacyGroupTokenProcessor(GlobusGroupTokenProcessor):
         }
 
     def get_groups(self):
-        web.debug("Using legacy Globus group processor")
+#        web.debug("Using legacy Globus group processor")
         final_groups = set()
         if self.token != None:
             urltuple = urllib.parse.urlsplit(self.group_base_url)
