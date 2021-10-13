@@ -438,13 +438,17 @@ class PooledConnection (object):
         return connection
 
     def _put_pooled_connection(self, connection):
-        """Return a SOAP client to the pool for accessing the Crowd server."""
+        """Return a connection instance to the pool for future use."""
         pool = PooledConnection.pools.setdefault(self.config_tuple, set())
         pool.add(connection)
 
     def _new_connection(self):
         """Create an actual connection object (abstract base method)."""
         raise NotImplementedError()
+
+    def _close_connection(self, conn):
+        """Close an actual connection previously opened."""
+        pass
 
 def force_query(db, *args, **kwargs):
     """Force db.query SELECT generator results as expected by legacy code here."""
@@ -492,7 +496,10 @@ class DatabaseConnection (PooledConnection):
             self.extended_exceptions = []
 
     def _new_connection(self):
-        return web.database(dbn=self.database_type, dsn=self.database_dsn)
+        return web.database(dbn=self.database_type, dsn=self.database_dsn, pooling=False)
+
+    def _close_connection(self, conn):
+        del conn
 
     def _db_wrapper(self, db_thunk):
         """
@@ -539,9 +546,14 @@ class DatabaseConnection (PooledConnection):
                     t.commit() # this is a psuedo-exceptional success case
                     raise ev
 
-                except psycopg2.InterfaceError as ev:
-                    web.debug("got psycopg2 InterfaceError")
-                    db = None # abandon stale db connection and retry
+                except (psycopg2.InterfaceError, psycopg2.OperationalError) as ev:
+                    et, ev2, tb = sys.exc_info()
+                    web.debug('got exception "%s" during _db_wrapper(), retries = %d' % (str(ev2), retries),
+                              traceback.format_exception(et, ev2, tb))
+                    # abandon stale db connection and retry
+                    if db is not None:
+                        self._close_connection(db)
+                    db = None
                     last_ev = ev
 
                 except (psycopg2.IntegrityError, 

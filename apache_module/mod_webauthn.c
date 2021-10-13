@@ -57,6 +57,7 @@ static const char *webauthn_parse_config(cmd_parms *cmd, const char *require_lin
 static const char *webauthn_add_group_alias(cmd_parms *cmd, void *cfg, const char *alias, const char *group, const char *verify);
 static void *merge_local_conf(apr_pool_t *pool, void *parent_cfg, void *child_cfg);
 static char *make_anon_session_string(request_rec *r);
+static const char *webauthn_set_session_host(cmd_parms *cmd, void *cfg, const char *arg);
 
 typedef struct {
   apr_hash_t *hash;
@@ -75,7 +76,8 @@ typedef struct {
   char *session_path;
   char *login_path;
   char *cookie_name;
-  char *tracking_cookie_name;  
+  char *tracking_cookie_name;
+  char *session_host;
   managed_hash *session_hash;
   managed_hash *alias_hash;
   int max_cache_seconds;
@@ -179,6 +181,7 @@ static const command_rec webauthn_directives[] =
     AP_INIT_TAKE1("WebauthnMaxCacheSeconds", webauthn_set_max_cache_seconds, NULL, RSRC_CONF, "Maximum number of seconds to cache session info before querying webauthn"),
     AP_INIT_TAKE23("WebauthnAddGroupAlias", webauthn_add_group_alias, NULL, (RSRC_CONF | OR_AUTHCFG), "Create an alias that can be used in 'Require webauthn-group' directives."),
     AP_INIT_TAKE1("WebauthnIfUnauthn", webauthn_set_if_unauthn, NULL, RSRC_CONF | OR_AUTHCFG, "Action to take (redirect, json, or fail) if the user isn't logged in"),
+    AP_INIT_TAKE1("WebauthnSessionHost", webauthn_set_session_host, NULL, RSRC_CONF, "Host (or host:port) to send /auth/session requests to (if unset, use the request destination host)"),
     { NULL }
   };
 
@@ -292,7 +295,7 @@ static session_info *webauthn_make_session_info_from_scratch(request_rec * r, we
   session_info *sinfo = 0;
   unauthn_response if_unauthn = (local_config->if_unauthn == ua_unset ? DEFAULT_UNAUTHN_RESPONSE : local_config->if_unauthn);
 
-  const char *session_uri=apr_psprintf(r->pool, "https://%s%s", r->hostname, config.session_path);
+  const char *session_uri=apr_psprintf(r->pool, "https://%s%s", (config.session_host ? config.session_host : r->hostname), config.session_path);
   const char *login_uri=apr_psprintf(r->pool, "https://%s%s?%sreferrer=%s",
 				     r->hostname, config.login_path,
 				     (if_unauthn == ua_redirect ? "do_redirect=true&" : ""),
@@ -587,6 +590,12 @@ static const char *webauthn_set_tracking_cookie_name(cmd_parms *cmd, void *cfg, 
   return NULL;
 }
 
+static const char *webauthn_set_session_host(cmd_parms *cmd, void *cfg, const char *arg)
+{
+  config.session_host = apr_pstrdup(cmd->pool, arg);
+  return NULL;
+}
+
 static const char *webauthn_set_if_unauthn(cmd_parms *cmd, void *cfg, const char *arg)
 {
   webauthn_local_config *lcfg = (webauthn_local_config *)cfg;
@@ -620,15 +629,6 @@ static const char *webauthn_set_max_cache_seconds(cmd_parms *cmd, void *cfg, con
   config.max_cache_seconds = atoi(arg);
   return NULL;
 }
-
-static group_alias *clone_group_alias(apr_pool_t *pool, const group_alias *old) {
-  group_alias *new = (group_alias *)apr_pcalloc(pool, sizeof(group_alias));
-  new->alias = apr_pstrdup(pool, old->alias);
-  new->group = apr_pstrdup(pool, old->group);
-  new->verify = old->verify;
-  return new;
-}
-						
 
 static const char *webauthn_add_group_alias(cmd_parms *cmd, void *cfg, const char *alias, const char *group, const char *verify)
 {

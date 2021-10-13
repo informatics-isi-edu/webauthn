@@ -178,7 +178,7 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
                             group_token_processor = processor
                     
 #        web.debug("wallet: " + str(context.wallet))
-        web.debug("token processor: " + str(group_token_processor))
+#        web.debug("token processor: " + str(group_token_processor))
         if group_token_processor is not None:
             context.globus_groups = group_token_processor.get_groups()
             
