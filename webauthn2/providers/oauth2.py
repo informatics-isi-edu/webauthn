@@ -434,13 +434,11 @@ class OAuth2Login (ClientLogin):
         # This is called within db_wrapper, which will retry if it gets
         # a urllib.request.HTTPError
         try:
-#            web.debug("before urlopen")
             return urllib.request.urlopen(req)
         except Exception as ev:
-            web.debug("urlopen exception {e}".format(e=str(ev)))
+            web.debug("Got {t} exception {ev} while {text} (url {url})".format(
+                t=str(type(ev)), ev=str(ev), text=str(text), url=str(req.get_full_url())))
             if repeatable:
-                web.debug("Got {t} exception {ev} while {text} (url {url}, headers {headers})".format(
-                    t=str(type(ev)), ev=str(ev), text=str(text), url=str(req.get_full_url()), headers=str(req.header_items())))
                 raise ev
             else:
                 raise OAuth2ProtocolError("Error {text}: {ev} ({url})".format(text=text, ev=str(ev), url=req.get_full_url()))
