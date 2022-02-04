@@ -73,6 +73,7 @@ import datetime
 from datetime import timedelta, timezone
 import collections
 import hashlib
+import math
 
 from ..util import *
 from . import database, webcookie
@@ -271,7 +272,7 @@ class OAuth2Login (ClientLogin):
         # TODO: in theory the return value could be signed jwt
         userinfo_endpoint = self.provider.cfg.get('userinfo_endpoint')
         req = self.make_userinfo_request(self.provider.cfg.get('userinfo_endpoint'), self.payload.get('access_token'))
-        f = self.open_url(req, "getting userinfo", False)
+        f = self.open_url(req, "getting userinfo")
         self.userinfo=json.load(f)
         self.validate_userinfo()
         f.close()
@@ -334,10 +335,10 @@ class OAuth2Login (ClientLogin):
 
         token_request = urllib.request.Request(self.provider.cfg.get('token_endpoint'), urllib.parse.urlencode(token_args).encode())
         self.add_extra_token_request_headers(token_request)
-        u = self.open_url(token_request, "getting token", True)
+        u = self.open_url(token_request, "getting token")
         if (u == None):
             raise OAuth2Exception("Error opening connection for token request")
-        # Access token has been used, so from this point on, all exceptions should be ones
+        # Accesss code has been used, so from this point on, all exceptions should be ones
         # that will not cause db_wrapper to retry (because those retries will fail and generate
         # confusing exceptions / log messages).
         try:
@@ -355,7 +356,7 @@ class OAuth2Login (ClientLogin):
 #        web.debug("Good token response. Keys were {k}. Token type was {t}, scope was {s}".format(k=str(self.payload.keys()), t=str(self.payload.get('token_type')), s=str(self.payload.get('scope'))))        
 
         # Validate id token
-        u=self.open_url(urllib.request.Request(self.provider.cfg.get('jwks_uri')), "getting jwks info", False)
+        u=self.open_url(urllib.request.Request(self.provider.cfg.get('jwks_uri')), "getting jwks info")
         raw_keys = jwk.KEYS()
         raw_keys.load_jwks(u.read())
         u.close()
@@ -430,18 +431,21 @@ class OAuth2Login (ClientLogin):
             manager.clients.manage.create_noauthz(manager, context, username, db)
 
     @staticmethod
-    def open_url(req, text="opening url", repeatable=True):
-        # This is called within db_wrapper, which will retry if it gets
-        # a urllib.request.HTTPError
-        try:
-            return urllib.request.urlopen(req)
-        except Exception as ev:
-            web.debug("Got {t} exception {ev} while {text} (url {url})".format(
-                t=str(type(ev)), ev=str(ev), text=str(text), url=str(req.get_full_url())))
-            if repeatable:
-                raise ev
-            else:
-                raise OAuth2ProtocolError("Error {text}: {ev} ({url})".format(text=text, ev=str(ev), url=req.get_full_url()))
+    def open_url(req, text="opening url"):
+        # This is called within the login method, which is wrapped by db_wrapper.
+        # The access code can only be used once, so after the first use, we can't
+        # let db_wrapper retry, so we do our own retry loop here.
+        max_retries=5
+        for retry in range(1, max_retries):
+            try:
+                return urllib.request.urlopen(req)
+            except Exception as ev:
+                web.debug("Attempt {x} of {y} failed: Got {t} exception {ev} while {text} (url {url})".format(
+                    x=str(retry), y=str(max_retries), t=str(type(ev)), ev=str(ev), text=str(text), url=str(req.get_full_url())))
+                delay = random.uniform(0.75, 1.25) * math.pow(10.0, retry) * 0.00000001
+                time.sleep(delay)
+                
+        raise OAuth2ProtocolError("Error {text}: {ev} ({url})".format(text=text, ev=str(ev), url=req.get_full_url()))
 
     def validate_userinfo(self):
         # Check times

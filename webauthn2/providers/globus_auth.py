@@ -64,7 +64,7 @@ class GlobusGroupTokenProcessor(oauth2.GroupTokenProcessor):
 
     def get_raw_groups(self, group_request):
         group_request.add_header('Authorization', 'Bearer ' + self.token.get('access_token'))
-        u = oauth2.OAuth2Login.open_url(group_request, "getting groups", False)
+        u = oauth2.OAuth2Login.open_url(group_request, "getting groups")
         raw_groups = json.load(u)
         u.close()
         return(raw_groups)
