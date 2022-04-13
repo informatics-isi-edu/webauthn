@@ -444,6 +444,7 @@ class RestHandlerFactory (object):
                     seconds_remaining=self.context.session.expires and (self.context.session.expires - now).seconds,
                     vary_headers=list(self.manager.get_http_vary()),
                     tracking=self.context.tracking,
+                    max_expiration=self.context.session.max_expiration
                     )
                 response = jsonWriter(response) + b'\n'
                 if 'env' in web.ctx:

@@ -182,10 +182,11 @@ class ProviderInterface (object):
     
 class Session (object):
 
-    def __init__(self, keys=[], since=None, expires=None):
+    def __init__(self, keys=[], since=None, expires=None, max_expiration=None):
         self.keys = keys
         self.since = since
         self.expires = expires
+        self.max_expiration = max_expiration
 
     def to_dict(self):
         r = {}
