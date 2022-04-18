@@ -260,7 +260,7 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
                                         else:
                                             max_expiration = exp
                 if max_expiration:
-                    context.session.max_expiration = datetime.datetime.fromtimestamp(max_expiration, tz=datetime.timezone.utc).isoformat(sep=' ')
+                    context.session.max_expiration = datetime.datetime.fromtimestamp(max_expiration, tz=datetime.timezone.utc)
                 context.client['extensions'] = {'has_ras_permissions': len(ras_perms) > 0}
                 if len(ras_perms) > 0:
                     context.client['extensions']['ras_dbgap_permissions'] = ras_perms

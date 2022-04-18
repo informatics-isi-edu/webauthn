@@ -831,8 +831,9 @@ class OAuth2SessionStateProvider(database.DatabaseSessionStateProvider):
         return self.oauth_context.get(key)
 
     def deploy_minor_upgrade(self, old_minor, db):
-        if self.major == 2 and old_minor == 0:
+        if self.major == 2 and old_minor < self.minor:
             self._add_extra_columns(db)
+            return database.DatabaseSessionStateProvider.deploy_minor_upgrade(self, old_minor, db)
         return True
 
     def terminate(self, manager, context, db=None, preferred_final_url=None):

@@ -237,15 +237,15 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
         SessionStateProvider(config)
         DatabaseConnection2.__init__(self, config)
 
-    def deploy_minor_upgrade(self, db, versioninfo):
-        if versioninfo.major == 2 and versioninfo.minor < 3:
+    def deploy_minor_upgrade(self, minor_version, db):
+        if self.major == 2 and minor_version < 3:
             def db_body(db):
                 db.query(
-                    "ALTER TABLE %(stable)s ADD COLUMN IF NOT EXISTS max_expiration timestamptz)" % {
+                    "ALTER TABLE %(stable)s ADD COLUMN IF NOT EXISTS max_expiration timestamptz" % {
                         'stable': self._table(self.storage_name)
                     }
                 )
-                self.deploy_guard(db, '_session')
+
             if db:
                 return db_body(db)
             else:
@@ -319,6 +319,8 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
             if not context.session.expires:
                 duration = datetime.timedelta(minutes=int(manager.config.get('session_expiration_minutes', 30)))
                 context.session.expires = context.session.since + duration
+                if context.session.max_expiration:
+                    context.session.expires = min(context.session.expires, context.session.max_expiration)
 
             usercols=[]
             uservals=[]
@@ -373,6 +375,8 @@ INSERT INTO %(stable)s (key, since, keysince, expires, max_expiration, client, a
             if (srow.expires > expires) or (expires - srow.expires).seconds < 5:
                 # don't update too often
                 return
+            if srow.get('max_expiration'):
+                expires = min(expires, srow['max_expiration'])
             db.query(
                 """
 UPDATE %(stable)s SET expires = %(expires)s WHERE key = %(key)s AND %(expires)s > expires ;
