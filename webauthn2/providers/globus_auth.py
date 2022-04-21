@@ -262,7 +262,7 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
                                             max_expiration = min(max_expiration, exp)
                                         else:
                                             max_expiration = exp
-                if max_expiration:
+                if max_expiration and len(ras_perms) > 0:
                     context.session.max_expiration = datetime.datetime.fromtimestamp(max_expiration, tz=datetime.timezone.utc)
                 if ras_possible:
                     context.client['extensions'] = {'has_ras_permissions': len(ras_perms) > 0}
