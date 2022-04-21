@@ -20,6 +20,7 @@ Globus flavor of OAuth2. They require HTTP Basic authentication for token reques
 import base64
 import urllib
 import json
+import globus_sdk
 
 import web
 import datetime
@@ -133,11 +134,8 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
     def __init__(self, provider):
         oauth2.OAuth2Login.__init__(self, provider)
         self.globus_client = None
-        if self.provider.cfg.get('globus_auth_use_preview_environment'):
-            os.environ['GLOBUS_SDK_ENVIRONMENT'] = 'preview'
 
         try:
-            import globus_sdk
             self.globus_client = globus_sdk.ConfidentialAppAuthClient(
                 self.provider.cfg.get('client_id'), self.provider.cfg.get('client_secret'))
         except:
