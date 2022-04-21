@@ -243,6 +243,7 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
         if val is not None:
             # RAS-specific extension
             context.extensions = val
+            ras_possible = False
             if val and 'authentications' in val.keys():
                 ras_perms = []
                 max_expiration = None
@@ -251,8 +252,10 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
                         cfde_claim = authentication['custom_claims'].get('cfde_ga4gh_passport_v1')
                         if cfde_claim:
                             for claim in cfde_claim:
-                                if claim.get('ras_dbgap_permissions'):
-                                    ras_perms.append(claim['ras_dbgap_permissions'])
+                                if 'ras_dbgap_permissions' in claim.keys():
+                                    ras_possible = True
+                                    for perm in claim['ras_dbgap_permissions']:
+                                        ras_perms.append(perm)
                                     exp = claim.get('exp')
                                     if exp and exp > 0:
                                         if max_expiration:
@@ -261,7 +264,8 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
                                             max_expiration = exp
                 if max_expiration:
                     context.session.max_expiration = datetime.datetime.fromtimestamp(max_expiration, tz=datetime.timezone.utc)
-                context.client['extensions'] = {'has_ras_permissions': len(ras_perms) > 0}
+                if ras_possible:
+                    context.client['extensions'] = {'has_ras_permissions': len(ras_perms) > 0}
                 if len(ras_perms) > 0:
                     context.client['extensions']['ras_dbgap_permissions'] = ras_perms
 
