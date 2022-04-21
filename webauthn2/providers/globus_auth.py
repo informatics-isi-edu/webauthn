@@ -215,7 +215,7 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
             try:
                 token_response = self.globus_client.oauth2_get_dependent_tokens(bearer_token).data
                 if token_response != None and len(token_response) > 0:
-                    self.payload['dependent_tokens_source'] = client.base_url
+                    self.payload['dependent_tokens_source'] = self.globus_client.base_url
                     if self.payload['dependent_tokens_source'].endswith('/'):
                         self.payload['dependent_tokens_source'] = self.payload['dependent_tokens_source'][:-1]
                     if self.payload.get('dependent_tokens') == None:
