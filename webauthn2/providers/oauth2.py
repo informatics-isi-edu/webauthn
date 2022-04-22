@@ -271,11 +271,8 @@ class OAuth2Login (ClientLogin):
         # Get user directory data. Right now we're assuming the server will return json.
         # TODO: in theory the return value could be signed jwt
         self.introspect = self.get_introspect_result(self.payload.get('access_token'))
-        userinfo_endpoint = self.provider.cfg.get('userinfo_endpoint')
-        req = self.make_userinfo_request(self.provider.cfg.get('userinfo_endpoint'), self.payload.get('access_token'))
-        f = self.open_url(req, "getting userinfo")
-        self.userinfo=json.load(f)
-        f.close()
+        self.validate_introspect()
+        self.userinfo=self.introspect.copy()
         if self.introspect.get('active') != True or self.introspect.get('iss') == None or self.introspect.get('sub') == None:
             web.debug("Login failed, introspect is not active, or iss or sub is missing: {u}".format(u=str(self.userinfo)))
             raise OAuth2UserinfoError("Login failed, introspect is not active, or iss or sub is missing: {u}".format(u=str(self.userinfo)))
@@ -496,11 +493,11 @@ class OAuth2Login (ClientLogin):
         # configured to accept and that the issuer is who we expect
         for a in accepted_scopes:
             if a.get('scope') in found_scopes:
-                if a.get("issuer") == self.userinfo.get('iss'):
+                if a.get("issuer") == self.introspect.get('iss'):
                     return
         web.debug("Bad scope or issuer for OAuth2 bearer token")
         web.debug("scope: " + str(found_scopes))
-        web.debug("issuer: " + str(self.userinfo.get('iss')))
+        web.debug("issuer: " + str(self.introspect.get('iss')))
         raise OAuth2UserinfoError("Bad scope or issuer for OAuth2 bearer token")
             
 

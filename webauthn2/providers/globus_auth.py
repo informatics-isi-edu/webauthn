@@ -150,7 +150,9 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
         group_token_processor = None
         context.globus_identities = set()
         context.globus_identities.add(user_id)
-        identity_set = self.userinfo.get('identity_set')
+        identity_set = self.userinfo.get('identity_set_detail')
+        if identity_set is None:
+            identity_set = self.userinfo.get('identities_set')
         if identity_set is None:
             identity_set = self.userinfo.get('identities_set')
         issuer = self.introspect.get('iss')
