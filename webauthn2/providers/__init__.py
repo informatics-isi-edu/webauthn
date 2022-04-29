@@ -18,6 +18,7 @@ Webauthn2 provider maps.
 
 """
 
+import traceback
 import web
 
 from . import providers
@@ -82,6 +83,7 @@ try:
     from . import oauth2
     _enable_oauth2 = True
 except:
+    traceback.print_exc()
     _enable_oauth2 = False
     
 if _enable_oauth2:
@@ -97,6 +99,7 @@ try:
     from . import globus_auth
     _enable_globus_auth = True
 except:
+    traceback.print_exc()
     _enable_globus_auth = False
     
 if _enable_globus_auth:

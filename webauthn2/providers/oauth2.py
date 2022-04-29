@@ -71,13 +71,17 @@ from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_v1_5
 import datetime
 from datetime import timedelta, timezone
-import collections
 import hashlib
 import math
 
 from ..util import *
 from . import database, webcookie
 from .providers import *
+
+if sys.version_info[:2] >= (3, 8):
+    from collections.abc import MutableMapping
+else:
+    from collections import MutableMapping
 
 config_built_ins = web.storage(
     # Items needed for methods inherited from database provider
@@ -915,7 +919,7 @@ CREATE TABLE %(rtable)s (
             return self._db_wrapper(db_body)  
 
 
-class OAuth2Config(collections.MutableMapping):
+class OAuth2Config(MutableMapping):
     def __init__(self, config):
         self.dictionaries = [self.load_client_secret_data(config),
                              self.load_discovery_data(config),
