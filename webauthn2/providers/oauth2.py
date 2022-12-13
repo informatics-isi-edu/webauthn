@@ -299,7 +299,6 @@ class OAuth2Login (ClientLogin):
 
     def authorization_code_flow(self, context, db):
         vals = web.input()
-
         # Check that this request came from the same user who initiated the oauth flow
         nonce_vals = {
             'auth_url_nonce' : vals.get('state'),
@@ -311,7 +310,11 @@ class OAuth2Login (ClientLogin):
             raise OAuth2ProtocolError("No authn_nonce in initial redirect")
 
         if (nonce_vals['auth_cookie_nonce'] == None):
-            raise OAuth2ProtocolError("No authn nonce cookie")
+            # Debug this -- we're getting this error even when the value is set
+            error_string="No authn nonce ({ncn}) cookie found. Cookie header was: {h}".format(
+                ncn=str(self.provider.nonce_cookie_name),
+                h=str(web.ctx.env.get('HTTP_COOKIE')))
+            raise OAuth2ProtocolError(error_string)
 
         # Has the cookie nonce expired?
         try:
