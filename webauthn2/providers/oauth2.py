@@ -1,6 +1,6 @@
 
 # 
-# Copyright 2010-2019 University of Southern California
+# Copyright 2010-2022 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -120,13 +120,22 @@ class nonce_util(database.DatabaseConnection2):
                               'referrer_timeout' : referrer_timeout}
         self.keys=[]
 
-    def get_keys(self, db):
-        self.update_timeout(db)
-        def db_body(db):
-            return db.select(self.config_params['hash_key_table'], what="timeout, key", order="timeout desc")
-        
-        if db:
-            textkeys = db_body(db)
+    def get_keys(self, conn, cur):
+        self.update_timeout(conn, cur)
+        def db_body(conn, cur):
+            return force_query(
+                conn, cur,
+                """
+SELECT timeout, key
+FROM %(table)s
+ORDER BY timeout DESC
+""" % dict(
+    table= self._table(self.config_params['hash_key_table']),
+}
+            )
+
+        if conn is not None and cur is not None:
+            textkeys = db_body(conn, cur)
         else:
             textkeys = self._db_wrapper(db_body)
 
@@ -135,15 +144,15 @@ class nonce_util(database.DatabaseConnection2):
             self.keys.append((k.get('timeout'), self.texttokey(k.get('key'))))
         return self.keys
 
-    def update_timeout(self, db, force=False):
+    def update_timeout(self, conn, cur, force=False):
         if not force:
             for k in self.keys:
                 if datetime.datetime.now(timezone.utc) + timedelta(0, self.config_params['soft_timeout']) < k[0]:
                     return
-        def db_body(db):
-            db.query("delete from {referrer_table} where timeout < now()".format(referrer_table=self.config_params.get('referrer_table')))
-            db.query("delete from %(hash_key_table)s where timeout < now()" % self.config_params)
-            db.query("""
+        def db_body(conn, cur):
+            cur.execute("delete from {referrer_table} where timeout < now()".format(referrer_table=self.config_params.get('referrer_table')))
+            cur.execute("delete from %(hash_key_table)s where timeout < now()" % self.config_params)
+            cur.execute("""
 insert into %(hash_key_table)s (key, timeout)
   select $new_key, now() + interval '%(hard_timeout)d seconds'
   where not exists
@@ -151,30 +160,39 @@ insert into %(hash_key_table)s (key, timeout)
 """ % self.config_params,
                      vars={'new_key' : self.keytotext(self.make_key())})
 
-        if db:
-            db_body(db)
+        if conn is not None and cur is not None:
+            db_body(conn, cur)
         else:
             self._db_wrapper(db_body)
 
-    def get_current_key(self, db):
-        return self.get_keys(db)[0][1]
+    def get_current_key(self, conn, cur):
+        return self.get_keys(conn, cur)[0][1]
 
-    def log_referrer(self, nonce, referrer, db):
-        def db_body(db):
-            db.query("insert into {referrer_table}(nonce, referrer, timeout) select {nonce}, {referrer}, now() + interval '{referrer_timeout} seconds'"\
+    def log_referrer(self, nonce, referrer, conn, cur):
+        def db_body(conn, cur):
+            cur.execute("insert into {referrer_table}(nonce, referrer, timeout) select {nonce}, {referrer}, now() + interval '{referrer_timeout} seconds'"\
                      .format(referrer_table=self.config_params.get('referrer_table'),
                              nonce=sql_literal(nonce),
                              referrer=sql_literal(referrer),
                              referrer_timeout=self.config_params.get('referrer_timeout')))
-        if db:
-            db_body(db)
+        if conn is not None and cur is not None:
+            db_body(conn, cur)
         else:
             self._db_wrapper(db_body)
 
     def get_referrer(self, nonce):
-        def db_body(db):
-            # use convert iterator to list...
-            return list(db.query("select referrer from {referrer_table} where nonce={nonce}".format(referrer_table=self.config_params.get('referrer_table'), nonce=sql_literal(nonce))))
+        def db_body(conn, cur):
+            return force_query(
+                conn, cur,
+                """
+SELECT referrer
+FROM {referrer_table}
+WHERE nonce={nonce}
+""".format(
+    referrer_table=self._table(self.config_params.get('referrer_table')),
+    nonce=sql_literal(nonce),
+)
+                )
         
         rows=self._db_wrapper(db_body)
         if len(rows) != 1:
@@ -202,19 +220,19 @@ insert into %(hash_key_table)s (key, timeout)
     def time_ok(self, value):
         return time.time() - value < self.config_params['hard_timeout']
 
-    def encode(self, msg, db):
-        h = HMAC(self.get_current_key(db), msg.encode(), self.algorithm)
+    def encode(self, msg, conn, cur):
+        h = HMAC(self.get_current_key(conn, cur), msg.encode(), self.algorithm)
         return h.hexdigest()
 
-    def hash_matches(self, msg, hashed, db):
-        retval = self._check_hash_match(msg, hashed, db)
+    def hash_matches(self, msg, hashed, conn, cur):
+        retval = self._check_hash_match(msg, hashed, conn, cur)
         if retval == False:
-            self.update_timeout(db, True)
-            retval = self._check_hash_match(msg, hashed, db)
+            self.update_timeout(conn, cur, True)
+            retval = self._check_hash_match(msg, hashed, conn, cur)
         return retval
 
-    def _check_hash_match(self, msg, hashed, db):
-        for k in self.get_keys(db):
+    def _check_hash_match(self, msg, hashed, conn, cur):
+        for k in self.get_keys(conn, cur):
             h = HMAC(k[1], msg.encode(), self.algorithm)
             if h.hexdigest() == hashed:
                 return True
@@ -255,7 +273,7 @@ class OAuth2Login (ClientLogin):
         ClientLogin.__init__(self, provider)
 
 
-    def login(self, manager, context, db, **kwargs):
+    def login(self, manager, context, conn, cur, **kwargs):
         """
         Return "username" in the form iss:sub.
 
@@ -268,9 +286,9 @@ class OAuth2Login (ClientLogin):
         base_timestamp = datetime.datetime.now(timezone.utc)
         context.wallet = dict()        
         if bearer_token == None:
-            self.authorization_code_flow(context, db)
+            self.authorization_code_flow(context, conn, cur)
         else:
-            self.payload_from_bearer_token(bearer_token, context, db)
+            self.payload_from_bearer_token(bearer_token, context, conn, cur)
 
         # Get user directory data. Right now we're assuming the server will return json.
         # TODO: in theory the return value could be signed jwt
@@ -288,16 +306,16 @@ class OAuth2Login (ClientLogin):
         self.fill_context_from_userinfo(context, username, self.userinfo)
 
         # Update user table
-        self.create_or_update_user(manager, context, username, self.id_token, self.userinfo, base_timestamp, self.payload, db)
+        self.create_or_update_user(manager, context, username, self.id_token, self.userinfo, base_timestamp, self.payload, conn, cur)
         context.client = KeyedDict()
         for key in ClientLogin.standard_names:
             if context.user.get(key) != None:
                 context.client[key] = context.user.get(key)
         context.client[IDENTITIES] = [context.client.get(ID)]
-        self.provider.manage.update_last_login(manager, context, context.client[ID], db);
+        self.provider.manage.update_last_login(manager, context, context.client[ID], conn, cur);
         return context.client      
 
-    def authorization_code_flow(self, context, db):
+    def authorization_code_flow(self, context, conn, cur):
         vals = web.input()
         # Check that this request came from the same user who initiated the oauth flow
         nonce_vals = {
@@ -325,7 +343,7 @@ class OAuth2Login (ClientLogin):
         if not self.provider.nonce_state.time_ok(ts):
             raise OAuth2LoginTimeoutError('Login timed out')
 
-        if not self.provider.nonce_state.hash_matches(nonce_vals['auth_cookie_nonce'], nonce_vals['auth_url_nonce'], db):
+        if not self.provider.nonce_state.hash_matches(nonce_vals['auth_cookie_nonce'], nonce_vals['auth_url_nonce'], conn, cur):
             raise OAuth2ProtocolError('nonce mismatch')
 
         # we'll write this to the db if all goes well
@@ -384,7 +402,7 @@ class OAuth2Login (ClientLogin):
         # Validate access token
         self.validate_access_token(id_header.get('alg'), self.id_token.get('at_hash'), self.payload.get('access_token'))
         
-    def payload_from_bearer_token(self, bearer_token, context, db):
+    def payload_from_bearer_token(self, bearer_token, context, conn, cur):
         self.payload = {'access_token': bearer_token}
         self.id_token = None
 
@@ -423,7 +441,7 @@ class OAuth2Login (ClientLogin):
             context.user[EMAIL] = val
 
 
-    def create_or_update_user(self, manager, context, username, id_token, userinfo, base_timestamp, token_payload, db):
+    def create_or_update_user(self, manager, context, username, id_token, userinfo, base_timestamp, token_payload, conn, cur):
         context.user['id_token'] = json.dumps(id_token, separators=(',', ':'))
         context.user['userinfo'] = json.dumps(userinfo, separators=(',', ':'))
         context.user['access_token'] = token_payload.get('access_token')
@@ -432,10 +450,10 @@ class OAuth2Login (ClientLogin):
         else:
             context.user['access_token_expiration'] = base_timestamp + timedelta(seconds=int(token_payload.get('expires_in')))
         context.user['refresh_token'] = token_payload.get('refresh_token')
-        if self.provider._client_exists(db, username):
-            manager.clients.manage.update_noauthz(manager, context, username, db)
+        if self.provider._client_exists(conn, cur, username):
+            manager.clients.manage.update_noauthz(manager, context, username, conn, cur)
         else:
-            manager.clients.manage.create_noauthz(manager, context, username, db)
+            manager.clients.manage.create_noauthz(manager, context, username, conn, cur)
 
     @staticmethod
     def open_url(req, text="opening url"):
@@ -655,7 +673,7 @@ class OAuth2PreauthProvider (PreauthProvider):
         if config.oauth2_request_offline_access == True:
             self.authentication_uri_args["access_type"] = "offline"
 
-    def preauth_info(self, manager, context, db):
+    def preauth_info(self, manager, context, conn, cur):
         """
         Present any required pre-authentication information (e.g., a web form with options).
         """
@@ -665,22 +683,22 @@ class OAuth2PreauthProvider (PreauthProvider):
             )
 
         if self.cfg.get("oauth2_preauth_html_compatibility_mode") == True and content_type == 'text/html':
-            self.preauth_initiate(manager, context, db, True)
+            self.preauth_initiate(manager, context, conn, cur, True)
         else:
             return {
                     AUTHENTICATION_TYPE : self.key,
                     COOKIE : self.nonce_cookie_name,
-                    REDIRECT_URL : self.preauth_initiate(manager, context, db, False)}
+                    REDIRECT_URL : self.preauth_initiate(manager, context, conn, cur, False)}
 
-    def preauth_initiate(self, manager, context, db, do_redirect):
+    def preauth_initiate(self, manager, context, conn, cur, do_redirect):
         """
         Initiate a login (redirect to OAuth2 provider)
         """
         self.authentication_uri_args["redirect_uri"] = self.make_uri(self.cfg.get('oauth2_redirect_uri'))
         if self.authentication_uri_args["redirect_uri"] == None:
             self.authentication_uri_args["redirect_uri"] = self.make_relative_uri(str(self.cfg.get('oauth2_redirect_relative_uri')))
-        session = self.make_session(db)
-        self.nonce_state.log_referrer(session.get('auth_url_nonce'), web.input().get('referrer'), db)
+        session = self.make_session(conn, cur)
+        self.nonce_state.log_referrer(session.get('auth_url_nonce'), web.input().get('referrer'), conn, cur)
         web.setcookie(self.nonce_cookie_name, session.get('auth_cookie_nonce'), secure=True, path="/")
         auth_request_args = self.make_auth_request_args(session)
         if do_redirect :
@@ -713,13 +731,13 @@ class OAuth2PreauthProvider (PreauthProvider):
         auth_request_args['state'] = session['auth_url_nonce']
         return auth_request_args
 
-    def make_session(self, db):
+    def make_session(self, conn, cur):
         session=dict()
         for key in self.authentication_uri_args.keys():
             session[key] = self.authentication_uri_args.get(key)
         session['session_id'] = str(uuid.uuid4())
         session['auth_cookie_nonce'] = self.generate_nonce()
-        session['auth_url_nonce'] = self.nonce_state.encode(session['auth_cookie_nonce'], db)
+        session['auth_url_nonce'] = self.nonce_state.encode(session['auth_cookie_nonce'], conn, cur)
         return session
 
     @staticmethod
@@ -738,13 +756,13 @@ class OAuth2ClientManage(database.DatabaseClientManage):
     def __init__(self, provider):
         database.DatabaseClientManage.__init__(self, provider)
 
-    def _create_noauthz_extras(self, manager, context, clientname, db):
-        return self.__extracols(manager, context, clientname, db)
+    def _create_noauthz_extras(self, manager, context, clientname, conn, cur):
+        return self.__extracols(manager, context, clientname, conn, cur)
 
-    def _get_noauthz_updatecols(self, manager, context, clientname, db):
-        return self.__extracols(manager, context, clientname, db, False)
+    def _get_noauthz_updatecols(self, manager, context, clientname, conn, cur):
+        return self.__extracols(manager, context, clientname, conn, cur, False)
 
-    def __extracols(self, manager, context, clientname, db, quote=True):
+    def __extracols(self, manager, context, clientname, conn, cur, quote=True):
         """
         Generate extra (column, value) pairs for INSERT or UPDATE of user record
 
@@ -758,15 +776,15 @@ class OAuth2ClientManage(database.DatabaseClientManage):
                     ec.append((k, context.user.get(k)))
         return ec
 
-    def create_noauthz(self, manager, context, clientname, db=None):
-        def db_body(db):
-            if self.provider._client_exists(db, clientname):
+    def create_noauthz(self, manager, context, clientname, conn=None, cur=None):
+        def db_body(conn, cur):
+            if self.provider._client_exists(conn, cur, clientname):
                 return
 
-            extras = self._create_noauthz_extras(manager, context, clientname, db)
+            extras = self._create_noauthz_extras(manager, context, clientname, conn, cur)
             extracols = [ extra[0] for extra in extras ]
             extravals = [ extra[1] for extra in extras ]
-            results = db.query("""
+            cur.execute("""
             INSERT INTO %(utable)s (%(idcol)s %(extracols)s) VALUES ( %(uname)s %(extravals)s );
 """
                                % dict(utable=self.provider._table(self.provider.client_storage_name),
@@ -776,24 +794,24 @@ class OAuth2ClientManage(database.DatabaseClientManage):
                                       extravals=','.join(extravals and [ '' ] + extravals))
                                )
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self.provider._db_wrapper(db_body)
 
 
 
 class OAuth2Passwd(ClientPasswd):
-    def create_noauthz(self, manager, context, clientname, password=None, oldpasswd=None, db=None):
+    def create_noauthz(self, manager, context, clientname, password=None, oldpasswd=None, conn=None, cur=None):
         raise NotImplementedError("Local passwords are not used with OAuth")
 
-    def delete_noauthz(self, manager, context, clientname, db=None):
+    def delete_noauthz(self, manager, context, clientname, conn=None, cur=None):
         raise NotImplementedError("Local passwords are not used with OAuth")
     
-    def create(self, manager, context, clientname, password=None, oldpasswd=None, db=None):
+    def create(self, manager, context, clientname, password=None, oldpasswd=None, conn=None, cur=None):
         raise NotImplementedError("Local passwords are not used with OAuth")
 
-    def delete(self, manager, context, clientname, oldpasswd=None, db=None):
+    def delete(self, manager, context, clientname, oldpasswd=None, conn=None, cur=None):
         raise NotImplementedError("Local passwords are not used with OAuth")
 
 class OAuth2SessionStateProvider(database.DatabaseSessionStateProvider):
@@ -807,7 +825,7 @@ class OAuth2SessionStateProvider(database.DatabaseSessionStateProvider):
         self.nonce_cookie_name = config.oauth2_nonce_cookie_name
         self.extra_columns = [('wallet', 'json')]
 
-    def _new_session_extras(self, manager, context, db):
+    def _new_session_extras(self, manager, context, conn, cur):
         if hasattr(context, "wallet"):
             return [('wallet', json.dumps(context.wallet, separators=(',', ':')))]
         else:
@@ -819,13 +837,13 @@ class OAuth2SessionStateProvider(database.DatabaseSessionStateProvider):
     def set_oauth_context_val(self, key):
         return self.oauth_context.get(key)
 
-    def deploy_minor_upgrade(self, old_minor, db):
+    def deploy_minor_upgrade(self, old_minor, conn, cur):
         if self.major == 2 and old_minor == 0:
-            self._add_extra_columns(db)
+            self._add_extra_columns(conn, cur)
         return True
 
-    def terminate(self, manager, context, db=None, preferred_final_url=None):
-        database.DatabaseSessionStateProvider.terminate(self, manager, context, db, preferred_final_url)
+    def terminate(self, manager, context, conn=None, cur=None, preferred_final_url=None):
+        database.DatabaseSessionStateProvider.terminate(self, manager, context, conn, cur, preferred_final_url)
         web.setcookie(self.nonce_cookie_name, "", expires=-1)
 
 class OAuth2ClientProvider (database.DatabaseClientProvider):
@@ -863,11 +881,11 @@ class OAuth2ClientProvider (database.DatabaseClientProvider):
         self.nonce_cookie_name = config.oauth2_nonce_cookie_name
         self.provider_sets_token_nonce = config.oauth2_provider_sets_token_nonce
 
-    def deploy_views(self, db):
-        if self._table_exists(db, self.summary_storage_name):
-            db.query('DROP VIEW %s' % self._table(self.summary_storage_name))
+    def deploy_views(self, conn, cur):
+        if self._table_exists(conn, cur, self.summary_storage_name):
+            cur.execute('DROP VIEW %s' % self._table(self.summary_storage_name))
 
-        db.query("""
+        cur.execute("""
 CREATE VIEW %(summary)s AS
   SELECT *
   FROM %(utable)s u ;
@@ -878,18 +896,18 @@ CREATE VIEW %(summary)s AS
                  )
 
 
-    def deploy(self, db=None):
+    def deploy(self, conn=None, cur=None):
         """
         Deploy initial provider state.
 
         """
-        def db_body(db):
+        def db_body(conn, cur):
             database.DatabaseClientProvider.deploy(self)
             tables_added = False
 
-            if not self._table_exists(db, nonce_util.hash_key_table):
+            if not self._table_exists(conn, cur, nonce_util.hash_key_table):
                 tables_added = True
-                db.query("""
+                cur.execute("""
 CREATE TABLE %(ntable)s (
   key text,
   timeout timestamptz
@@ -899,9 +917,9 @@ CREATE TABLE %(ntable)s (
                          )
 
 
-            if not self._table_exists(db, nonce_util.referrer_table):
+            if not self._table_exists(conn, cur, nonce_util.referrer_table):
                 tables_added = True
-                db.query("""
+                cur.execute("""
 CREATE TABLE %(rtable)s (
   nonce text primary key,
   referrer text,
@@ -911,13 +929,13 @@ CREATE TABLE %(rtable)s (
                          % dict(rtable=self._table(nonce_util.referrer_table))
                          )
 
-            self.deploy_guard(db, '_client')
+            self.deploy_guard(conn, cur, '_client')
 
             if tables_added:
-                self.deploy_views(db)
+                self.deploy_views(conn, cur)
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self._db_wrapper(db_body)  
 
@@ -1017,7 +1035,7 @@ class OAuth2SessionIdProvider (webcookie.WebcookieSessionIdProvider, database.Da
     def get_discovery_info(self):
         return(self.discovery_info)
 
-    def get_request_sessionids(self, manager, context, db=None):
+    def get_request_sessionids(self, manager, context, conn=None, cur=None):
         # Use md5 because apr library (used by webauthn apache module) doesn't support sha256
         bearer_token = bearer_token_util.token_from_request()
         if bearer_token != None:
@@ -1025,12 +1043,12 @@ class OAuth2SessionIdProvider (webcookie.WebcookieSessionIdProvider, database.Da
             m.update(bearer_token.encode())
             return(["oauth2-hash:{hash}".format(hash=m.hexdigest())])
             
-        return webcookie.WebcookieSessionIdProvider.get_request_sessionids(self, manager, context, db)
+        return webcookie.WebcookieSessionIdProvider.get_request_sessionids(self, manager, context, conn, cur)
 
-    def create_unique_sessionids(self, manager, context, db=None):
-        context.session.keys = self.get_request_sessionids(manager, context, db)
+    def create_unique_sessionids(self, manager, context, conn=None, cur=None):
+        context.session.keys = self.get_request_sessionids(manager, context, conn, cur)
         if context.session.keys == None or len(context.session.keys) == 0:
-            webcookie.WebcookieSessionIdProvider.create_unique_sessionids(self, manager, context, db)
+            webcookie.WebcookieSessionIdProvider.create_unique_sessionids(self, manager, context, conn, cur)
 
 class GroupTokenProcessor:
     def __init__(self, expected_scopes):

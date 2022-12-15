@@ -1,6 +1,6 @@
 
 # 
-# Copyright 2010-2019 University of Southern California
+# Copyright 2010-2022 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -161,15 +161,13 @@ def string_wrap(s, escape='\\', protect=[]):
 
 def sql_identifier(s):
     # double " to protect from SQL
-    # double % to protect from web.db
-    return '"%s"' % string_wrap(string_wrap(s, '%'), '"') 
+    return '"%s"' % string_wrap(s, '"') 
 
 def sql_literal(v):
     if v != None:
         # double ' to protect from SQL
-        # double % to protect from web.db
         s = '%s' % v
-        return "'%s'" % string_wrap(string_wrap(s, '%'), "'")
+        return "'%s'" % string_wrap(s, "'")
     else:
         return 'NULL'
 
@@ -248,7 +246,7 @@ class Context (object):
 
     """
 
-    def __init__(self, manager=None, setheader=False, db=None):
+    def __init__(self, manager=None, setheader=False, conn=None, cur=None):
         """
         Construct one Context instance using the manager and setheader policy as needed.
 
@@ -265,29 +263,29 @@ class Context (object):
         if manager:
             # look for existing session ID context in message
             if manager.sessionids:
-                sessionids = manager.sessionids.get_request_sessionids(manager, self, db)
+                sessionids = manager.sessionids.get_request_sessionids(manager, self, conn, cur)
             else:
                 sessionids = set()
 
             if sessionids:
                 # look up existing session data for discovered IDs
                 if manager.sessions:
-                    manager.sessions.set_msg_context(manager, self, sessionids, db)
+                    manager.sessions.set_msg_context(manager, self, sessionids, conn, cur)
 
             if manager.clients.msgauthn:
                 # look for embedded client identity
                 oldclient = self.get_client_id()
 
-                manager.clients.msgauthn.set_msg_context(manager, self, db)
+                manager.clients.msgauthn.set_msg_context(manager, self, conn, cur)
 
                 if oldclient != self.get_client_id() and manager.attributes.client:
                     # update attributes for newly modified client ID
                     self.attributes = set()
-                    manager.attributes.client.set_msg_context(manager, self, db)
+                    manager.attributes.client.set_msg_context(manager, self, conn, cur)
 
             if manager.attributes.msgauthn:
                 # look for embedded client attributes
-                manager.attributes.msgauthn.set_msg_context(manager, self, db)
+                manager.attributes.msgauthn.set_msg_context(manager, self, conn, cur)
 
     @property
     def client_id(self):
@@ -450,18 +448,19 @@ class PooledConnection (object):
         """Close an actual connection previously opened."""
         pass
 
-def force_query(db, *args, **kwargs):
-    """Force db.query SELECT generator results as expected by legacy code here."""
-    return list(db.query(*args, **kwargs))
+def force_query(conn, cur, *args, **kwargs):
+    """Force cur.query SELECT generator results as expected by legacy code here."""
+    cur.execute(*args, **kwargs)
+    return list(cur)
 
 class DatabaseConnection (PooledConnection):
     """
-    Concrete base class for pooled web.database connections.
+    Concrete base class for pooled psycopg2 connections.
 
-    Multiple pools are maintained for each database type/database name
-    pair encountered from the config storage passed to the constructor.
+    Multiple pools are maintained for each dsn
+    encountered from the config storage passed to the constructor.
 
-    This class is a useful base class for a web.py request handler
+    This class is a useful base class for a request handler
     class that will want to use transactional database queries as part
     of its request handling logic.
 
@@ -479,16 +478,15 @@ class DatabaseConnection (PooledConnection):
         config.database_max_retries  (e.g. 5)
 
         """
-        config_tuple = (config.database_dsn,
-                        config.database_type)
-        PooledConnection.__init__(self, config_tuple)
+        if config.database_type != 'postgres':
+            raise NotImplementedError('webauthn2 only supports database_type="postgres"')
 
+        config_tuple = (config.database_dsn,)
+        super(DatabaseConnection, self).__init__(config_tuple)
+
+        self.database_dsn = config_tuple[0]
         self.database_schema = config.database_schema
         self.database_max_retries = max(config.database_max_retries, 0)
-
-        self.database_dsn, \
-            self.database_type, \
-            = self.config_tuple
 
         if extended_exceptions:
             self.extended_exceptions = extended_exceptions
@@ -496,19 +494,19 @@ class DatabaseConnection (PooledConnection):
             self.extended_exceptions = []
 
     def _new_connection(self):
-        return web.database(dbn=self.database_type, dsn=self.database_dsn, pooling=False)
+        return psycopg2.extensions.connection(dsn)
 
     def _close_connection(self, conn):
         del conn
 
     def _db_wrapper(self, db_thunk):
         """
-        Run db_thunk(db) with automatic transaction handling.
+        Run db_thunk(conn) with automatic transaction handling.
 
-        A pooled db is obtained from self._get_pooled_connection() and
-        returned with self._put_pooled_connection(db).
+        A pooled conn is obtained from self._get_pooled_connection() and
+        returned with self._put_pooled_connection(conn).
 
-        A transaction is started before db_thunk(db) and committed
+        A transaction is started before db_thunk(conn) and committed
         before returning thunk results. A web.SeeOther is caught to
         commit the transaction and then re-raised as a psuedo return
         value.
@@ -528,22 +526,22 @@ class DatabaseConnection (PooledConnection):
 
         """
         retries = self.database_max_retries + 1
-        db = None
+        conn = None
         last_ev = None
 
         try:
             while retries > 0:
-                if db == None:
-                    db = self._get_pooled_connection()
+                if conn is None:
+                    conn = self._get_pooled_connection()
 
                 try:
-                    t = db.transaction()
-                    val = db_thunk(db)
-                    t.commit()
+                    with conn.cursor() as cur:
+                        val = db_thunk(conn, cur)
+                    conn.commit()
                     return val
 
                 except web.SeeOther as ev:
-                    t.commit() # this is a psuedo-exceptional success case
+                    conn.commit() # this is a psuedo-exceptional success case
                     raise ev
 
                 except (psycopg2.InterfaceError, psycopg2.OperationalError) as ev:
@@ -551,9 +549,9 @@ class DatabaseConnection (PooledConnection):
                     web.debug('got exception "%s" during _db_wrapper(), retries = %d' % (str(ev2), retries),
                               traceback.format_exception(et, ev2, tb))
                     # abandon stale db connection and retry
-                    if db is not None:
-                        self._close_connection(db)
-                    db = None
+                    if conn is not None:
+                        self._close_connection(conn)
+                    conn = None
                     last_ev = ev
 
                 except (psycopg2.IntegrityError, 
@@ -563,13 +561,13 @@ class DatabaseConnection (PooledConnection):
                     web.debug('got exception "%s" during _db_wrapper(), retries = %d' % (str(ev2), retries),
                               traceback.format_exception(et, ev2, tb))
                     # these are likely transient errors so rollback and retry
-                    t.rollback()
+                    conn.rollback()
                     last_ev = ev
 
                 except web.HTTPError as ev:
                     # don't log these "normal" exceptions
                     try:
-                        t.rollback()
+                        conn.rollback()
                     except:
                         pass
                     raise ev
@@ -586,10 +584,10 @@ class DatabaseConnection (PooledConnection):
                             if do_trace:
                                 trace()
                             if do_commit:
-                                t.commit()
+                                conn.commit()
                             else:
                                 try:
-                                    t.rollback()
+                                    conn.rollback()
                                 except:
                                     pass
                             raise ev
@@ -597,7 +595,7 @@ class DatabaseConnection (PooledConnection):
                     # assume all other exceptions are fatal
                     trace()
                     try:
-                        t.rollback()
+                        conn.rollback()
                     except:
                         pass
                     raise ev
@@ -617,9 +615,9 @@ class DatabaseConnection (PooledConnection):
                     time.sleep(delay)
 
         finally:
-            # return db to pool if we didn't abandon it above
-            if db != None:
-                self._put_pooled_connection(db)
+            # return conn to pool if we didn't abandon it above
+            if conn is not None:
+                self._put_pooled_connection(conn)
 
     def _table(self, tablename):
         """Return sql_identifier(tablename) but qualify with self.database_schema if defined."""
@@ -630,11 +628,11 @@ class DatabaseConnection (PooledConnection):
         else:
             return table
 
-    def _view_exists(self, db, tablename):
+    def _view_exists(self, conn, cur, tablename):
         """Return True or False depending on whether (schema.)tablename view exists in our database."""
 
         results = force_query(
-            db,
+            conn, cur,
             """
 SELECT * FROM information_schema.views
 WHERE table_schema = %(schema)s
@@ -646,11 +644,11 @@ WHERE table_schema = %(schema)s
         )
         return len(results) > 0
     
-    def _table_exists(self, db, tablename):
+    def _table_exists(self, conn, cur, tablename):
         """Return True or False depending on whether (schema.)tablename exists in our database."""
 
         results = force_query(
-            db,
+            conn, cur,
             """
 SELECT * FROM information_schema.tables
 WHERE table_schema = %(schema)s
@@ -662,11 +660,11 @@ WHERE table_schema = %(schema)s
         )
         return len(results) > 0
     
-    def _schema_exists(self, db, schemaname):
+    def _schema_exists(self, conn, cur, schemaname):
         """Return True or False depending on whether schema exists in our database."""
 
         results = force_query(
-            db,
+            conn, cur,
             """
 SELECT * FROM information_schema.schemata
 WHERE schema_name = %(schema)s

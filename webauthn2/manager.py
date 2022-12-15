@@ -1,6 +1,6 @@
 
 # 
-# Copyright 2012-2018 University of Southern California
+# Copyright 2012-2022 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -188,16 +188,16 @@ class Manager (util.DatabaseConnection):
             for key in d.keys():
                 self.discovery_info[key] = d[key]
         
-    def deploy(self, db=None):
+    def deploy(self, conn=None, cur=None):
         """
         Perform provider-specific deployment of database content if required.
 
         """
         for p in [ self.sessionids, self.sessions, self.clients, self.attributes ]:
             if hasattr(p, 'deploy'):
-                p.deploy(db)
+                p.deploy(conn, cur)
 
-    def get_request_context(self, require_client=None, require_attributes=None, setheader=None, db=None, extend_session=None):
+    def get_request_context(self, require_client=None, require_attributes=None, setheader=None, conn=None, cur=None, extend_session=None):
         """
         Obtain a Context instance summarizing all service request authentication context.
 
@@ -221,10 +221,10 @@ class Manager (util.DatabaseConnection):
         if setheader == None:
             setheader = self.setheader
 
-        if db:
-            c = Context(self, setheader, db)
+        if conn is not None and cur is not None:
+            c = Context(self, setheader, conn, cur)
         else:
-            c = self._db_wrapper(lambda db: Context(self, setheader, db))
+            c = self._db_wrapper(lambda conn, cur: Context(self, setheader, conn, cur))
 
         if require_client and c.get_client_id() == None:
             raise ValueError()
@@ -235,7 +235,7 @@ class Manager (util.DatabaseConnection):
             extend_session = self.config["extend_session"]
 
         if extend_session and c.session:
-            self.sessions.extend(self, c, db)
+            self.sessions.extend(self, c, conn, cur)
 
         return c
        

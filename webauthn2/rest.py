@@ -1,5 +1,5 @@
 # 
-# Copyright 2012-2019 University of Southern California
+# Copyright 2012-2022 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -47,9 +47,9 @@ optimized database connection pooling feature:
          webauthn2factory.RestHandler.__init__(self)
 
      def GET(self):
-         def db_body(db):
-            self.context = self.manager.get_request_context(db=db)
-            ... # other application use of db
+         def db_body(conn, cur):
+            self.context = self.manager.get_request_context(conn=conn, cur=cur)
+            ... # other application use of conn, cur
          return self._db_wrapper(db_body)
 
 But this support class is entirely optional.  An application can also
@@ -281,7 +281,7 @@ class RestHandlerFactory (object):
             implement their own web methods PUT, GET, etc. and
             initialize their own self.context such as:
 
-               self.context = self.manager.get_request_context(db=db)
+               self.context = self.manager.get_request_context(conn=conn, cur=cur)
 
             if they already have opened a pooled connection, or:
 
@@ -368,7 +368,7 @@ class RestHandlerFactory (object):
                             raise Forbidden('third-party session access for key "%s" forbidden' % uri_key)
 
             @web_method()
-            def GET(self, sessionids, db=None):
+            def GET(self, sessionids, conn=None, cur=None):
                 """
                 Session status uses GET.
 
@@ -389,12 +389,12 @@ class RestHandlerFactory (object):
                 referer_header = str(web.ctx.env.get('HTTP_REFERER'))
                 #web.debug("in GET /session, referrer arg is '{referrer_arg}', Referrer header is '{referer_header}'".format(referrer_arg=referrer_arg, referer_header=referer_header))
                 
-                def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                def db_body(conn, cur):
+                    self.context = Context(self.manager, False, conn, cur)
                     self._session_authz(sessionids, get_html=True)
 
-                if db:
-                    db_body(db)
+                if conn is not None and cur is not None:
+                    db_body(conn, cur)
                 else:
                     self._db_wrapper(db_body)
 
@@ -468,18 +468,18 @@ class RestHandlerFactory (object):
                 # just extend session and then act like GET
                 now = datetime.datetime.now(timezone.utc)
 
-                def db_body_get_context(db):
-                    return Context(self.manager, False, db)
+                def db_body_get_context(conn, cur):
+                    return Context(self.manager, False, conn, cur)
 
                 self.context = self._db_wrapper(db_body_get_context)
                 
                 if self.context.session is None and self.manager.clients.login is not None and self.manager.clients.login.request_has_relevant_auth_headers():
                     return self._login_get_or_post(web.input())
                 
-                def db_body(db):
+                def db_body(conn, cur):
                     self._session_authz(sessionids)
                     self.context.session.expires = now + self.session_duration
-                    self.manager.sessions.extend(self.manager, self.context, db)
+                    self.manager.sessions.extend(self.manager, self.context, conn, cur)
                     return self._login_response()
 
                 return self._db_wrapper(db_body)
@@ -513,11 +513,11 @@ class RestHandlerFactory (object):
                         logfile=sys.stderr
                     print("Warning: Configuration error: no logout URL specified or configured", file=logfile)
 
-                def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                def db_body(conn, cur):
+                    self.context = Context(self.manager, False, conn, cur)
                     self._session_authz(sessionids)
-                    rv = self.manager.sessions.terminate(self.manager, self.context, db, preferred_final_url)
-                    self.manager.sessionids.terminate(self.manager, self.context, db)
+                    rv = self.manager.sessions.terminate(self.manager, self.context, conn, cur, preferred_final_url)
+                    self.manager.sessionids.terminate(self.manager, self.context, conn, cur)
                     if rv == None:
                         rv = {LOGOUT_URL : preferred_final_url}
                     return rv
@@ -549,8 +549,8 @@ class RestHandlerFactory (object):
                     if key not in storage:
                         raise BadRequest('missing required parameter "%s"' % key)
 
-                def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                def db_body(conn, cur):
+                    self.context = Context(self.manager, False, conn, cur)
 
                     if self.context.session or self.context.get_client_id():
                         raise Conflict('Login request conflicts with current client authentication state.')
@@ -561,7 +561,7 @@ class RestHandlerFactory (object):
 
                     try:
                         # perform authentication
-                        self.context.client = self.manager.clients.login.login(self.manager, self.context, db, **storage)
+                        self.context.client = self.manager.clients.login.login(self.manager, self.context, conn, cur, **storage)
                     except (KeyError, ValueError) as ev:
                         request_trace('session establishment failed: %s %s' % (type(ev), ev))
                         # we don't reveal detailed reason for failed login 
@@ -569,10 +569,10 @@ class RestHandlerFactory (object):
 
                     if self.manager.attributes.client:
                         # dig up attributes for client
-                        self.manager.attributes.client.set_msg_context(self.manager, self.context, db)
+                        self.manager.attributes.client.set_msg_context(self.manager, self.context, conn, cur)
 
                     # try to register new session
-                    self.manager.sessions.new(self.manager, self.context, db)
+                    self.manager.sessions.new(self.manager, self.context, conn, cur)
                     return True
 
                 # run entire sequence in a restartable db transaction
@@ -651,9 +651,9 @@ class RestHandlerFactory (object):
                 password = storage.get('password', None)
                 old_password = storage.get('old_password', None)
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
                         
@@ -665,7 +665,8 @@ class RestHandlerFactory (object):
                                                                                        userid,
                                                                                        password,
                                                                                        old_password,
-                                                                                       db)
+                                                                                       conn,
+                                                                                       cur)
                         except KeyError as ev:
                             # this is only raised by password provider if authorized
                             raise NotFound('user "%s"' % userid)
@@ -703,19 +704,20 @@ class RestHandlerFactory (object):
                     storage = web.input()
                 old_password = storage.get('old_password', None)
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
                     for userid in self._password_prep(userids):
                         try:
                             self.manager.clients.passwd.delete(self.manager,
-                                                                 self.context,
-                                                                 userid,
-                                                                 old_password,
-                                                                 db)
+                                                               self.context,
+                                                               userid,
+                                                               old_password,
+                                                               conn,
+                                                               cur)
                         except KeyError as ev:
                             # this is only raised by password provider if authorized
                             raise NotFound('user "%s"' % userid)
@@ -764,9 +766,9 @@ class RestHandlerFactory (object):
                 else:
                     userids = set()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -831,9 +833,9 @@ class RestHandlerFactory (object):
                 if not self.manager.clients.manage:
                     raise NoMethod()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -842,7 +844,8 @@ class RestHandlerFactory (object):
                             self.manager.clients.manage.create(self.manager,
                                                                self.context,
                                                                userid,
-                                                               db)
+                                                               conn,
+                                                               cur)
                         except ValueError as ev:
                             raise Forbidden('creation of client identity forbidden')
 
@@ -871,9 +874,9 @@ class RestHandlerFactory (object):
                 else:
                     userids = set()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -882,7 +885,8 @@ class RestHandlerFactory (object):
                             self.manager.clients.manage.delete(self.manager,
                                                                self.context,
                                                                userid,
-                                                               db)
+                                                               conn,
+                                                               cur)
                         except KeyError as ev:
                             # this is only raised by password provider if authorized
                             raise NotFound('user "%s"' % userid)
@@ -930,9 +934,9 @@ class RestHandlerFactory (object):
                 else:
                     attrs = set()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -943,10 +947,10 @@ class RestHandlerFactory (object):
 
                     if not attrs:
                         # request without attrs means list all attrs
-                        response = list(self.manager.attributes.search.get_all_attributes(self.manager, self.context, db, False))
+                        response = list(self.manager.attributes.search.get_all_attributes(self.manager, self.context, conn, cur, False))
                     elif self.manager.attributes.search:
                         # request with attrs means list only specific attrs
-                        allattrs = set(self.manager.attributes.search.get_all_attributes(self.manager, self.context, db, False))
+                        allattrs = set(self.manager.attributes.search.get_all_attributes(self.manager, self.context, conn, cur, False))
                         if attrs.difference( allattrs ):
                             raise NotFound('Some attributes not found: %s.' % ', '.join(attrs.difference( allattrs )))
                         response = list(attrs)
@@ -991,9 +995,9 @@ class RestHandlerFactory (object):
                 if not self.manager.attributes.manage:
                     raise NoMethod()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -1002,7 +1006,8 @@ class RestHandlerFactory (object):
                             self.manager.attributes.manage.create(self.manager,
                                                                   self.context,
                                                                   attr,
-                                                                  db)
+                                                                  conn,
+                                                                  cur)
                         except ValueError as ev:
                             raise Forbidden('creation of attribute forbidden')
 
@@ -1031,9 +1036,9 @@ class RestHandlerFactory (object):
                 else:
                     attrs = set()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -1042,7 +1047,8 @@ class RestHandlerFactory (object):
                             self.manager.attributes.manage.delete(self.manager,
                                                                   self.context,
                                                                   attr,
-                                                                  db)
+                                                                  conn,
+                                                                  cur)
                         except KeyError as ev:
                             # this is only raised by password provider if authorized
                             raise NotFound('attribute "%s"' % attr)
@@ -1090,9 +1096,9 @@ class RestHandlerFactory (object):
                 else:
                     attrs = set()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -1102,7 +1108,7 @@ class RestHandlerFactory (object):
                         # fall back behavior only if provider API isn't available
                         allattrs = self.context.attributes
                     else:
-                        allattrs = self.manager.attributes.assign.list(self.manager, self.context, userid, db)
+                        allattrs = self.manager.attributes.assign.list(self.manager, self.context, userid, conn, cur)
     
                     if not attrs:
                         # request without attrs means list all of user's attrs
@@ -1151,7 +1157,7 @@ class RestHandlerFactory (object):
 
                 def db_body(db):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -1161,7 +1167,8 @@ class RestHandlerFactory (object):
                                                                   self.context,
                                                                   attr,
                                                                   userid,
-                                                                  db)
+                                                                  conn,
+                                                                  cur)
                         except ValueError as ev:
                             raise Forbidden('creation of attribute assignment forbidden')
 
@@ -1193,9 +1200,9 @@ class RestHandlerFactory (object):
                 if not self.manager.attributes.assign:
                     raise NoMethod()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -1205,7 +1212,8 @@ class RestHandlerFactory (object):
                                                                   self.context,
                                                                   attr,
                                                                   userid,
-                                                                  db)
+                                                                  conn,
+                                                                  cur)
                         except KeyError as ev:
                             # this is only raised by password provider if authorized
                             raise NotFound(str(ev))
@@ -1254,16 +1262,16 @@ class RestHandlerFactory (object):
                 else:
                     parents = set()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
                     if not self.manager.attributes.nest:
                         raise Conflict('Server does not support listing of attribute nesting.')
 
-                    allparents = self.manager.attributes.nest.list(self.manager, self.context, child, db)
+                    allparents = self.manager.attributes.nest.list(self.manager, self.context, child, conn, cur)
     
                     if not parents:
                         # request without parents means list all of child's parents
@@ -1313,9 +1321,9 @@ class RestHandlerFactory (object):
                 if not self.manager.attributes.nest:
                     raise NoMethod()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -1325,7 +1333,8 @@ class RestHandlerFactory (object):
                                                                 self.context,
                                                                 parent,
                                                                 child,
-                                                                db)
+                                                                conn,
+                                                                cur)
                         except ValueError as ev:
                             raise Forbidden('creation of attribute nesting forbidden')
 
@@ -1358,9 +1367,9 @@ class RestHandlerFactory (object):
                 if not self.manager.attributes.nest:
                     raise NoMethod()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -1370,7 +1379,8 @@ class RestHandlerFactory (object):
                                                                 self.context,
                                                                 parent,
                                                                 child,
-                                                                db)
+                                                                conn,
+                                                                cur)
                         except KeyError as ev:
                             raise NotFound(str(ev))
                         except ValueError as ev:
@@ -1395,7 +1405,7 @@ class RestHandlerFactory (object):
                 RestHandler.__init__(self)
 
             @web_method()
-            def GET(self, db=None):
+            def GET(self, conn=None, cur=None):
                 """
                 Return pre-authentication data (e.g., display a web form for users to select among IdPs).
                 """
@@ -1405,17 +1415,17 @@ class RestHandlerFactory (object):
                 #web.debug("in GET /preauth, user agent is '{user_agent}'".format(user_agent=str(web.ctx.env.get('HTTP_USER_AGENT'))))
                 #web.debug("in GET /preauth, referrer arg is '{referrer_arg}', Referrer header is '{referer_header}'".format(referrer_arg=referrer_arg, referer_header=referer_header))
 
-                def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                def db_body(conn, cur):
+                    self.context = Context(self.manager, False, conn, cur)
                     # Should probably fail or something if the user is logged in, but for now we won't bother
 
-                if db:
-                    db_body(db)
+                if conn is not None and cur is not None:
+                    db_body(conn, cur)
                 else:
                     self._db_wrapper(db_body)
 
                 try:
-                    preauth_info = self.manager.preauth.preauth_info(self.manager, self.context, db)
+                    preauth_info = self.manager.preauth.preauth_info(self.manager, self.context, conn, cur)
                     if preauth_info == None:
                         raise NotFound()
                     if do_redirect:
@@ -1447,7 +1457,7 @@ class RestHandlerFactory (object):
                 RestHandler.__init__(self)
 
             @web_method()
-            def GET(self, sessionids, db=None):
+            def GET(self, sessionids, conn=None, cur=None):
                 return self.DELETE(sessionids)
                 
         class Discovery(RestHandler):
@@ -1463,7 +1473,7 @@ class RestHandlerFactory (object):
                 RestHandler.__init__(self)
 
             @web_method()
-            def GET(self, db=None):
+            def GET(self, conn=None, cur=None):
                 response = jsonWriter(self.manager.discovery_info) + b'\n'
                 if 'env' in web.ctx:
                     web.ctx.status = '200 OK'

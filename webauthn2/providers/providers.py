@@ -1,6 +1,6 @@
 
 # 
-# Copyright 2012-2016 University of Southern California
+# Copyright 2012-2022 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -207,7 +207,7 @@ class SessionIdProvider (Provider):
     def __init__(self, config):
         Provider.__init__(self, config)
 
-    def get_request_sessionids(self, manager, context, db=None):
+    def get_request_sessionids(self, manager, context, conn=None, cur=None):
         return []
 
     def create_unique_sessionids(self, manager, context):
@@ -216,7 +216,7 @@ class SessionIdProvider (Provider):
     def set_request_sessionids(self, manager, context):
         pass
 
-    def terminate(self, manager, context, db=None):
+    def terminate(self, manager, context, conn=None, cur=None):
         """
         Destroy any persistent session id context.
         """
@@ -228,7 +228,7 @@ class SessionStateProvider (Provider):
     def __init__(self, config):
         Provider.__init__(self, config)
 
-    def set_msg_context(self, manager, context, sessionids, db=None):
+    def set_msg_context(self, manager, context, sessionids, conn=None, cur=None):
         """
         Load existing session state keyed by sessionids.
 
@@ -238,47 +238,47 @@ class SessionStateProvider (Provider):
         idempotent transition period where the old keys will continue
         to map to the new canonical keying.
 
-        Optional db is a web.database instance which is presumed to
-        have an active transaction on it, and the provider will use it
+        Optional conn+cur are psycopg2 connection+cursor, presumed to
+        have an active transaction, and the provider will use them
         directly as needed. When absent, the provider manages its own
         database connection as needed.
 
         """
         context.session = Session(sessionids)
 
-    def new(self, manager, context, db=None):
+    def new(self, manager, context, conn=None, cur=None):
         """
         Create a new persistent session state mirroring context.
 
         If there is a key conflict between context and provider
         storage, throw a KeyError exception.
 
-        Optional db is a web.database instance which is presumed to
-        have an active transaction on it, and the provider will use it
+        Optional conn+cur are psycopg2 connection+cursor, presumed to
+        have an active transaction, and the provider will use them
         directly as needed. When absent, the provider manages its own
         database connection as needed.
 
         """
         raise NotImplementedError()
 
-    def extend(self, manager, context, db=None):
+    def extend(self, manager, context, conn=None, cur=None):
         """
         Update expiration time of existing session mirroring context in persistent store.
 
-        Optional db is a web.database instance which is presumed to
-        have an active transaction on it, and the provider will use it
+        Optional conn+cur are psycopg2 connection+cursor, presumed to
+        have an active transaction, and the provider will use them
         directly as needed. When absent, the provider manages its own
         database connection as needed.
 
         """
         raise NotImplementedError()
 
-    def terminate(self, manager, context, db=None, preferred_final_url=None):
+    def terminate(self, manager, context, conn=None, cur=None, preferred_final_url=None):
         """
         Destroy any persistent session mirroring context.
 
-        Optional db is a web.database instance which is presumed to
-        have an active transaction on it, and the provider will use it
+        Optional conn+cur are psycopg2 connection+cursor, presumed to
+        have an active transaction, and the provider will use them
         directly as needed. When absent, the provider manages its own
         database connection as needed.
 
@@ -292,7 +292,7 @@ class PreauthProvider(Provider):
     def __init__(self, config):
         Provider.__init__(self, config)
 
-    def preauth_info(self, manager, context, db=None):
+    def preauth_info(self, manager, context, conn=None, cur=None):
         """
         Return a dict with any required pre-authentication information (e.g., a web form with options).
         """
@@ -327,12 +327,12 @@ class ClientLogin (ProviderInterface):
         """
         return set(['username', 'password'])
     
-    def login(self, manager, context, db, **kwargs):
+    def login(self, manager, context, conn, cur, **kwargs):
         """
         Return username if the user can be logged in using keyword arguments.
 
-        Parameter db is a web.database instance which is presumed to
-        have an active transaction on it, and the provider will use it
+        Parameters conn+cur are psycopg2 connection+cursor, presumed to
+        have an active transaction, and the provider will use them
         directly as needed. When None, the provider manages its own
         database connection as needed.
 
@@ -373,7 +373,7 @@ class ClientMsgAuthn (ProviderInterface):
     def __init__(self, provider):
         ProviderInterface.__init__(self, provider)
         
-    def set_msg_context(self, manager, context, db=None):
+    def set_msg_context(self, manager, context, conn=None, cur=None):
         """
         Update context with client identity if appropriate for provider.
 
@@ -382,8 +382,8 @@ class ClientMsgAuthn (ProviderInterface):
         login sequence. For example, a provider consuming external
         message authentication data from HTTPD.
 
-        Optional db is a web.database instance which is presumed to
-        have an active transaction on it, and the provider will use it
+        Optional conn+cur are psycopg2 connection+cursor, presumed to
+        have an active transaction, and the provider will use them
         directly as needed. When absent, the provider manages its own
         database connection as needed.
 
@@ -398,31 +398,31 @@ class ClientSearch (ProviderInterface):
     def __init__(self, provider):
         ProviderInterface.__init__(self, provider)
 
-    def get_all_clients_noauthz(self, manager, context, db=None):
+    def get_all_clients_noauthz(self, manager, context, conn=None, cur=None):
         """
         Return set of all available client identifiers.
 
-        Optional db is a web.database instance which is presumed to
-        have an active transaction on it, and the provider will use it
+        Optional conn+cur are psycopg2 connection+cursor, presumed to
+        have an active transaction, and the provider will use them
         directly as needed. When absent, the provider manages its own
         database connection as needed.
 
         """
         raise NotImplementedError()
 
-    def get_all_clients(self, manager, context, db=None):
+    def get_all_clients(self, manager, context, conn=None, cur=None):
         """
         Return set of all available client identifiers or None if not allowed.
 
-        Optional db is a web.database instance which is presumed to
-        have an active transaction on it, and the provider will use it
+        Optional conn+cur are psycopg2 connection+cursor, presumed to
+        have an active transaction, and the provider will use them
         directly as needed. When absent, the provider manages its own
         database connection as needed.
 
         """
         if is_authorized(context, self.provider.listusers_permit):
             # allowed
-            return self.get_all_clients_noauthz(manager, context, db)
+            return self.get_all_clients_noauthz(manager, context, conn, cur)
         else:
             # not allowed
             return None
@@ -435,34 +435,34 @@ class ClientManage (ProviderInterface):
     def __init__(self, provider):
         ProviderInterface.__init__(self, provider)
 
-    def create_noauthz(self, manager, context, clientname, db=None):
+    def create_noauthz(self, manager, context, clientname, conn=None, cur=None):
         raise NotImplementedError()
 
-    def delete_noauthz(self, manager, context, clientname, db=None):
+    def delete_noauthz(self, manager, context, clientname, conn=None, cur=None):
         raise NotImplementedError()
 
-    def update_noauthz(self, manager, context, clientname, db=None):
+    def update_noauthz(self, manager, context, clientname, conn=None, cur=None):
         raise NotImplementedError()
 
-    def create(self, manager, context, clientname, db=None):
+    def create(self, manager, context, clientname, conn=None, cur=None):
         if is_authorized(context, self.provider.manageusers_permit):
-            return self.create_noauthz(manager, context, clientname, db)
+            return self.create_noauthz(manager, context, clientname, conn, cur)
         else:
             raise ValueError('unauthorized')
 
-    def delete(self, manager, context, clientname, db=None):
+    def delete(self, manager, context, clientname, conn=None, cur=None):
         if is_authorized(context, self.provider.manageusers_permit):
-            return self.delete_noauthz(manager, context, clientname, db)
+            return self.delete_noauthz(manager, context, clientname, conn, cur)
         else:
             raise ValueError('unauthorized')
 
-    def update_last_login(self, manager, context, username, db=None):
+    def update_last_login(self, manager, context, username, conn=None, cur=None):
         raise NotImplementedError()
 
-    def update_last_session_extension(self, manager, context, username, db=None):
+    def update_last_session_extension(self, manager, context, username, conn=None, cur=None):
         raise NotImplementedError()
 
-    def update_last_group_update(self, manager, context, username, db=None):
+    def update_last_group_update(self, manager, context, username, conn=None, cur=None):
         raise NotImplementedError()
 
 class ClientPasswd (ProviderInterface):
@@ -473,25 +473,25 @@ class ClientPasswd (ProviderInterface):
     def __init__(self, provider):
         ProviderInterface.__init__(self, provider)
 
-    def create_noauthz(self, manager, context, clientname, password=None, oldpasswd=None, db=None):
+    def create_noauthz(self, manager, context, clientname, password=None, oldpasswd=None, conn=None, cur=None):
         raise NotImplementedError()
 
-    def delete_noauthz(self, manager, context, clientname, db=None):
+    def delete_noauthz(self, manager, context, clientname, conn=None, cur=None):
         raise NotImplementedError()
     
-    def create(self, manager, context, clientname, password=None, oldpasswd=None, db=None):
+    def create(self, manager, context, clientname, password=None, oldpasswd=None, conn=None, cur=None):
         if is_authorized(context, self.provider.manageusers_permit):
-            return self.create_noauthz(manager, context, clientname, password, oldpasswd, db)
+            return self.create_noauthz(manager, context, clientname, password, oldpasswd, conn, cur)
         elif context.client == clientname and oldpasswd:
-            return self.create_noauthz(manager, context, clientname, password, oldpasswd, db)
+            return self.create_noauthz(manager, context, clientname, password, oldpasswd, conn, cur)
         else:
             raise ValueError('unauthorized')
 
-    def delete(self, manager, context, clientname, oldpasswd=None, db=None):
+    def delete(self, manager, context, clientname, oldpasswd=None, conn=None, cur=None):
         if is_authorized(context, self.provider.manageusers_permit):
-            return self.delete_noauthz(manager, context, clientname, oldpasswd, db)
+            return self.delete_noauthz(manager, context, clientname, oldpasswd, conn, cur)
         elif context.client == clientname:
-            return self.delete_noauthz(manager, context, clientname, oldpasswd, db)
+            return self.delete_noauthz(manager, context, clientname, oldpasswd, conn, cur)
         else:
             raise ValueError('unauthorized')
     
@@ -518,13 +518,13 @@ class ClientProvider (Provider):
         self.search = None
         self.manage = None
         self.passwd = None
-    def update_last_login(self, manager, context, db=None):
+    def update_last_login(self, manager, context, conn=None, cur=None):
         raise NotImplementedError()
 
-    def update_last_session_extension(self, manager, context, db=None):
+    def update_last_session_extension(self, manager, context, conn=None, cur=None):
         raise NotImplementedError()
 
-    def update_last_group_update(self, manager, context, db=None):
+    def update_last_group_update(self, manager, context, conn=None, cur=None):
         raise NotImplementedError()
 
 class AttributeClient (ProviderInterface):
@@ -536,7 +536,7 @@ class AttributeClient (ProviderInterface):
     def __init__(self, provider):
         ProviderInterface.__init__(self, provider)
 
-    def set_msg_context(self, manager, context, db=None):
+    def set_msg_context(self, manager, context, conn=None, cur=None):
         """
         Update context with client attributes.
 
@@ -554,7 +554,7 @@ class AttributeMsgAuthn (ProviderInterface):
     def __init__(self, provider):
         ProviderInterface.__init__(self, provider)
 
-    def set_msg_context(self, manager, context, db=None):
+    def set_msg_context(self, manager, context, conn=None, cur=None):
         """
         Update context with client attributes.
 
@@ -574,14 +574,14 @@ class AttributeSearch (ProviderInterface):
     def __init__(self, provider):
         ProviderInterface.__init__(self, provider)
 
-    def get_all_attributes_noauthz(self, manager, context, clientnames, db=None):
+    def get_all_attributes_noauthz(self, manager, context, clientnames, conn=None, cur=None):
         """
         Return set of all available attributes including all clientnames.
 
         """
         raise NotImplementedError()
 
-    def get_all_attributes(self, manager, context, db=None, includeclients=True):
+    def get_all_attributes(self, manager, context, conn=None, cur=None, includeclients=True):
         """
         Return set of all available attributes or None if not allowed.
 
@@ -589,14 +589,14 @@ class AttributeSearch (ProviderInterface):
         if is_authorized(context, self.provider.listattributes_permit):
             # allowed
             if includeclients and manager.clients.search:
-                clientnames = manager.clients.get_all_clients(manager, context, db)
+                clientnames = manager.clients.get_all_clients(manager, context, conn, cur)
             else:
                 clientnames = None
 
             if clientnames == None:
                 clientnames = set()
 
-            return self.get_all_attributes_noauthz(manager, context, clientnames, db)
+            return self.get_all_attributes_noauthz(manager, context, clientnames, conn, cur)
         else:
             # not allowed
             raise ValueError('unauthorized')
@@ -609,21 +609,21 @@ class AttributeManage (ProviderInterface):
     def __init__(self, provider):
         ProviderInterface.__init__(self, provider)
 
-    def create_noauthz(self, manager, context, attributename, db=None):
+    def create_noauthz(self, manager, context, attributename, conn=None, cur=None):
         raise NotImplementedError()
 
-    def delete_noauthz(self, manager, context, attributename, db=None):
+    def delete_noauthz(self, manager, context, attributename, conn=None, cur=None):
         raise NotImplementedError()
 
-    def create(self, manager, context, attributename, db=None):
+    def create(self, manager, context, attributename, conn=None, cur=None):
         if is_authorized(context, self.provider.manageattributes_permit):
-            return self.create_noauthz(manager, context, attributename, db)
+            return self.create_noauthz(manager, context, attributename, conn, cur)
         else:
             raise ValueError('unauthorized')
 
-    def delete(self, manager, context, attributename, db=None):
+    def delete(self, manager, context, attributename, conn=None, cur=None):
         if is_authorized(context, self.provider.manageattributes_permit):
-            return self.delete_noauthz(manager, context, attributename, db)
+            return self.delete_noauthz(manager, context, attributename, conn, cur)
         else:
             raise ValueError('unauthorized')
 
@@ -635,30 +635,30 @@ class AttributeAssign (ProviderInterface):
     def __init__(self, provider):
         ProviderInterface.__init__(self, provider)
 
-    def list_noauthz(self, manager, context, clientname, db=None):
+    def list_noauthz(self, manager, context, clientname, conn=None, cur=None):
         raise NotImplementedError()
 
-    def create_noauthz(self, manager, context, attributename, clientname, db=None):
+    def create_noauthz(self, manager, context, attributename, clientname, conn=None, cur=None):
         raise NotImplementedError()
 
-    def delete_noauthz(self, manager, context, attributename, clientname, db=None):
+    def delete_noauthz(self, manager, context, attributename, clientname, conn=None, cur=None):
         raise NotImplementedError()
 
-    def list(self, manager, context, clientname, db=None):
+    def list(self, manager, context, clientname, conn=None, cur=None):
         if is_authorized(context, self.provider.manageattributes_permit) or clientname == context.client:
-            return self.list_noauthz(manager, context, clientname, db)
+            return self.list_noauthz(manager, context, clientname, conn, cur)
         else:
             raise ValueError('unauthorized')
 
-    def create(self, manager, context, attributename, clientname, db=None):
+    def create(self, manager, context, attributename, clientname, conn=None, cur=None):
         if is_authorized(context, self.provider.manageattributes_permit):
-            return self.create_noauthz(manager, context, attributename, clientname, db)
+            return self.create_noauthz(manager, context, attributename, clientname, conn, cur)
         else:
             raise ValueError('unauthorized')
 
-    def delete(self, manager, context, attributename, clientname, db=None):
+    def delete(self, manager, context, attributename, clientname, conn=None, cur=None):
         if is_authorized(context, self.provider.manageattributes_permit):
-            return self.delete_noauthz(manager, context, attributename, clientname, db)
+            return self.delete_noauthz(manager, context, attributename, clientname, conn, cur)
         else:
             raise ValueError('unauthorized')
 
@@ -678,30 +678,30 @@ class AttributeNest (ProviderInterface):
     def __init__(self, provider):
         ProviderInterface.__init__(self, provider)
 
-    def list_noauthz(self, manager, context, childname, db=None):
+    def list_noauthz(self, manager, context, childname, conn=None, cur=None):
         raise NotImplementedError()
 
-    def create_noauthz(self, manager, context, parentname, childname, db=None):
+    def create_noauthz(self, manager, context, parentname, childname, conn=None, cur=None):
         raise NotImplementedError()
 
-    def delete_noauthz(self, manager, context, parentname, childname, db=None):
+    def delete_noauthz(self, manager, context, parentname, childname, conn=None, cur=None):
         raise NotImplementedError()
 
-    def list(self, manager, context, childname, db=None):
+    def list(self, manager, context, childname, conn=None, cur=None):
         if is_authorized(context, self.provider.manageattributes_permit) or childname in context.attributes:
-            return self.list_noauthz(manager, context, childname, db)
+            return self.list_noauthz(manager, context, childname, conn, cur)
         else:
             raise ValueError('unauthorized')
 
-    def create(self, manager, context, parentname, childname, db=None):
+    def create(self, manager, context, parentname, childname, conn=None, cur=None):
         if is_authorized(context, self.provider.manageattributes_permit):
-            return self.create_noauthz(manager, context, parentname, childname, db)
+            return self.create_noauthz(manager, context, parentname, childname, conn, cur)
         else:
             raise ValueError('unauthorized')
 
-    def delete(self, manager, context, parentname, childname, db=None):
+    def delete(self, manager, context, parentname, childname, conn=None, cur=None):
         if is_authorized(context, self.provider.manageattributes_permit):
-            return self.delete_noauthz(manager, context, parentname, childname, db)
+            return self.delete_noauthz(manager, context, parentname, childname, conn, cur)
         else:
             raise ValueError('unauthorized')
 
