@@ -131,7 +131,7 @@ FROM %(table)s
 ORDER BY timeout DESC
 """ % dict(
     table= self._table(self.config_params['hash_key_table']),
-}
+)
             )
 
         if conn is not None and cur is not None:
