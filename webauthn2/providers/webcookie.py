@@ -77,7 +77,7 @@ class WebcookieSessionIdProvider (SessionIdProvider):
         self.path = config.web_cookie_path
         self.trackcookiename = config.tracking_cookie_name
 
-    def get_request_sessionids(self, manager, context, db=None):
+    def get_request_sessionids(self, manager, context, conn=None, cur=None):
         if 'env' in web.ctx:
             cookie = web.cookies().get(self.cookiename)
             track = web.cookies().get(self.trackcookiename)
@@ -94,10 +94,10 @@ class WebcookieSessionIdProvider (SessionIdProvider):
         else:
             return []
 
-    def create_unique_sessionids(self, manager, context, db=None):
+    def create_unique_sessionids(self, manager, context, conn=None, cur=None):
         context.session.keys = [ generate_sessguid() ]
 
-    def set_request_sessionids(self, manager, context, db=None):
+    def set_request_sessionids(self, manager, context, conn=None, cur=None):
         if len(context.session.keys) > 0:
             cookie = context.session.keys[0]
         else:
@@ -138,7 +138,7 @@ class WebcookieSessionIdProvider (SessionIdProvider):
                               domain=None,
                               secure=self.secure)
 
-    def terminate(self, manager, context, db=None):
+    def terminate(self, manager, context, conn=None, cur=None):
         self.set_cookie("", -1)
 
 
