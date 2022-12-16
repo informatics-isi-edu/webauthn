@@ -130,7 +130,7 @@ SELECT timeout, key
 FROM %(table)s
 ORDER BY timeout DESC
 """ % dict(
-    table= self._table(self.config_params['hash_key_table']),
+    table= self.config_params['hash_key_table'],
 )
             )
 
@@ -191,7 +191,7 @@ SELECT referrer
 FROM {referrer_table}
 WHERE nonce={nonce}
 """.format(
-    referrer_table=self._table(self.config_params.get('referrer_table')),
+    referrer_table=self.config_params.get('referrer_table'),
     nonce=sql_literal(nonce),
 )
                 )
