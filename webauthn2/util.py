@@ -17,6 +17,7 @@
 
 import psycopg2
 import psycopg2.extensions
+import psycopg2.extras
 import web
 import urllib
 import urllib.error
@@ -453,6 +454,43 @@ def force_query(conn, cur, *args, **kwargs):
     cur.execute(*args, **kwargs)
     return list(cur)
 
+class AttrDictRow (psycopg2.extras.DictRow):
+    """A row object to allow row.columname access as well as dict and tuple access.
+
+    Tweaks the normal psycopg2.extras.DictRow to also allow
+    attribute-style access to columns, but will not shadow actual
+    python object attributes. Use the dict or tuple-style access or
+    rewrite your queries to avoid such collisions.
+
+    This access is ONLY for reading a specific field by name as a
+    compatibility shim. Do not try to set field values via attribute
+    assignment nor to discover field names by introspection with
+    dir(row)!
+
+    It would be better to migrate consumers to use the dict or tuple
+    access methods, inherited from the superclass, and eventually
+    deprecate this attribute-based access mechanism.
+
+    """
+    def __getattribute__(self, a):
+        g = super().__getattribute__
+        try:
+            # real attributes take precedence
+            return g(a)
+        except AttributeError:
+            try:
+                return self[a]
+            except KeyError:
+                raise AttributeError(a)
+
+class AttrDictCursor(psycopg2.extras.DictCursor):
+    """A cursor that produces AttrDictRow rather than DictRow instances."""
+    def __init__(self, *args, **kwargs):
+        # DictCursor.__init__ blindly sets its own row_factor kwarg
+        super().__init__(*args, **kwargs)
+        # so, override where it is saved in DictCursorBase instead...
+        self.row_factory = AttrDictRow
+
 class DatabaseConnection (PooledConnection):
     """
     Concrete base class for pooled psycopg2 connections.
@@ -494,7 +532,10 @@ class DatabaseConnection (PooledConnection):
             self.extended_exceptions = []
 
     def _new_connection(self):
-        return psycopg2.extensions.connection(dsn)
+        return psycopg2.connect(
+            dsn=self.database_dsn,
+            cursor_factory=AttrDictCursor,
+        )
 
     def _close_connection(self, conn):
         del conn
