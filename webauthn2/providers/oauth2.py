@@ -154,11 +154,13 @@ ORDER BY timeout DESC
             cur.execute("delete from %(hash_key_table)s where timeout < now()" % self.config_params)
             cur.execute("""
 insert into %(hash_key_table)s (key, timeout)
-  select $new_key, now() + interval '%(hard_timeout)d seconds'
+  select %(new_key)s, now() + interval '%(hard_timeout)d seconds'
   where not exists
     (select 1 from %(hash_key_table)s where timeout - now() > interval '%(soft_timeout)d seconds')
-""" % self.config_params,
-                     vars={'new_key' : self.keytotext(self.make_key())})
+""" % (dict(
+    new_key=sql_literal(self.keytotext(self.make_key())),
+) | self.config_params)
+                        )
 
         if conn is not None and cur is not None:
             db_body(conn, cur)

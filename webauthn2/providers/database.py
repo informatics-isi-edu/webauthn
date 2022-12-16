@@ -611,10 +611,8 @@ DELETE FROM %(utable)s WHERE %(username)s = %(uname)s ;
 
             rawcols = self._get_noauthz_updatecols(manager, context, clientname, conn, cur)
             cols=[]
-            vals=dict()
             for c in rawcols:
-                cols.append(c[0] + '= $' + c[0])
-                vals[c[0]] = c[1]
+                cols.append('%s = %s' % (c[0], sql_literal(c[1])))
             cur.execute(
                 """
 UPDATE %(utable)s SET %(colstring)s where %(username)s=%(uname)s
@@ -623,8 +621,7 @@ UPDATE %(utable)s SET %(colstring)s where %(username)s=%(uname)s
     'colstring': ','.join(cols),
     'username': ID,
     'uname': sql_literal(clientname),
-},
-                vars=vals
+}
             )
         if conn is not None and cur is not None:
             return db_body(conn, cur)
