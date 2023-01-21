@@ -1,5 +1,6 @@
+
 # 
-# Copyright 2010-2022 University of Southern California
+# Copyright 2010-2023 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -85,7 +86,7 @@ class GlobusViewGroupTokenProcessor(GlobusGroupTokenProcessor):
                                            group_base_url if group_base_url else self.default_base_url)
 
     def get_groups(self):
- #       web.debug("trying view_my_groups, token is {t}".format(t=str(self.token)))
+ #       deriva_debug("trying view_my_groups, token is {t}".format(t=str(self.token)))
         final_groups = set()
         if self.token != None:
             group_request = urllib.request.Request(self.group_base_url)
@@ -115,7 +116,7 @@ class GlobusLegacyGroupTokenProcessor(GlobusGroupTokenProcessor):
         }
 
     def get_groups(self):
-#        web.debug("Using legacy Globus group processor")
+#        deriva_debug("Using legacy Globus group processor")
         final_groups = set()
         if self.token != None:
             urltuple = urllib.parse.urlsplit(self.group_base_url)
@@ -177,8 +178,8 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
                             processor.set_token(token)
                             group_token_processor = processor
                     
-#        web.debug("wallet: " + str(context.wallet))
-#        web.debug("token processor: " + str(group_token_processor))
+#        deriva_debug("wallet: " + str(context.wallet))
+#        deriva_debug("token processor: " + str(group_token_processor))
         if group_token_processor is not None:
             context.globus_groups = group_token_processor.get_groups()
             
@@ -188,7 +189,7 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
 
     def add_extra_token_request_headers(self, token_request):
         client_id = self.provider.cfg.get('client_id')
-#        web.debug("client id is {i}".format(i=client_id))
+#        deriva_debug("client id is {i}".format(i=client_id))
         client_secret = self.provider.cfg.get('client_secret')
         basic_auth_token = base64.b64encode((client_id + ':' + client_secret).encode())
         token_request.add_header('Authorization', 'Basic ' + basic_auth_token.decode())
@@ -214,9 +215,9 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
                         self.payload['dependent_tokens'] = dict()
                     self.payload['dependent_tokens'] = token_response
             except globus_sdk.exc.AuthAPIError as ex:
-                web.debug("WARNING: dependent token request returned {ex}".format(ex=ex))
+                deriva_debug("WARNING: dependent token request returned {ex}".format(ex=ex))
         else:
-            web.debug("WARNING: No globus_sdk installed; skipping dependent token request. This means no group info and an empty wallet for sessions authenticated by bearer token.")
+            deriva_debug("WARNING: No globus_sdk installed; skipping dependent token request. This means no group info and an empty wallet for sessions authenticated by bearer token.")
     
 # Sometimes Globus whitelist entries will have typos in the URLs ("//" instead of "/" is very common),
 # and it can take a long time to get those fixed.
@@ -289,7 +290,7 @@ class GlobusAuthSessionStateProvider(oauth2.OAuth2SessionStateProvider):
         logout_base = self.cfg.get('revocation_endpoint')
         if logout_base == None:
             raise oauth2.OAuth2ConfigurationError("No revocation endpoint configured")
-        rest_args = web.input()
+        rest_args = web_input()
         args=dict()
         for key in globus_args:
             val=rest_args.get('logout_' + key)

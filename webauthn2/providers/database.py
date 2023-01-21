@@ -1,6 +1,6 @@
 
 # 
-# Copyright 2010-2022 University of Southern California
+# Copyright 2010-2023 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -58,12 +58,13 @@ from datetime import timezone
 import urllib
 import re
 import sys
+import flask
 
 from .providers import *
 from ..util import *
 from ..exc import *
 
-config_built_ins = web.storage(
+config_built_ins = web_storage(
     database_type= 'postgres',
     database_dsn= 'dbname=',
     database_schema= 'webauthn2',
@@ -384,7 +385,7 @@ DELETE FROM %(stable)s WHERE key = %(key)s ;
     'key': sql_literal(srow.key),
 }
             )
-            web.setcookie(DatabasePreauthProvider.cookie_name, "", expires=-1)
+            deriva_ctx.deriva_response.set_cookie(DatabasePreauthProvider.cookie_name, "", expires=-1)
             return None
 
         if conn is not None and cur is not None:
@@ -1479,12 +1480,16 @@ class DatabasePreauthProvider (PreauthProvider):
 
 
     def preauth_info(self, manager, context, conn, cur):
-        referrer = web.input().get('referrer')
+        referrer = web_input().get('referrer')
         if referrer != None:
-            web.setcookie(self.cookie_name, referrer)
+            deriva_ctx.deriva_response.set_cookie(self.cookie_name, referrer)
         if self.form_url != None:
             if self.form_url[0] == '/':
-                self.form_url = "{prot}://{host}{path}".format(prot=web.ctx.protocol, host=web.ctx.host, path=self.form_url)
+                self.form_url = "{prot}://{host}{path}".format(
+                    prot=flask.request.scheme,
+                    host=flask.request.host,
+                    path=self.form_url
+                )
             login_info = {REDIRECT_URL : self.form_url}
         else:
             login_info = {
@@ -1507,8 +1512,9 @@ class DatabasePreauthProvider (PreauthProvider):
         return login_info
 
     def preauth_referrer(self):
-        cookie = web.cookies().get(self.cookie_name)
+        cookie = flask.request.cookies.get(self.cookie_name)
         # The cookie is only used for this login, so it can be removed. But give a little bit of a grace
         # period in case they click more than once.
-        web.setcookie(self.cookie_name, cookie, expires=10, secure=True)
+        if cookie:
+            deriva_ctx.deriva_response.set_cookie(self.cookie_name, cookie, expires=10, secure=True)
         return cookie

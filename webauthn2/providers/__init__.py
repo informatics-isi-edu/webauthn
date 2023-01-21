@@ -72,7 +72,7 @@ attributes =      ProviderMap([ null.NullAttributeProvider,
 
 preauths =        ProviderMap([ null.NullPreauthProvider, database.DatabasePreauthProvider ])
 
-config_built_ins = web.storage()
+config_built_ins = web_storage()
 config_built_ins.update( database.config_built_ins )
 config_built_ins.update( webcookie.config_built_ins )
 config_built_ins.update( null.config_built_ins )

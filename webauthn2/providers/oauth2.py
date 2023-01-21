@@ -1,6 +1,6 @@
 
 # 
-# Copyright 2010-2022 University of Southern California
+# Copyright 2010-2023 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -83,7 +83,7 @@ if sys.version_info[:2] >= (3, 8):
 else:
     from collections import MutableMapping
 
-config_built_ins = web.storage(
+config_built_ins = web_storage(
     # Items needed for methods inherited from database provider
     database_type= 'postgres',
     database_dsn= 'dbname=',
@@ -201,7 +201,7 @@ WHERE nonce={nonce}
             raise ValueError("Found referrer {x} rows for nonce {nonce}; expected 1".format(x=str(len(rows)), nonce=nonce))
         referrer = rows[0].get('referrer')
         if referrer == None:
-            web.debug("null referrer for nonce {nonce}".format(nonce=nonce))
+            deriva_debug("null referrer for nonce {nonce}".format(nonce=nonce))
         return referrer
 
     @staticmethod
@@ -243,14 +243,12 @@ WHERE nonce={nonce}
 class bearer_token_util():
     @staticmethod
     def token_from_request():
-        if not 'env' in web.ctx:
-            return None
-        authz_header=web.ctx.env.get('HTTP_AUTHORIZATION')
-        if authz_header == None:
+        authz_header=flask.request.environ.get('HTTP_AUTHORIZATION')
+        if authz_header is None:
             return None
         authz_header = authz_header.strip()
         if not authz_header.startswith('Bearer '):
-            web.debug('"Authorization:" header does not start with "Bearer "')
+            deriva_debug('"Authorization:" header does not start with "Bearer "')
             return None
         return authz_header[7:].lstrip()
 
@@ -301,7 +299,7 @@ class OAuth2Login (ClientLogin):
         self.validate_userinfo()
         f.close()
         if self.userinfo.get('active') != True or self.userinfo.get('iss') == None or self.userinfo.get('sub') == None:
-            web.debug("Login failed, userinfo is not active, or iss or sub is missing: {u}".format(u=str(self.userinfo)))
+            deriva_debug("Login failed, userinfo is not active, or iss or sub is missing: {u}".format(u=str(self.userinfo)))
             raise OAuth2UserinfoError("Login failed, userinfo is not active, or iss or sub is missing: {u}".format(u=str(self.userinfo)))
         username = str(self.userinfo.get('iss') + '/' + self.userinfo.get('sub'))
         context.user = dict()
@@ -318,13 +316,13 @@ class OAuth2Login (ClientLogin):
         return context.client      
 
     def authorization_code_flow(self, context, conn, cur):
-        vals = web.input()
+        vals = web_input()
+
         # Check that this request came from the same user who initiated the oauth flow
         nonce_vals = {
             'auth_url_nonce' : vals.get('state'),
-            'auth_cookie_nonce' : web.cookies().get(self.provider.nonce_cookie_name)
+            'auth_cookie_nonce' : flask.request.cookies.get(self.provider.nonce_cookie_name)
             }
-
 
         if nonce_vals['auth_url_nonce'] == None:
             raise OAuth2ProtocolError("No authn_nonce in initial redirect")
@@ -333,7 +331,7 @@ class OAuth2Login (ClientLogin):
             # Debug this -- we're getting this error even when the value is set
             error_string="No authn nonce ({ncn}) cookie found. Cookie header was: {h}".format(
                 ncn=str(self.provider.nonce_cookie_name),
-                h=str(web.ctx.env.get('HTTP_COOKIE')))
+                h=str(flask.request.environ.get('HTTP_COOKIE')))
             raise OAuth2ProtocolError(error_string)
 
         # Has the cookie nonce expired?
@@ -356,9 +354,11 @@ class OAuth2Login (ClientLogin):
             'code' : vals.get('code'),
             'client_id' : self.provider.cfg.get('client_id'),
             'client_secret' : self.provider.cfg.get('client_secret'),
-            'redirect_uri' : web.ctx.home + web.ctx.path,
+            'redirect_uri' : flask.request.root_url.rstrip('/') + flask.request.path,
             'nonce' : nonce_vals['auth_url_nonce'],
             'grant_type' : 'authorization_code'}
+
+        deriva_debug('authorization_code_flow token_args=%r' % (token_args,))
 
         token_request = urllib.request.Request(self.provider.cfg.get('token_endpoint'), urllib.parse.urlencode(token_args).encode())
         self.add_extra_token_request_headers(token_request)
@@ -370,17 +370,17 @@ class OAuth2Login (ClientLogin):
         # confusing exceptions / log messages).
         try:
             self.payload=json.load(u)
-#            web.debug("openid connect flow: payload is {p}".format(p=json.dumps(self.payload)))
+#            deriva_debug("openid connect flow: payload is {p}".format(p=json.dumps(self.payload)))
         except Exception as ex:
             raise OAUth2Exception('Exception decoding token payload: http code {code}'.format(code=str(u.getcode())))
         u.close()
             
         raw_id_token=self.payload.get('id_token')
         if raw_id_token is None:
-            web.debug("Illegal token response: didn't include an id token. Keys were {k}. Token type was {t}, scope was {s}".format(k=str(self.payload.keys()), t=str(self.payload.get('token_type')), s=str(self.payload.get('scope'))))
+            deriva_debug("Illegal token response: didn't include an id token. Keys were {k}. Token type was {t}, scope was {s}".format(k=str(self.payload.keys()), t=str(self.payload.get('token_type')), s=str(self.payload.get('scope'))))
             raise OAuth2Exception("Illegal token response: didn't include an id token")
 
-#        web.debug("Good token response. Keys were {k}. Token type was {t}, scope was {s}".format(k=str(self.payload.keys()), t=str(self.payload.get('token_type')), s=str(self.payload.get('scope'))))        
+#        deriva_debug("Good token response. Keys were {k}. Token type was {t}, scope was {s}".format(k=str(self.payload.keys()), t=str(self.payload.get('token_type')), s=str(self.payload.get('scope'))))
 
         # Validate id token
         u=self.open_url(urllib.request.Request(self.provider.cfg.get('jwks_uri')), "getting jwks info")
@@ -467,7 +467,7 @@ class OAuth2Login (ClientLogin):
             try:
                 return urllib.request.urlopen(req)
             except Exception as ev:
-                web.debug("Attempt {x} of {y} failed: Got {t} exception {ev} while {text} (url {url})".format(
+                deriva_debug("Attempt {x} of {y} failed: Got {t} exception {ev} while {text} (url {url})".format(
                     x=str(retry), y=str(max_retries), t=str(type(ev)), ev=str(ev), text=str(text), url=str(req.get_full_url())))
                 delay = random.uniform(0.75, 1.25) * math.pow(10.0, retry) * 0.00000001
                 time.sleep(delay)
@@ -494,14 +494,14 @@ class OAuth2Login (ClientLogin):
         # will be an id token. Compare the issuer, audience, and subject.
         if 'openid' in found_scopes and self.id_token != None:
             if self.userinfo.get('sub') != self.id_token.get('sub'):
-                web.debug("Subject mismatch id/userinfo")                
+                deriva_debug("Subject mismatch id/userinfo")
                 raise OAuth2UserinfoError("Subject mismatch id/userinfo")
             for key in ['iss', 'aud']:
                 uval = self.userinfo.get(key)
                 ival = self.id_token.get(key)
                 if not (uval == ival or (isinstance(uval, list) and ival in uval)):
-                    web.debug("id/userinfo mismatch for " + key)
-                    web.debug("userinfo[{key}] = {u}, id[{key}] = {i}".format(key=key, u=str(self.userinfo.get(key)), i=str(self.id_token.get(key))))
+                    deriva_debug("id/userinfo mismatch for " + key)
+                    deriva_debug("userinfo[{key}] = {u}, id[{key}] = {i}".format(key=key, u=str(self.userinfo.get(key)), i=str(self.id_token.get(key))))
                     raise OAuth2UserinfoError("id/userinfo mismatch for " + key)
             return
 
@@ -511,7 +511,7 @@ class OAuth2Login (ClientLogin):
             if a.get('scope') in found_scopes:
                 if a.get("issuer") == self.userinfo.get('iss'):
                     return
-        web.debug("Bad scope or issuer for OAuth2 bearer token")
+        deriva_debug("Bad scope or issuer for OAuth2 bearer token")
         raise OAuth2UserinfoError("Bad scope or issuer for OAuth2 bearer token")
             
 
@@ -680,6 +680,7 @@ class OAuth2PreauthProvider (PreauthProvider):
         Present any required pre-authentication information (e.g., a web form with options).
         """
         content_type = negotiated_content_type(
+            flask.request.environ,
             ['application/json', 'text/html'],
             'application/json'
             )
@@ -700,31 +701,35 @@ class OAuth2PreauthProvider (PreauthProvider):
         if self.authentication_uri_args["redirect_uri"] == None:
             self.authentication_uri_args["redirect_uri"] = self.make_relative_uri(str(self.cfg.get('oauth2_redirect_relative_uri')))
         session = self.make_session(conn, cur)
-        self.nonce_state.log_referrer(session.get('auth_url_nonce'), web.input().get('referrer'), conn, cur)
-        web.setcookie(self.nonce_cookie_name, session.get('auth_cookie_nonce'), secure=True, path="/")
+        self.nonce_state.log_referrer(session.get('auth_url_nonce'), web_input().get('referrer'), conn, cur)
+        deriva_ctx.deriva_response.set_cookie(self.nonce_cookie_name, session.get('auth_cookie_nonce'), secure=True, path="/")
         auth_request_args = self.make_auth_request_args(session)
         if do_redirect :
-            raise web.seeother(self.make_redirect_uri(auth_request_args))
+            raise flask.redirect(self.make_redirect_uri(auth_request_args), code=303)
         else:
             return self.make_redirect_uri(auth_request_args)
 
     def make_uri(self, base):
-        if base == None:
+        if base is None:
             return None
-        return "{prot}://{host}{path}".format(prot=web.ctx.protocol, host=web.ctx.host, path=base)
+        return "{prot}://{host}{path}".format(
+            prot=flask.request.scheme,
+            host=flask.request.host,
+            path=base,
+        )
 
     def preauth_referrer(self):
         """
         Get the original referring URL (stored in the auth_nonce cookie)
         """
-        auth_url_nonce = web.input().get('state')
+        auth_url_nonce = web_input().get('state')
         if auth_url_nonce == None:
             return None
         else:
             return self.nonce_state.get_referrer(auth_url_nonce)
         
     def make_relative_uri(self, relative_uri):
-        return web.ctx.home + relative_uri
+        return flask.request.root_path + relative_uri
 
     def make_auth_request_args(self, session):
         auth_request_args=dict()
@@ -846,7 +851,7 @@ class OAuth2SessionStateProvider(database.DatabaseSessionStateProvider):
 
     def terminate(self, manager, context, conn=None, cur=None, preferred_final_url=None):
         database.DatabaseSessionStateProvider.terminate(self, manager, context, conn, cur, preferred_final_url)
-        web.setcookie(self.nonce_cookie_name, "", expires=-1)
+        deriva_ctx.deriva_response.set_cookie(self.nonce_cookie_name, "", expires=-1)
 
 class OAuth2ClientProvider (database.DatabaseClientProvider):
 
@@ -1019,7 +1024,7 @@ class OAuth2SessionIdProvider (webcookie.WebcookieSessionIdProvider, database.Da
                 if discovery_scopes[key] in accepted_scopes:
                     final_scopes[key] = discovery_scopes[key]
                 else:
-                    web.debug("'{s}' is configured as a discovery scope but not an accepted scope".format(s=discovery_scopes[key]))
+                    deriva_debug("'{s}' is configured as a discovery scope but not an accepted scope".format(s=discovery_scopes[key]))
             self.discovery_info = {"oauth2_scopes" : final_scopes}
         else:
             self.discovery_info = {}

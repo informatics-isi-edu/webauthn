@@ -1,6 +1,6 @@
 
 # 
-# Copyright 2010-2017 University of Southern California
+# Copyright 2010-2023 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -42,20 +42,17 @@ import random
 from .providers import *
 from ..util import *
 
-config_built_ins = web.storage(
+config_built_ins = web_storage(
     web_cookie_name= 'webauthn',
     web_cookie_secure= True,
     web_cookie_path= '/',
     tracking_cookie_name='webauthn_track',
 )
 
-test_cookies = web.storage()
-
 __all__ = [
     'generate_sessguid',
     'WebcookieSessionIdProvider',
     'config_built_ins',
-    'test_env'
     ]
 
 def generate_sessguid():
@@ -78,12 +75,8 @@ class WebcookieSessionIdProvider (SessionIdProvider):
         self.trackcookiename = config.tracking_cookie_name
 
     def get_request_sessionids(self, manager, context, conn=None, cur=None):
-        if 'env' in web.ctx:
-            cookie = web.cookies().get(self.cookiename)
-            track = web.cookies().get(self.trackcookiename)
-        else:
-            cookie = test_cookies.get(self.cookiename)
-            track = None
+        cookie = flask.request.cookies.get(self.cookiename)
+        track = flask.request.cookies.get(self.trackcookiename)
 
         if track:
             context.tracking = track
@@ -103,40 +96,17 @@ class WebcookieSessionIdProvider (SessionIdProvider):
         else:
             cookie = ''
 
-        if 'env' in web.ctx:
-            self.set_cookie(cookie)
-        else:
-            test_cookies[self.cookiename] = cookie
+        self.set_cookie(cookie)
 
     def set_cookie(self, cookie, expires=None):
-        try:
-            # newer web.py needs path or defaults to current URL path
-            if expires != None:
-                web.setcookie(self.cookiename,
-                              cookie,
-                              domain=None,
-                              secure=self.secure,
-                              path=self.path,
-                              expires=expires)
-            else:
-                web.setcookie(self.cookiename,
-                              cookie,
-                              domain=None,
-                              secure=self.secure,
-                              path=self.path)
-        except TypeError:
-            # old web.py doesn't support path keyword
-            if expires != None:
-                web.setcookie(self.cookiename,
-                              cookie,
-                              domain=None,
-                              secure=self.secure,
-                              expires=expires)
-            else:
-                web.setcookie(self.cookiename,
-                              cookie,
-                              domain=None,
-                              secure=self.secure)
+        deriva_ctx.deriva_response.set_cookie(
+            self.cookiename,
+            cookie,
+            domain=None,
+            secure=self.secure,
+            path=self.path,
+            expires=expires,
+        )
 
     def terminate(self, manager, context, conn=None, cur=None):
         self.set_cookie("", -1)

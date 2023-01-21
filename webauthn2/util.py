@@ -1,6 +1,6 @@
 
 # 
-# Copyright 2010-2022 University of Southern California
+# Copyright 2010-2023 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -43,9 +43,50 @@ jsonFileReader = json.load
 LOGOUT_URL = "logout_url"
 DEFAULT_LOGOUT_PATH = "default_logout_path"
 
+def deriva_debug(*args):
+    """Shim to emulate web.debug non-logger diagnostics.
+    """
+    if len(args) > 1:
+        v = str(tuple(args))
+    else:
+        v = str(args[0])
+
+    print(v, file=sys.stderr, flush=True)
+
+class web_storage(dict):
+    """Shim to emulate web.storage attr-dict class.
+    """
+    def __getattribute__(self, a):
+        """Allow reading of dict keys as attributes.
+
+        Don't allow dict keys to shadow actual attributes of dict, and
+        proxy those instead.
+        """
+        sself = super(web_storage, self)
+        try:
+            return sself.__getattribute__(a)
+        except:
+            if a in self:
+                return self[a]
+            else:
+                raise AttributeError(a)
+
+def web_input():
+    """Shim to emulate web.input form/query parser.
+
+    This returns form inputs if available or falls back to query params.
+    """
+    storage1 = web_storage(flask.request.form)
+    storage2 = web_storage(flask.request.args)
+    #deriva_debug('web_input %r environ=%r form=%r args=%r' % (flask.request.full_path, flask.request.environ, storage1, storage2))
+    if storage1:
+        return storage1
+    else:
+        return storage2
+
 def jsonWriter(o, indent=None):
     def munge(o):
-        if isinstance(o, (dict, web.Storage)):
+        if isinstance(o, (dict, web_storage)):
             return {
                 p[0]: munge(p[1])
                 for p in o.items()
@@ -61,8 +102,11 @@ def jsonWriter(o, indent=None):
 
     return json.dumps( munge(o), indent=indent, ensure_ascii=False ).encode()
 
-def negotiated_content_type(supported_types=['text/csv', 'application/json', 'application/x-json-stream'], default=None):
+def negotiated_content_type(environ, supported_types=['text/csv', 'application/json', 'application/x-json-stream'], default=None):
     """Determine negotiated response content-type from Accept header.
+
+       environ: the WSGI dict-like environment containing
+         HTTP_* header content.
 
        supported_types: a list of MIME types the caller would be able
          to implement if the client has requested one.
@@ -87,7 +131,7 @@ def negotiated_content_type(supported_types=['text/csv', 'application/json', 'ap
         return (q, t)
 
     try:
-        accept = web.ctx.env['HTTP_ACCEPT']
+        accept = environ['HTTP_ACCEPT']
     except:
         accept = ""
             
@@ -108,7 +152,7 @@ def negotiated_content_type(supported_types=['text/csv', 'application/json', 'ap
 
 def merge_config(overrides=None, defaults=None, jsonFileName=None, built_ins={}):
     """
-    Construct web.storage config result from inputs.
+    Construct web_storage config result from inputs.
 
     The configuration parameters are obtained in descending order
     of preference from these sources:
@@ -145,7 +189,7 @@ def merge_config(overrides=None, defaults=None, jsonFileName=None, built_ins={})
         if type(defaults) != dict:
             raise TypeError('%r' % defaults)
 
-    config = web.storage()
+    config = web_storage()
     config.update(built_ins)
     if defaults:
         config.update(defaults)
@@ -195,7 +239,11 @@ def expand_relative_url(path):
         return None
     path = path.strip()
     if path[0] == '/':
-        return "{prot}://{host}{path}".format(prot=web.ctx.protocol, host=web.ctx.host, path=path)
+        return "{prot}://{host}{path}".format(
+            prot=flask.request.scheme,
+            host=flask.request.host,
+            path=path
+        )
     return path
 
 def generate_random_string(length=24, alpha=True, numeric=True, symbols=False, source=None):
@@ -327,7 +375,7 @@ def session_from_environment():
     """
     b64_session_string = None
     try:
-        b64_session_string = web.ctx.env['WEBAUTHN_SESSION_BASE64']
+        b64_session_string = flask.request.environ['WEBAUTHN_SESSION_BASE64']
     except:
         b64_session_string = os.environ.get('WEBAUTHN_SESSION_BASE64')
 
@@ -587,7 +635,7 @@ class DatabaseConnection (PooledConnection):
 
                 except (psycopg2.InterfaceError, psycopg2.OperationalError) as ev:
                     et, ev2, tb = sys.exc_info()
-                    web.debug('got exception "%s" during _db_wrapper(), retries = %d' % (str(ev2), retries),
+                    deriva_debug('got exception "%s" during _db_wrapper(), retries = %d' % (str(ev2), retries),
                               traceback.format_exception(et, ev2, tb))
                     # abandon stale db connection and retry
                     if conn is not None:
@@ -617,7 +665,7 @@ class DatabaseConnection (PooledConnection):
                     def trace():
                         et, ev2, tb = sys.exc_info()
                         if tb is not None:
-                            web.debug('Exception in db_wrapper here: {t}'.format(t=traceback.format_tb(tb)))
+                            deriva_debug('Exception in db_wrapper here: {t}'.format(t=traceback.format_tb(tb)))
 
                     # see if subclass told us how to handle exception
                     for cls, do_commit, do_trace in self.extended_exceptions:
@@ -647,12 +695,12 @@ class DatabaseConnection (PooledConnection):
                     # we never get here unless:
                     # 1. an exception prevented 'return val' above
                     # 2. we caught it in an except branch above and it got saved as last_ev for possible retry
-                    web.debug('giving up with %s after %d retries' % (str(type(last_ev)), self.database_max_retries))
+                    deriva_debug('giving up with %s after %d retries' % (str(type(last_ev)), self.database_max_retries))
                     raise last_ev
                 else:
                     attempt = (retries - self.database_max_retries - 1) * -1
                     delay =  random.uniform(0.75, 1.25) * math.pow(10.0, attempt) * 0.00000001
-                    web.debug('transaction attempt %d of %d: delaying %f after "%s"' % (attempt, self.database_max_retries, delay, str(last_ev)))
+                    deriva_debug('transaction attempt %d of %d: delaying %f after "%s"' % (attempt, self.database_max_retries, delay, str(last_ev)))
                     time.sleep(delay)
 
         finally:
