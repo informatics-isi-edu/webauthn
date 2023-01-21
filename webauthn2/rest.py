@@ -62,12 +62,13 @@ just use the Manager instance directly in its own message handlers:
      def GET(self):
         self.context = manager.get_request_context()
 
+but this requires that the application have access to the entire
+webauthn2 service container and backend resources. The mod_webauthn
+approach is preferred to allow isolation between these components.
+
 """
 
 from __future__ import print_function
-from .util import *
-from .manager import Manager, Context
-from .providers import Session
 import re
 import logging
 from logging.handlers import SysLogHandler
@@ -77,10 +78,14 @@ import struct
 import json
 import hashlib
 from collections import OrderedDict
-
-import web
 import traceback
 import sys
+import flask
+import flask.views
+
+from .util import *
+from .manager import Manager, Context
+from .providers import Session
 
 ## setup logger and web request log helpers
 logger = logging.getLogger('webauthn')

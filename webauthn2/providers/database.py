@@ -49,7 +49,6 @@ Provider-specific parameters for database module:
 """
 
 import json
-import web
 
 import hmac
 import random

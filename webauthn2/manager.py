@@ -87,12 +87,11 @@ database_type
 import os.path
 import platform
 import datetime
-import web
 from . import util
 from . import providers
 
 from .providers.providers import Session, ID
-from .util import Context, urlquote
+from .util import Context, urlquote, web_storage
 
 source_checksum = None
 
@@ -210,7 +209,7 @@ class Manager (util.DatabaseConnection):
         require_attributes = True will raise an IndexError exception
            if no client attributes can be established
 
-        setheader = True will allow this call to set web.py response
+        setheader = True will allow this call to set response
            headers if necessary for the enabled authentication providers
 
         """

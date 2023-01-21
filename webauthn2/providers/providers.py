@@ -92,8 +92,7 @@ General webauthn2 provider-related parameters:
 
 """
 
-import web
-from webauthn2.util import *
+from ..util import *
 
 config_built_ins = web_storage(
     listusers_permit=[],

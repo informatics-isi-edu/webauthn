@@ -19,8 +19,8 @@ Webauthn2 provider maps.
 """
 
 import traceback
-import web
 
+from ..util import web_storage
 from . import providers
 from . import null
 from . import webcookie

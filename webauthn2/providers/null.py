@@ -21,7 +21,7 @@ Webauthn2 null provider stubs.
 
 """
 
-import web
+from ..util import *
 from .providers import *
 
 config_built_ins = web_storage()

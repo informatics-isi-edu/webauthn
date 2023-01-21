@@ -1,6 +1,6 @@
 """
 webauthn2 exceptions. webauthn2.rest provides handlers that map these
-to web.py HTTP errors, defined in webauthn2.util.
+to rest/HTTP errors, defined in webauthn2.util.
 """
 
 class Webauthn2Exception(Exception):

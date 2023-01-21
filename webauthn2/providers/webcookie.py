@@ -36,8 +36,8 @@ Provider-specific parameters for webcookie module:
 
 """
 
-import web
 import random
+import flask
 
 from .providers import *
 from ..util import *

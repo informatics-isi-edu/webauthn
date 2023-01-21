@@ -18,7 +18,6 @@
 import psycopg2
 import psycopg2.extensions
 import psycopg2.extras
-import web
 import urllib
 import urllib.error
 import datetime
@@ -29,6 +28,11 @@ import os
 import sys
 import traceback
 import base64
+from collections import OrderedDict
+import flask
+from flask import g as deriva_ctx
+import werkzeug.exceptions
+import werkzeug.http
 
 psycopg2.extensions.register_type(psycopg2.extensions.JSON)
 psycopg2.extensions.register_type(psycopg2.extensions.JSONARRAY)

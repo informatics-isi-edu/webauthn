@@ -48,14 +48,12 @@ Provider-specific parameters specific to OAuth2:
 
 """
 
-import web
-
 import random
 import urllib
 import uuid
-import web
 import json
 import psycopg2
+import flask
 import oauth2client.client
 import jwkest
 from jwkest import jwk

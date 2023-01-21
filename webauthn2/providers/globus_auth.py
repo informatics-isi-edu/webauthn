@@ -22,8 +22,6 @@ import base64
 import urllib
 import json
 
-import web
-
 from .providers import *
 from ..util import *
 from . import database
