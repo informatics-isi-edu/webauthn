@@ -461,16 +461,18 @@ class OAuth2Login (ClientLogin):
         # The access code can only be used once, so after the first use, we can't
         # let db_wrapper retry, so we do our own retry loop here.
         max_retries=5
+        ev2 = None
         for retry in range(1, max_retries):
             try:
                 return urllib.request.urlopen(req)
             except Exception as ev:
+                ev2 = ev
                 deriva_debug("Attempt {x} of {y} failed: Got {t} exception {ev} while {text} (url {url})".format(
                     x=str(retry), y=str(max_retries), t=str(type(ev)), ev=str(ev), text=str(text), url=str(req.get_full_url())))
                 delay = random.uniform(0.75, 1.25) * math.pow(10.0, retry) * 0.00000001
                 time.sleep(delay)
-                
-        raise OAuth2ProtocolError("Error {text}: {ev} ({url})".format(text=text, ev=str(ev), url=req.get_full_url()))
+
+        raise OAuth2ProtocolError("Error {text}: {ev} ({url})".format(text=text, ev=str(ev2), url=req.get_full_url()))
 
     def validate_userinfo(self):
         # Check times
