@@ -95,6 +95,11 @@ sysloghandler.setFormatter(syslogformatter)
 logger.addHandler(sysloghandler)
 logger.setLevel(logging.INFO)
 
+app = flask.Flask(__name__)
+
+# instantiate manager based on service config
+_manager = Manager()
+
 def get_log_parts(start_time_key, request_guid_key, content_range_key, content_type_key):
     """Generate a dictionary of interpolation keys used by our logging template.
 
@@ -220,32 +225,42 @@ def request_trace(tracedata):
     """
     logger.info(request_trace_json(tracedata, log_parts()))
 
-def web_method():
-    """Augment web handler method with common service logic."""
-    def helper(original_method):
-        def wrapper(*args):
-            # request context init
-            web.ctx.webauthn_request_guid = base64.b64encode( struct.pack('Q', random.getrandbits(64)) ).decode()
-            web.ctx.webauthn_start_time = datetime.datetime.now(timezone.utc)
-            web.ctx.webauthn_request_content_range = None
-            web.ctx.webauthn_content_type = None
-            web.ctx.webauthn2_manager = args[0]
-            web.ctx.webauthn2_context = Context() # set empty context for sanity
-            web.ctx.webauthn_request_trace = request_trace
+@app.before_request
+def before_request():
+    # request context init
+    deriva_ctx.webauthn_dispatched_handler = None
+    deriva_ctx.deriva_response = flask.Response() # allow us to accumulate response content by side-effect
+    deriva_ctx.webauthn_request_guid = base64.b64encode( struct.pack('Q', random.getrandbits(64)) ).decode()
+    deriva_ctx.webauthn_start_time = datetime.datetime.now(timezone.utc)
+    deriva_ctx.webauthn_request_content_range = None
+    deriva_ctx.webauthn_content_type = None
+    deriva_ctx.webauthn2_context = Context() # set empty context for sanity
+    deriva_ctx.webauthn_request_trace = request_trace
 
-            try:
-                # run actual method
-                return original_method(*args)
-            finally:
-                # finalize
-                self = args[0]
-                if hasattr(self, 'context'):
-                    web.ctx.webauthn2_context = self.context
+@app.after_request
+def after_request(response):
+    if isinstance(response, flask.Response):
+        deriva_ctx.webauthn_status = response.status
+    elif isinstance(response, RestException):
+        deriva_ctx.webauthn_status = response.code
+    deriva_ctx.webauthn_content_type = response.headers.get('content-type', 'none')
+    if 'content-range' in response.headers:
+        content_range = response.headers['content-range']
+        if content_range.startswith('bytes '):
+            content_range = content_range[6:]
+        deriva_ctx.webauthn_request_content_range = content_range
+    elif 'content-length' in response.headers:
+        deriva_ctx.webauthn_request_content_range = '*/%s' % response.headers['content-length']
+    else:
+        deriva_ctx.webauthn_request_content_range = '*/0'
 
-                logger.info( request_final_json(log_parts()) )
-        return wrapper
-    return helper
-    
+    if deriva_ctx.webauthn_dispatched_handler is not None \
+       and hasattr(deriva_ctx.webauthn_dispatched_handler, 'context'):
+        deriva_ctx.webauthn2_context = deriva_ctx.webauthn_dispatched_handler.context 
+
+    logger.info( request_final_json(log_parts()) )
+    return response
+
 class RestHandlerFactory (object):
     """
     RestHandlerFactory encapsulates one-time application startup.
@@ -272,9 +287,9 @@ class RestHandlerFactory (object):
         session_uri = manager.config.get('handler_uri_usersession', None)
         session_duration = datetime.timedelta(minutes=int(manager.config.get('session_expiration_minutes', 30)))
 
-        class RestHandler (DatabaseConnection):
+        class RestHandler (DatabaseConnection, flask.views.MethodView):
             """
-            RestHandler is a base class suitable for use as a web.py request handler.
+            RestHandler is a base class suitable for use as a flask request handler.
 
             It initializes its self.manager and its parent class
             DatabaseConnection.  Derived application classes must
@@ -293,19 +308,21 @@ class RestHandlerFactory (object):
             def __init__(self):
                 DatabaseConnection.__init__(self, manager.config)
                 self.manager = manager
+                deriva_ctx.webauthn_dispatched_handler = self
 
         class UserSession (RestHandler):
             """
             UserSession is a RESTful login/logout handler.
 
-            Register it at a web.py URI pattern like:
+            Register it at a flask route like:
 
-               "your_session_prefix(/?)"
-               "your_session_prefix(/[^/]+)"
+               "your_session_prefix"
+               "your_session_prefix/"
+               "your_session_prefix/<sessionids>"
+               "your_session_prefix/<sessionids>/"
 
-            so its methods recieve one positional argument with a URI
-            fragment containing an explicit session ID prefixed with
-            the '/' character.
+            so its methods recieve one optional argument with a URI
+            fragment containing an explicit session ID
             
             """
             def __init__(self):
@@ -313,8 +330,7 @@ class RestHandlerFactory (object):
                 self.session_uri = session_uri
                 self.session_duration = session_duration
 
-            @web_method()
-            def POST(self, sessionids, storage=None):
+            def post(self, sessionids='', storage=None):
                 """
                 Session start (login) uses POST with form parameters.
 
@@ -327,10 +343,6 @@ class RestHandlerFactory (object):
                 already authenticated in some manner.
 
                 """
-                if sessionids:
-                    # trim leading '/'
-                    sessionids = sessionids[1:]
-
                 if sessionids:
                     # no POST support for session ID URLs
                     raise NoMethod()
@@ -361,14 +373,13 @@ class RestHandlerFactory (object):
 
                 if sessionids:
                     # format is /key,... so unpack
-                    sessionids = [ urlunquote_webpy(i) for i in sessionids[1:].split(',') ]
+                    sessionids = [ urlunquote(i) for i in sessionids.split(',') ]
 
                     for uri_key in sessionids:
                         if uri_key not in self.context.session.keys:
                             raise Forbidden('third-party session access for key "%s" forbidden' % uri_key)
 
-            @web_method()
-            def GET(self, sessionids, conn=None, cur=None):
+            def get(self, sessionids='', conn=None, cur=None):
                 """
                 Session status uses GET.
 
@@ -454,8 +465,7 @@ class RestHandlerFactory (object):
                 deriva_ctx.deriva_response.content_length = len(response)
                 return deriva_ctx.deriva_response
 
-            @web_method()
-            def PUT(self, sessionids):
+            def put(self, sessionids=''):
                 """
                 Session extension uses PUT.
 
@@ -486,8 +496,7 @@ class RestHandlerFactory (object):
 
                 return self._db_wrapper(db_body)
 
-            @web_method()
-            def DELETE(self, sessionids):
+            def delete(self, sessionids=''):
                 """
                 Session termination uses DELETE.
 
@@ -587,7 +596,7 @@ class RestHandlerFactory (object):
             """
             UserPassword is a RESTful password management handler.
 
-            Register it at a web.py URI pattern like:
+            Register it at a flask URI pattern like:
 
                "your_passwd_prefix(/?)"
                "your_passwd_prefix(/[^/]+)"
@@ -605,8 +614,8 @@ class RestHandlerFactory (object):
                     raise NoMethod()
 
                 if userids:
-                    # format is /user,...
-                    userids = set([ urlunquote_webpy(i) for i in userids[1:].split(',') ])
+                    # format is user,...
+                    userids = set([ urlunquote(i) for i in userids.split(',') ])
                 elif self.context.get_client_id():
                     userids = [ self.context.client.get_client_id() ]
                 else:
@@ -614,8 +623,7 @@ class RestHandlerFactory (object):
 
                 return userids
 
-            @web_method()
-            def PUT(self, userids, storage=None):
+            def put(self, userids='', storage=None):
                 """
                 Password update uses PUT.
 
@@ -671,8 +679,7 @@ class RestHandlerFactory (object):
                 deriva_ctx.deriva_response.content_length = len(response)
                 return deriva_ctx.deriva_response
 
-            @web_method()
-            def DELETE(self, userids, storage=None):
+            def delete(self, userids='', storage=None):
                 """
                 Password disable uses DELETE.
 
@@ -723,10 +730,12 @@ class RestHandlerFactory (object):
             """
             UserManage is a RESTful user identity management handler.
 
-            Register it at a web.py URI pattern like:
+            Register it at a flask route like:
 
-               "your_user_prefix(/?)"
-               "your_user_prefix(/[^/]+)"
+               "your_user_prefix"
+               "your_user_prefix/"
+               "your_user_prefix/<userids>"
+               "your_user_prefix/<userids>/"
 
             so its methods recieve one positional argument with a URI
             fragment containing an explicit user ID.
@@ -735,8 +744,7 @@ class RestHandlerFactory (object):
             def __init__(self):
                 RestHandler.__init__(self)
 
-            @web_method()
-            def GET(self, userids, storage=None):
+            def get(self, userids='', storage=None):
                 """
                 User identity listing uses GET.
 
@@ -750,9 +758,9 @@ class RestHandlerFactory (object):
 
                 """
                 if userids:
-                    # format is /user,...
+                    # format is user,...
                     userids_orig = userids
-                    userids = set([ urlunquote_webpy(i) for i in userids[1:].split(',') ])
+                    userids = set([ urlunquote(i) for i in userids.split(',') ])
                 else:
                     userids = set()
 
@@ -800,8 +808,7 @@ class RestHandlerFactory (object):
                 deriva_ctx.deriva_response.content_length = len(response)
                 return deriva_ctx.deriva_response
 
-            @web_method()
-            def PUT(self, userids, storage=None):
+            def put(self, userids='', storage=None):
                 """
                 User identity creation uses PUT.
 
@@ -815,8 +822,8 @@ class RestHandlerFactory (object):
 
                 """
                 if userids:
-                    # format is /user,...
-                    userids = set([ urlunquote_webpy(i) for i in userids[1:].split(',') ])
+                    # format is user,...
+                    userids = set([ urlunquote(i) for i in userids.split(',') ])
                 else:
                     userids = set()
 
@@ -848,8 +855,7 @@ class RestHandlerFactory (object):
                 deriva_ctx.deriva_response.content_length = len(response)
                 return deriva_ctx.deriva_response
 
-            @web_method()
-            def DELETE(self, userids, storage=None):
+            def delete(self, userids='', storage=None):
                 """
                 User identity removal uses DELETE.
 
@@ -859,8 +865,8 @@ class RestHandlerFactory (object):
                 
                 """
                 if userids:
-                    # format is /user,...
-                    userids = set([ urlunquote_webpy(i) for i in userids[1:].split(',') ])
+                    # format is user,...
+                    userids = set([ urlunquote(i) for i in userids.split(',') ])
                 else:
                     userids = set()
 
@@ -892,10 +898,12 @@ class RestHandlerFactory (object):
             """
             AttrManage is a RESTful attribute management handler.
 
-            Register it at a web.py URI pattern like:
+            Register it at a flask route like:
 
-               "your_attr_prefix(/?)"
-               "your_attr_prefix(/[^/]+)"
+               "your_attr_prefix"
+               "your_attr_prefix/"
+               "your_attr_prefix/<attrs>"
+               "your_attr_prefix/<attrs>/"
 
             so its methods recieve one positional argument with a URI
             fragment containing an explicit attr ID.
@@ -904,8 +912,7 @@ class RestHandlerFactory (object):
             def __init__(self):
                 RestHandler.__init__(self)
 
-            @web_method()
-            def GET(self, attrs, storage=None):
+            def get(self, attrs='', storage=None):
                 """
                 Attribute listing uses GET.
 
@@ -919,8 +926,8 @@ class RestHandlerFactory (object):
 
                 """
                 if attrs:
-                    # format is /attr,...
-                    attrs = set([ urlunquote_webpy(i) for i in attrs[1:].split(',') ])
+                    # format is attr,...
+                    attrs = set([ urlunquote(i) for i in attrs.split(',') ])
                 else:
                     attrs = set()
 
@@ -962,8 +969,7 @@ class RestHandlerFactory (object):
                 deriva_ctx.deriva_response.content_length = len(response)
                 return deriva_ctx.deriva_response
 
-            @web_method()
-            def PUT(self, attrs, storage=None):
+            def put(self, attrs='', storage=None):
                 """
                 Attribute creation uses PUT.
 
@@ -977,8 +983,8 @@ class RestHandlerFactory (object):
 
                 """
                 if attrs:
-                    # format is /attr,...
-                    attrs = set([ urlunquote_webpy(i) for i in attrs[1:].split(',') ])
+                    # format is attr,...
+                    attrs = set([ urlunquote(i) for i in attrs.split(',') ])
                 else:
                     attrs = set()
 
@@ -1010,8 +1016,7 @@ class RestHandlerFactory (object):
                 deriva_ctx.deriva_response.content_length = len(response)
                 return deriva_ctx.deriva_response
 
-            @web_method()
-            def DELETE(self, attrs, storage=None):
+            def delete(self, attrs='', storage=None):
                 """
                 Attribute removal uses DELETE.
 
@@ -1021,8 +1026,8 @@ class RestHandlerFactory (object):
                 
                 """
                 if attrs:
-                    # format is /attr,...
-                    attrs = set([ urlunquote_webpy(i) for i in attrs[1:].split(',') ])
+                    # format is attr,...
+                    attrs = set([ urlunquote(i) for i in attrs.split(',') ])
                 else:
                     attrs = set()
 
@@ -1054,9 +1059,12 @@ class RestHandlerFactory (object):
             """
             AttrAssign is a RESTful attribute assignment management handler.
 
-            Register it at a web.py URI pattern like:
+            Register it at a flask route like:
 
-               "your_user_prefix/([^/]+)/attribute(/[^/]+)"
+               "your_user_prefix/<userid>/attribute"
+               "your_user_prefix/<userid>/attribute/"
+               "your_user_prefix/<userid>/attribute/<attrs>"
+               "your_user_prefix/<userid>/attribute/<attrs>/"
 
             so its methods recieve one positional argument with a URI
             fragment containing an explicit user ID and one positional
@@ -1066,8 +1074,7 @@ class RestHandlerFactory (object):
             def __init__(self):
                 RestHandler.__init__(self)
 
-            @web_method()
-            def GET(self, userid, attrs, storage=None):
+            def get(self, userid, attrs='', storage=None):
                 """
                 Attribute assignment listing uses GET.
 
@@ -1081,8 +1088,8 @@ class RestHandlerFactory (object):
 
                 """
                 if attrs:
-                    # format is /attr,...
-                    attrs = set([ urlunquote_webpy(i) for i in attrs[1:].split(',') ])
+                    # format is attr,...
+                    attrs = set([ urlunquote(i) for i in attrs.split(',') ])
                 else:
                     attrs = set()
 
@@ -1122,8 +1129,7 @@ class RestHandlerFactory (object):
                 deriva_ctx.deriva_response.content_length = len(response)
                 return deriva_ctx.deriva_response
 
-            @web_method()
-            def PUT(self, userid, attrs, storage=None):
+            def put(self, userid, attrs='', storage=None):
                 """
                 Attribute assignment creation uses PUT.
 
@@ -1137,8 +1143,8 @@ class RestHandlerFactory (object):
 
                 """
                 if attrs:
-                    # format is /attr,...
-                    attrs = set([ urlunquote_webpy(i) for i in attrs[1:].split(',') ])
+                    # format is attr,...
+                    attrs = set([ urlunquote(i) for i in attrs.split(',') ])
                 else:
                     attrs = set()
 
@@ -1171,8 +1177,7 @@ class RestHandlerFactory (object):
                 deriva_ctx.deriva_response.content_length = len(response)
                 return deriva_ctx.deriva_response
 
-            @web_method()
-            def DELETE(self, userid, attrs, storage=None):
+            def delete(self, userid, attrs='', storage=None):
                 """
                 Attribute removal uses DELETE.
 
@@ -1182,8 +1187,8 @@ class RestHandlerFactory (object):
                 
                 """
                 if attrs:
-                    # format is /attr,...
-                    attrs = set([ urlunquote_webpy(i) for i in attrs[1:].split(',') ])
+                    # format is attr,...
+                    attrs = set([ urlunquote(i) for i in attrs.split(',') ])
                 else:
                     attrs = set()
 
@@ -1219,9 +1224,12 @@ class RestHandlerFactory (object):
             """
             AttrNest is a RESTful attribute nesting management handler.
 
-            Register it at a web.py URI pattern like:
+            Register it at a flask route like:
 
-               "your_attr_prefix/([^/]+)/implies(/[^/]+)"
+               "your_attr_prefix/<child>/implies"
+               "your_attr_prefix/<child>/implies/"
+               "your_attr_prefix/<child>/implies/<parents>"
+               "your_attr_prefix/<child>/implies/<parents>/"
 
             so its methods recieve first positional argument with a
             URI fragment containing an explicit attribute ID and one
@@ -1232,8 +1240,7 @@ class RestHandlerFactory (object):
             def __init__(self):
                 RestHandler.__init__(self)
 
-            @web_method()
-            def GET(self, child, parents, storage=None):
+            def get(self, child, parents, storage=None):
                 """
                 Attribute nesting listing uses GET.
 
@@ -1247,8 +1254,8 @@ class RestHandlerFactory (object):
 
                 """
                 if parents:
-                    # format is /attr,...
-                    parents = set([ urlunquote_webpy(i) for i in parents[1:].split(',') ])
+                    # format is attr,...
+                    parents = set([ urlunquote(i) for i in parents.split(',') ])
                 else:
                     parents = set()
 
@@ -1287,8 +1294,7 @@ class RestHandlerFactory (object):
                 deriva_ctx.deriva_response.content_length = len(response)
                 return deriva_ctx.deriva_response
 
-            @web_method()
-            def PUT(self, child, parents, storage=None):
+            def put(self, child, parents, storage=None):
                 """
                 Attribute nesting creation uses PUT.
 
@@ -1303,8 +1309,8 @@ class RestHandlerFactory (object):
 
                 """
                 if parents:
-                    # format is /attr,...
-                    parents = set([ urlunquote_webpy(i) for i in parents[1:].split(',') ])
+                    # format is attr,...
+                    parents = set([ urlunquote(i) for i in parents.split(',') ])
                 else:
                     parents = set()
 
@@ -1337,8 +1343,7 @@ class RestHandlerFactory (object):
                 deriva_ctx.deriva_response.content_length = len(response)
                 return deriva_ctx.deriva_response
 
-            @web_method()
-            def DELETE(self, child, parents, storage=None):
+            def delete(self, child, parents, storage=None):
                 """
                 Attribute nest removal uses DELETE.
 
@@ -1349,8 +1354,8 @@ class RestHandlerFactory (object):
                 
                 """
                 if parents:
-                    # format is /attr,...
-                    parents = set([ urlunquote_webpy(i) for i in parents[1:].split(',') ])
+                    # format is attr,...
+                    parents = set([ urlunquote(i) for i in parents.split(',') ])
                 else:
                     parents = set()
 
@@ -1385,17 +1390,16 @@ class RestHandlerFactory (object):
             """
             Preauth is a RESTful pre-authentication handler.
 
-            Register it at a web.py URI pattern like:
+            Register it at a flask route like:
 
-               "your_preauth_prefix(/?)"
-               "your_preauth_prefix(/[^/]+)"
+               "your_preauth_prefix"
+               "your_preauth_prefix/"
             
             """
             def __init__(self):
                 RestHandler.__init__(self)
 
-            @web_method()
-            def GET(self, conn=None, cur=None):
+            def get(self, conn=None, cur=None):
                 """
                 Return pre-authentication data (e.g., display a web form for users to select among IdPs).
                 """
@@ -1434,10 +1438,12 @@ class RestHandlerFactory (object):
         class DebugUserSession(UserSession):
             """
             This class should be used only for debugging, to provide a convenient interface for
-            DELETE /session. If you decide to register it use a web.py pattern like:
+            DELETE /session. If you decide to register it use a flask route like:
 
-               "your_session_prefix(/?)"
-               "your_session_prefix(/[^/]+)"
+               "your_session_prefix"
+               "your_session_prefix/"
+               "your_session_prefix/<sessionids>"
+               "your_session_prefix/<sessionids>/"
 
             so its methods recieve one positional argument. Currently the only recognized argument
             is "/logout", which will do the same as DELETE /session.
@@ -1446,39 +1452,29 @@ class RestHandlerFactory (object):
             def __init(self):
                 RestHandler.__init__(self)
 
-            @web_method()
-            def GET(self, sessionids, conn=None, cur=None):
-                return self.DELETE(sessionids)
+            def get(self, sessionids='', conn=None, cur=None):
+                return self.delete(sessionids)
                 
         class Discovery(RestHandler):
             """
             This class is used to provide discovery information (e.g., oauth2 sessions accepted in request headers).
 
-            Register it at a web.py URI pattern like:
+            Register it at a flask route like:
 
-               "your_session_prefix(/?)"
+               "your_session_prefix"
+               "your_session_prefix/"
             
             """
             def __init(self):
                 RestHandler.__init__(self)
 
-            @web_method()
-            def GET(self, conn=None, cur=None):
+            def get(self, conn=None, cur=None):
                 response = jsonWriter(self.manager.discovery_info) + b'\n'
                 deriva_ctx.deriva_response.set_data(response)
                 deriva_ctx.deriva_response.status = '200 OK'
                 deriva_ctx.deriva_response.content_type = 'application/json'
                 deriva_ctx.deriva_response.content_length = len(response)
                 return deriva_ctx.deriva_response
-
-            def PUT(self):
-                raise NoMethod()
-
-            def POST(self):
-                raise NoMethod()
-
-            def DELETE(self):
-                raise NoMethod()
 
         # make these classes available from factory instance
         self.RestHandler = RestHandler
@@ -1493,6 +1489,79 @@ class RestHandlerFactory (object):
         self.Discovery = Discovery
 
 
-
 class ConfigurationError(RuntimeError):
     pass
+
+# instantiate REST endpoints and setup flask routes...
+_handler_factory = RestHandlerFactory(manager=_manager)
+
+_Session_view = app.route(
+    '/session'
+)(app.route(
+    '/session/'
+)(app.route(
+    '/session/<sessionids>'
+)(app.route(
+    '/session/<sessionids>/'
+)(_handler_factory.UserSession.as_view('Session')))))
+
+_Preauth_view = app.route(
+    '/preauth'
+)(app.route(
+    '/preauth/'
+)(_handler_factory.Preauth.as_view('Preauth')))
+
+_Discovery_view = app.route(
+    '/discovery'
+)(app.route(
+    '/discovery/'
+)(_handler_factory.Discovery.as_view('Discovery')))
+
+# TODO: delete entirely?
+# roughed these out for flask port, but don't think they are
+# useful in contemporary deployments...
+_disabled_api_routes = """
+
+if _manager.clients.passwd is not None:
+    # only route when password endpoint is configured
+    _Password_view = app.route(
+        '/password'
+    )(app.route(
+        '/password/<userids>'
+    )(_handler_factory.UserPassword.as_view('Password')))
+
+if _manager.clients.search is not None \
+   and _manager.clients.manage is not None:
+    # only route when user management endpoints are configured
+    _User_view = app.route(
+        '/user'
+    )(app.route(
+        '/user/<userids>'
+    )(_handler_factory.UserManage.as_view('User')))
+
+if _manager.attributes.search is not None \
+   and _manager.attributes.manage is not None:
+    # only route when attribute management endpoints are configured
+    _Attribute_view = app.route(
+        '/attribute'
+    )(app.route(
+        '/attribute/<attrs>'
+    )(_handler_factory.AttrManage.as_view('Attribute')))
+
+if _manager.attributes.assign is not None:
+    # only route when attribute assignment endpoint is configured
+    _AttributeAssign_view = app.route(
+        '/user/<userid>/attribute'
+    )(app.route(
+        '/user/<userid>/attribute/<attrs>'
+    )(_handler_factory.AttrAssign.as_view('AttributeAssign')))
+
+if _manager.attributes.nest is not None:
+    # only route when attribute nesting endpoint is configured
+    _AttributeNest_view = app.route(
+        '/attribute/<child>/implies'
+    )(app.route(
+        '/user/<child>/implies/<parents>'
+    )(_handler_factory.AttrNest.as_view('AttributeNest')))
+
+"""
