@@ -286,7 +286,7 @@ class GlobusAuthSessionStateProvider(oauth2.OAuth2SessionStateProvider):
         globus_args = ['client_id', 'redirect_name']
         oauth2.OAuth2SessionStateProvider.terminate(self, manager, context, conn, cur)
         logout_base = self.cfg.get('revocation_endpoint')
-        if logout_base == None:
+        if logout_base is None:
             raise oauth2.OAuth2ConfigurationError("No revocation endpoint configured")
         rest_args = web_input()
         args=dict()
@@ -296,9 +296,7 @@ class GlobusAuthSessionStateProvider(oauth2.OAuth2SessionStateProvider):
                 val = self.cfg.get(self.key + '_logout_' + key)
             if val != None:
                 args[key] = val
-        if preferred_final_url != None:
+        if preferred_final_url is not None:
             args['redirect_uri'] = preferred_final_url
         globus_logout_url = logout_base + "?" + urllib.parse.urlencode(args)
-        retval = dict()
-        retval[LOGOUT_URL] = globus_logout_url
-        return retval
+        return {LOGOUT_URL: globus_logout_url}

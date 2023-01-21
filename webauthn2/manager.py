@@ -217,7 +217,7 @@ class Manager (util.DatabaseConnection):
             require_client = self.require_client
         if require_attributes is None:
             require_attributes = self.require_attributes
-        if setheader == None:
+        if setheader is None:
             setheader = self.setheader
 
         if conn is not None and cur is not None:

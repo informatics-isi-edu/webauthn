@@ -283,7 +283,7 @@ class OAuth2Login (ClientLogin):
         nonce_vals = dict()
         base_timestamp = datetime.datetime.now(timezone.utc)
         context.wallet = dict()        
-        if bearer_token == None:
+        if bearer_token is None:
             self.authorization_code_flow(context, conn, cur)
         else:
             self.payload_from_bearer_token(bearer_token, context, conn, cur)
@@ -357,7 +357,7 @@ class OAuth2Login (ClientLogin):
             'grant_type' : 'authorization_code'}
 
         deriva_debug('authorization_code_flow token_args=%r' % (token_args,))
-
+        
         token_request = urllib.request.Request(self.provider.cfg.get('token_endpoint'), urllib.parse.urlencode(token_args).encode())
         self.add_extra_token_request_headers(token_request)
         u = self.open_url(token_request, "getting token")

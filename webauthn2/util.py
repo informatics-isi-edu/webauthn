@@ -233,13 +233,8 @@ def urlunquote(url):
     "common URL unquote mechanism for URL value embeddings"
     return urllib.parse.unquote_plus(url)
 
-def urlunquote_webpy(url):
-    "common URL unquote mechanism for URL value embeddings"
-    # this hack works around broken URL decoding already done by web.py which somehow cast UTF-8 buffer as str w/o decoding
-    return url.encode('latin1').decode()
-
 def expand_relative_url(path):
-    if path == None:
+    if path is None:
         return None
     path = path.strip()
     if path[0] == '/':
@@ -600,9 +595,7 @@ class DatabaseConnection (PooledConnection):
         returned with self._put_pooled_connection(conn).
 
         A transaction is started before db_thunk(conn) and committed
-        before returning thunk results. A web.SeeOther is caught to
-        commit the transaction and then re-raised as a psuedo return
-        value.
+        before returning thunk results.
 
         Several transient exceptions are caught
         (psycopg2.InterfaceError, psycopg2.IntegrityError,
@@ -651,7 +644,7 @@ class DatabaseConnection (PooledConnection):
                         psycopg2.extensions.TransactionRollbackError, 
                         IOError, urllib.error.URLError) as ev:
                     et, ev2, tb = sys.exc_info()
-                    web.debug('got exception "%s" during _db_wrapper(), retries = %d' % (str(ev2), retries),
+                    deriva_debug('got exception "%s" during _db_wrapper(), retries = %d' % (str(ev2), retries),
                               traceback.format_exception(et, ev2, tb))
                     # these are likely transient errors so rollback and retry
                     conn.rollback()

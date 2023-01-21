@@ -18,10 +18,7 @@
 Webauthn2 webcookie provider implementation.
 
 WebcookieSessionIdProvider
-   : Implements session identifiers as HTTP cookies in web.py
-
-test_cookies
-   : Used in place of web cookies when web.ctx.env is absent, for testing.
+   : Implements session identifiers as HTTP cookies
 
 Provider-specific parameters for webcookie module:
 
@@ -110,7 +107,6 @@ class WebcookieSessionIdProvider (SessionIdProvider):
 
     def terminate(self, manager, context, conn=None, cur=None):
         self.set_cookie("", -1)
-
 
     def get_http_vary(self):
         return set([ 'cookie' ])

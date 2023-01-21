@@ -14,46 +14,24 @@
 # limitations under the License.
 #
 """
-Webauthn2 REST library supports dispatch from web.py applications.
-
-A factory model encapsulates an entire webauthn2 security context
-Manager instance that can be reused by the per-request message handler
-classes expected by web.py:
-
-  webauthn2factory = RestHandlerFactory()
-
-  urls = (
-     ...
-     '/myapp/session(/[^/]+)',  webauthn2factory.UserSession,
-     '/myapp/password(/[^/]+)', webauthn2factory.UserPassword,
-     '/myapp/user(/[^/]+)', webauthn2factory.UserManage,
-     '/myapp/attribute(/[^/]+)', webauthn2factory.AttrManage,
-     '/myapp/user/([^/]+)/attribute(/[^/]+), webauthn2factory.AttrAssign,
-     '/myapp/attribute/([^/]+)/implies(/[^/]+), webauthn2factory.AttrNest
-  )
+Webauthn2 REST service.
 
 These REST handlers use basic form/URI inputs and return only basic
 URI or JSON results to support AJAX clients.  An application MAY
 expose these REST APIs for where appropriate, including its own
 AJAX UI front-end to these features.
 
-The handler base class webauthn2factory.RestHandler can be extended by
-an application in order to get an integrated security manager with an
-optimized database connection pooling feature:
+A sibling application can deploy with mod_webauthn and get the
+context info from the WSGI service environment:
 
-  class AppHandler (webauthn2factory.RestHandler):
+  from webauthn2.util import context_from_environment
 
-     def __init__(self):
-         webauthn2factory.RestHandler.__init__(self)
-
+  class AppHandler (object):
      def GET(self):
-         def db_body(conn, cur):
-            self.context = self.manager.get_request_context(conn=conn, cur=cur)
-            ... # other application use of conn, cur
-         return self._db_wrapper(db_body)
+        self.context = context_from_environment()
 
-But this support class is entirely optional.  An application can also
-just use the Manager instance directly in its own message handlers:
+A legacy deployment can use the Manager instance directly in its
+own message handlers:
 
   manager = webauthn2factory.manager
 
@@ -427,7 +405,6 @@ class RestHandlerFactory (object):
                             return True
                     return False
 
-
                 if self.manager.clients.login != None:
                     if ((self.manager.clients.login.accepts_login_get() and has_login_params())
                         or self.manager.clients.login.request_has_relevant_auth_headers()):
@@ -528,7 +505,7 @@ class RestHandlerFactory (object):
                     self._session_authz(sessionids)
                     rv = self.manager.sessions.terminate(self.manager, self.context, conn, cur, preferred_final_url)
                     self.manager.sessionids.terminate(self.manager, self.context, conn, cur)
-                    if rv == None:
+                    if rv is None:
                         rv = {LOGOUT_URL : preferred_final_url}
                     return rv
 
@@ -550,7 +527,6 @@ class RestHandlerFactory (object):
                 return deriva_ctx.deriva_response
 
             def _login_get_or_post(self, storage):
-
                 for key in self.manager.clients.login.login_keywords():
                     if key not in storage:
                         raise BadRequest('missing required parameter "%s"' % key)
@@ -783,14 +759,14 @@ class RestHandlerFactory (object):
                     if not userids:
                         # request without userids means list all users
                         clients = self.manager.clients.search.get_all_clients(self.manager, self.context)
-                        response = clients and list(clients)
+                        response = list(clients) if clients else clients
                     elif userids.difference( set([ c for c in [self.context.get_client_id()] if c ]) ):
                         # request with userids means list only specific users other than self
                         clients = self.manager.clients.search.get_all_clients(self.manager, self.context)
                         if clients and userids.difference( clients ):
                             deriva_debug(clients, userids)
                             raise NotFound('Some client identities not found: %s.' % ', '.join(userids.difference( clients )))
-                        response = clients and list(clients)
+                        response = list(clients) if clients else clients
                     elif len(userids) == 1 \
                          and list(userids)[0] == self.context.get_client_id():
                         # request with userid equal to self.context.client can be answered without search API
@@ -1425,7 +1401,7 @@ class RestHandlerFactory (object):
 
                 try:
                     preauth_info = self.manager.preauth.preauth_info(self.manager, self.context, conn, cur)
-                    if preauth_info == None:
+                    if preauth_info is None:
                         raise NotFound()
                     if do_redirect:
                         raise web.seeother(preauth_info.get('redirect_url'))

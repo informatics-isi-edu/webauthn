@@ -1,6 +1,6 @@
 
 #
-# Copyright 2012-2017 University of Southern California
+# Copyright 2012-2023 University of Southern California
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -44,7 +44,7 @@ setup(
             "samples/globus_auth/discovery_globus.json",
         ])
     ],
-    requires=["web.py", "psycopg2", "oauth", "oauth2client", "pyjwkest", "globus_sdk"],
+    requires=["flask", "psycopg2", "oauth", "oauth2client", "pyjwkest", "globus_sdk"],
     maintainer_email="isrd-support@isi.edu",
     license='Apache License, Version 2.0',
     classifiers=[

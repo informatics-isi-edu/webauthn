@@ -40,12 +40,6 @@ ${SHARE}/webauthn2/webauthn2_config.json
 RHEL/CentOS Layout and Issues
 ----------------------------
 
--- distribute our own web.py package?
-   -- web.py prerequisite not available in standard repos for CentOS 6.x
-   -- web.py 0.32 exists on Fedora <=16 and CentOS 5.x as python-webpy RPM
-   -- web.py 0.36 exists on Fedora >=17
-   -- upstream web.py 0.36 has a bug that needs patching
-
 -- SELinux needs some booleans set to allow our functions in a web service
    -- database access from WSGI app
    -- access to daemon home directory for default JSON config input
