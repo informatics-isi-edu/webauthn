@@ -407,54 +407,106 @@ def context_from_environment(fallback=True):
     else:
         return None
 
+class RestException (werkzeug.exceptions.HTTPException):
+    """Generic REST exception overriding flask/werkzeug defaults.
 
-class NoMethod(web.HTTPError):
-    """`405 Method Not Allowed` error."""
-    message = "method not allowed"
-    def __init__(self, message=None):
-        status = '405 Method Not Allowed'
-        headers = {'Content-Type': 'text/html'}
-        web.HTTPError.__init__(self, status, headers, message or self.message)
+    Our API defaults to text error responses but supports
+    negotiated HTML and possible further customization.
+    """
+    # allow app to give us runtime config
+    config = {}
 
-class Conflict(web.HTTPError):
-    """`409 Conflict` error."""
-    message = "conflict"
-    def __init__(self, message=None):
-        status = '409 Conflict'
-        headers = {'Content-Type': 'text/html'}
-        web.HTTPError.__init__(self, status, headers, message or self.message)
+    # werkzeug fields
+    code = None
+    description = None
 
-class Forbidden(web.HTTPError):
-    """`403 Forbidden` error."""
-    message = "forbidden"
-    def __init__(self, message=None):
-        status = '403 Forbidden'
-        headers = {'Content-Type': 'text/html'}
-        web.HTTPError.__init__(self, status, headers, message or self.message)
+    # refactoring of prior hatrac templating
+    title = None
+    response_templates = OrderedDict([
+        ("text/plain", "%(message)s"),
+        ("text/html", "<html><body><h1>%(title)s</h1><p>%(message)s</p></body></html>"),
+    ])
 
-class Unauthorized(web.HTTPError):
-    """`401 Unauthorized` error."""
-    message = "unauthorized"
-    def __init__(self, message=None):
-        status = '401 Unauthorized'
-        headers = {'Content-Type': 'text/html'}
-        web.HTTPError.__init__(self, status, headers, message or self.message)
+    def __init__(self, description=None, headers={}):
+        self.headers = dict(headers)
+        if description is not None:
+            self.description = description
+        super().__init__()
+        # allow ourselves to customize the error title for our UX
+        if self.title is None:
+            self.title = werkzeug.http.HTTP_STATUS_CODES.get(self.code)
 
-class NotFound(web.HTTPError):
-    """`404 Not Found` error."""
-    message = "not found"
-    def __init__(self, message=None):
-        status = '404 Not Found'
-        headers = {'Content-Type': 'text/html'}
-        web.HTTPError.__init__(self, status, headers, message or self.message)
+        # lookup templates overrides in runtime config
+        #
+        # OrderedDict.update() maintains ordering for keys already
+        # controlled above, but has indeterminate order for new
+        # additions from JSON dict!
+        #
+        # default templates override built-in templates
+        self.response_templates = self.response_templates.copy()
+        self.response_templates.update(
+            self.config.get('error_templates', {}).get("default", {})
+        )
+        # code-specific templates override default templates
+        self.response_templates.update(
+            self.config.get('error_templates', {}).get(str(self.code), {})
+        )
+        # legacy config syntax
+        #   code_typesuffix: template,
+        #   ...
+        for content_type in list(self.response_templates.keys()):
+            template_key = '%s_%s' % (self.code, content_type.split('/')[-1])
+            if template_key in self.config:
+                self.response_templates[content_type] = self.config[template_key]
 
-class BadRequest(web.HTTPError):
-    """`400 Bad Request` error."""
-    message = "bad request"
-    def __init__(self, message=None):
-        status = '400 Bad Request'
-        headers = {'Content-Type': 'text/html'}
-        web.HTTPError.__init__(self, status, headers, message or self.message)
+        # find client's negotiated type
+        supported_content_types = list(self.response_templates.keys())
+        default_content_type = supported_content_types[0]
+        self.content_type = negotiated_content_type(flask.request.environ, supported_content_types, default_content_type)
+        self.headers['content-type'] = self.content_type
+
+    # override the werkzeug base exception to use our state management
+    def get_description(self, environ=None, scope=None):
+        return self.description
+
+    def get_body(self, environ=None, scope=None):
+        template = self.response_templates[self.content_type]
+        description = self.get_description()
+        return (template + '\n') % {
+            "code": self.code,
+            "description": description,
+            "message": description, # for existing hatrac_config template feature
+            "title": self.title, # for our new generic templates
+        }
+
+    def get_headers(self, environ=None, scope=None):
+        return self.headers
+
+class NoMethod (RestException):
+    code = 405
+    description = 'Request method not allowed on this resource.'
+
+class Conflict (RestException):
+    code = 409
+    description = 'Request conflicts with state of server.'
+
+class Forbidden (RestException):
+    code = 403
+    description = 'Access forbidden.'
+    title = 'Access Forbidden'
+
+class Unauthorized (RestException):
+    code = 401
+    description = 'Access requires authentication.'
+    title = 'Authentication Required'
+
+class NotFound (RestException):
+    code = 404
+    description = 'Resource not found.'
+
+class BadRequest (RestException):
+    code = 400
+    description = 'Request malformed.'
 
 class PooledConnection (object):
     """
@@ -626,9 +678,9 @@ class DatabaseConnection (PooledConnection):
                     conn.commit()
                     return val
 
-                except web.SeeOther as ev:
-                    conn.commit() # this is a psuedo-exceptional success case
-                    raise ev
+                #except web.SeeOther as ev:
+                #    conn.commit() # this is a psuedo-exceptional success case
+                #    raise ev
 
                 except (psycopg2.InterfaceError, psycopg2.OperationalError) as ev:
                     et, ev2, tb = sys.exc_info()
@@ -650,7 +702,7 @@ class DatabaseConnection (PooledConnection):
                     conn.rollback()
                     last_ev = ev
 
-                except web.HTTPError as ev:
+                except RestException as ev:
                     # don't log these "normal" exceptions
                     try:
                         conn.rollback()

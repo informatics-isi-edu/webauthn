@@ -1404,7 +1404,7 @@ class RestHandlerFactory (object):
                     if preauth_info is None:
                         raise NotFound()
                     if do_redirect:
-                        raise web.seeother(preauth_info.get('redirect_url'))
+                        raise flask.redirect(preauth_info.get('redirect_url'), code=303)
                     response = jsonWriter(preauth_info)
 
                 except NotImplementedError:
