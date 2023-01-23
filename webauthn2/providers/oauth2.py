@@ -71,13 +71,17 @@ from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_v1_5
 import datetime
 from datetime import timedelta, timezone
-import collections
 import hashlib
 import math
 
 from ..util import *
 from . import database, webcookie
 from .providers import *
+
+if sys.version_info[:2] >= (3, 8):
+    from collections.abc import MutableMapping
+else:
+    from collections import MutableMapping
 
 config_built_ins = web.storage(
     # Items needed for methods inherited from database provider
@@ -300,7 +304,6 @@ class OAuth2Login (ClientLogin):
         
     def authorization_code_flow(self, context, db):
         vals = web.input()
-
         # Check that this request came from the same user who initiated the oauth flow
         nonce_vals = {
             'auth_url_nonce' : vals.get('state'),
@@ -312,7 +315,11 @@ class OAuth2Login (ClientLogin):
             raise OAuth2ProtocolError("No authn_nonce in initial redirect")
 
         if (nonce_vals['auth_cookie_nonce'] == None):
-            raise OAuth2ProtocolError("No authn nonce cookie")
+            # Debug this -- we're getting this error even when the value is set
+            error_string="No authn nonce ({ncn}) cookie found. Cookie header was: {h}".format(
+                ncn=str(self.provider.nonce_cookie_name),
+                h=str(web.ctx.env.get('HTTP_COOKIE')))
+            raise OAuth2ProtocolError(error_string)
 
         # Has the cookie nonce expired?
         try:
@@ -931,7 +938,7 @@ CREATE TABLE %(rtable)s (
             return self._db_wrapper(db_body)  
 
 
-class OAuth2Config(collections.MutableMapping):
+class OAuth2Config(MutableMapping):
     def __init__(self, config):
         self.dictionaries = [self.load_client_secret_data(config),
                              self.load_discovery_data(config),

@@ -566,9 +566,7 @@ class RestHandlerFactory (object):
                     except (KeyError, ValueError) as ev:
                         request_trace('session establishment failed: %s %s' % (type(ev), ev))
                         # we don't reveal detailed reason for failed login 
-                        msg = 'session establishment with (%s) failed' \
-                            % ', '.join(self.manager.clients.login.login_keywords(True))
-                        raise Unauthorized(msg)
+                        raise Unauthorized('Session establishment failed.')
 
                     if self.manager.attributes.client:
                         # dig up attributes for client
