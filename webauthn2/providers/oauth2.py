@@ -274,22 +274,19 @@ class OAuth2Login (ClientLogin):
 
         # Get user directory data. Right now we're assuming the server will return json.
         # TODO: in theory the return value could be signed jwt
-        userinfo_endpoint = self.provider.cfg.get('userinfo_endpoint')
-        req = self.make_userinfo_request(self.provider.cfg.get('userinfo_endpoint'), self.payload.get('access_token'))
-        f = self.open_url(req, "getting userinfo")
-        self.userinfo=json.load(f)
-        self.validate_userinfo()
-        f.close()
-        if self.userinfo.get('active') != True or self.userinfo.get('iss') == None or self.userinfo.get('sub') == None:
-            web.debug("Login failed, userinfo is not active, or iss or sub is missing: {u}".format(u=str(self.userinfo)))
-            raise OAuth2UserinfoError("Login failed, userinfo is not active, or iss or sub is missing: {u}".format(u=str(self.userinfo)))
-        username = str(self.userinfo.get('iss') + '/' + self.userinfo.get('sub'))
+        self.introspect = self.get_introspect_result(self.payload.get('access_token'))
+        self.validate_introspect()
+        self.userinfo=self.introspect.copy()
+        if self.introspect.get('active') != True or self.introspect.get('iss') == None or self.introspect.get('sub') == None:
+            web.debug("Login failed, introspect is not active, or iss or sub is missing: {u}".format(u=str(self.userinfo)))
+            raise OAuth2UserinfoError("Login failed, introspect is not active, or iss or sub is missing: {u}".format(u=str(self.userinfo)))
+        username = str(self.introspect.get('iss') + '/' + self.introspect.get('sub'))
         context.user = dict()
-        self.fill_context_from_userinfo(context, username, self.userinfo)
+        context.client = KeyedDict()        
+        self.fill_context(context, username)
 
         # Update user table
         self.create_or_update_user(manager, context, username, self.id_token, self.userinfo, base_timestamp, self.payload, db)
-        context.client = KeyedDict()
         for key in ClientLogin.standard_names:
             if context.user.get(key) != None:
                 context.client[key] = context.user.get(key)
@@ -297,6 +294,14 @@ class OAuth2Login (ClientLogin):
         self.provider.manage.update_last_login(manager, context, context.client[ID], db);
         return context.client      
 
+    def get_introspect_result(self, access_token):
+        introspect_endpoint = self.provider.cfg.get('introspect_endpoint')        
+        req = urllib.request.Request(introspect_endpoint,
+                                     urllib.parse.urlencode({'token': access_token}),
+                                     headers={'Authorization' : 'Bearer ' + access_token})
+        f = self.open_url(req, "getting introspect")
+        return json.load(f)
+        
     def authorization_code_flow(self, context, db):
         vals = web.input()
         # Check that this request came from the same user who initiated the oauth flow
@@ -404,24 +409,28 @@ class OAuth2Login (ClientLogin):
 
     def make_userinfo_request(self, userinfo_endpoint, access_token):
         return urllib.request.Request(userinfo_endpoint, headers={'Authorization' : 'Bearer ' + access_token})
-
-    def fill_context_from_userinfo(self, context, username, userinfo):
+    
+    def fill_context(self, context, username):
         context.user[ID] = username
         # try both openid connect userinfo claims and oauth token introspection claims
-        val = userinfo.get('preferred_username')
+        val = self.userinfo.get('preferred_username')
         if val == None:
-            val = userinfo.get('username')
-        if val != None:
+            val = self.introspect.get('username')
+        if val is not None:
             context.user[DISPLAY_NAME] = val
         
-        val = userinfo.get('name')
-        if val != None:
+        val = self.userinfo.get('name')
+        if val is not None:
             context.user[FULL_NAME] = val
 
-        val = userinfo.get('email')
-        if val != None:
+        val = self.userinfo.get('email')
+        if val is not None:
             context.user[EMAIL] = val
 
+        self.add_context_extensions(context)
+
+    def add_context_extensions(self, context):
+        pass
 
     def create_or_update_user(self, manager, context, username, id_token, userinfo, base_timestamp, token_payload, db):
         context.user['id_token'] = json.dumps(id_token, separators=(',', ':'))
@@ -443,55 +452,59 @@ class OAuth2Login (ClientLogin):
         # The access code can only be used once, so after the first use, we can't
         # let db_wrapper retry, so we do our own retry loop here.
         max_retries=5
+        error_text=None
         for retry in range(1, max_retries):
             try:
                 return urllib.request.urlopen(req)
             except Exception as ev:
+                error_text=str(ev)
                 web.debug("Attempt {x} of {y} failed: Got {t} exception {ev} while {text} (url {url})".format(
-                    x=str(retry), y=str(max_retries), t=str(type(ev)), ev=str(ev), text=str(text), url=str(req.get_full_url())))
+                    x=str(retry), y=str(max_retries), t=str(type(ev)), ev=error_text, text=str(text), url=str(req.get_full_url())))
                 delay = random.uniform(0.75, 1.25) * math.pow(10.0, retry) * 0.00000001
                 time.sleep(delay)
                 
-        raise OAuth2ProtocolError("Error {text}: {ev} ({url})".format(text=text, ev=str(ev), url=req.get_full_url()))
+        raise OAuth2ProtocolError("Error {text}: {ev} ({url})".format(text=text, ev=error_text, url=req.get_full_url()))
 
-    def validate_userinfo(self):
+    def validate_introspect(self):
         # Check times
 
-        if self.userinfo.get('nbf') != None and self.userinfo.get('nbf') > time.time():
-            raise OAuth2UserinfoError("Access token is not yet valid")
-        if self.userinfo.get('exp') != None:
-            if self.userinfo.get('exp') < time.time():
-                raise OAuth2UserinfoError("Access token has expired")            
-            self.payload['exp'] = self.userinfo.get('exp')
+        if self.introspect.get('nbf') != None and self.introspect.get('nbf') > time.time():
+            raise OAuth2IntrospectError("Access token is not yet valid")
+        if self.introspect.get('exp') != None:
+            if self.introspect.get('exp') < time.time():
+                raise OAuth2IntrospectError("Access token has expired")            
+            self.payload['exp'] = self.introspect.get('exp')
 
         # Check issuer and (if applicable) audiende
         accepted_scopes = self.provider.cfg.get('oauth2_accepted_scopes')
         found_scopes=[]
-        if self.userinfo.get('scope') != None:
-            found_scopes = self.userinfo.get('scope').split()
+        if self.introspect.get('scope') != None:
+            found_scopes = self.introspect.get('scope').split()
 
-        # First check for normal (user-involved) authorization flow. Userinfo will include the "openid" scope, and there
+        # First check for normal (user-involved) authorization flow. Introspect will include the "openid" scope, and there
         # will be an id token. Compare the issuer, audience, and subject.
         if 'openid' in found_scopes and self.id_token != None:
-            if self.userinfo.get('sub') != self.id_token.get('sub'):
-                web.debug("Subject mismatch id/userinfo")                
-                raise OAuth2UserinfoError("Subject mismatch id/userinfo")
+            if self.introspect.get('sub') != self.id_token.get('sub'):
+                web.debug("Subject mismatch id/introspect")                
+                raise OAuth2IntrospectError("Subject mismatch id/introspect")
             for key in ['iss', 'aud']:
-                uval = self.userinfo.get(key)
+                uval = self.introspect.get(key)
                 ival = self.id_token.get(key)
                 if not (uval == ival or (isinstance(uval, list) and ival in uval)):
-                    web.debug("id/userinfo mismatch for " + key)
-                    web.debug("userinfo[{key}] = {u}, id[{key}] = {i}".format(key=key, u=str(self.userinfo.get(key)), i=str(self.id_token.get(key))))
-                    raise OAuth2UserinfoError("id/userinfo mismatch for " + key)
+                    web.debug("id/introspect mismatch for " + key)
+                    web.debug("introspect[{key}] = {u}, id[{key}] = {i}".format(key=key, u=str(self.introspect.get(key)), i=str(self.id_token.get(key))))
+                    raise OAuth2IntrospectError("id/introspect mismatch for " + key)
             return
 
         # If we got an access token without getting the authorization flow, check to see that the scope is one we're
         # configured to accept and that the issuer is who we expect
         for a in accepted_scopes:
             if a.get('scope') in found_scopes:
-                if a.get("issuer") == self.userinfo.get('iss'):
+                if a.get("issuer") == self.introspect.get('iss'):
                     return
         web.debug("Bad scope or issuer for OAuth2 bearer token")
+        web.debug("scope: " + str(found_scopes))
+        web.debug("issuer: " + str(self.introspect.get('iss')))
         raise OAuth2UserinfoError("Bad scope or issuer for OAuth2 bearer token")
             
 
@@ -805,23 +818,26 @@ class OAuth2SessionStateProvider(database.DatabaseSessionStateProvider):
         self.cfg = OAuth2Config(config)
         self.oauth_context = dict()
         self.nonce_cookie_name = config.oauth2_nonce_cookie_name
-        self.extra_columns = [('wallet', 'json')]
+        self.extra_columns = [('wallet', 'json'), ('extensions', 'json')]
 
     def _new_session_extras(self, manager, context, db):
+        extras = []
         if hasattr(context, "wallet"):
-            return [('wallet', json.dumps(context.wallet, separators=(',', ':')))]
-        else:
-            return []
+            extras.append(('wallet', json.dumps(context.wallet, separators=(',', ':'))))
+        if hasattr(context, 'extensions'):
+            extras.append(('extensions', json.dumps(context.extensions, separators=(',', ':'))))
+        return extras
 
     def set_oauth_context_val(self, key, value):
         self.oauth_context[key] = value
 
-    def set_oauth_context_val(self, key):
+    def get_oauth_context_val(self, key):
         return self.oauth_context.get(key)
 
     def deploy_minor_upgrade(self, old_minor, db):
-        if self.major == 2 and old_minor == 0:
+        if self.major == 2 and old_minor < self.minor:
             self._add_extra_columns(db)
+            return database.DatabaseSessionStateProvider.deploy_minor_upgrade(self, old_minor, db)
         return True
 
     def terminate(self, manager, context, db=None, preferred_final_url=None):
@@ -853,13 +869,13 @@ class OAuth2ClientProvider (database.DatabaseClientProvider):
                  Passwd=None):
         ClientProvider.__init__(self, config)
         database.DatabaseConnection2.__init__(self, config)
+        self.cfg = OAuth2Config(config)
         self.login = Login(self)
         self.search = Search(self)
         self.manage = Manage(self)
         if Passwd:
             self.passwd = Passwd(self)
         self.nonce_state = nonce_util(config)
-        self.cfg = OAuth2Config(config)
         self.nonce_cookie_name = config.oauth2_nonce_cookie_name
         self.provider_sets_token_nonce = config.oauth2_provider_sets_token_nonce
 
@@ -1058,6 +1074,9 @@ class OAuth2SessionGenerationFailed(OAuth2Exception):
     pass
 
 class OAuth2ProtocolError(OAuth2Exception):
+    pass
+
+class OAuth2IntrospectError(OAuth2Exception):
     pass
 
 class OAuth2UserinfoError(OAuth2Exception):

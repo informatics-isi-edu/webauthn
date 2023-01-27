@@ -20,20 +20,15 @@ Globus flavor of OAuth2. They require HTTP Basic authentication for token reques
 import base64
 import urllib
 import json
+import globus_sdk
 
 import web
+import datetime
 
 from .providers import *
 from ..util import *
 from . import database
 from . import oauth2
-
-USE_GLOBUS_SDK = False
-try:
-    import globus_sdk
-    USE_GLOBUS_SDK = True
-except:
-    pass
 
 __all__ = [
     'GlobusAuthClientProvider',
@@ -136,7 +131,16 @@ class GlobusLegacyGroupTokenProcessor(GlobusGroupTokenProcessor):
         
 
 class GlobusAuthLogin(oauth2.OAuth2Login):
-    
+    def __init__(self, provider):
+        oauth2.OAuth2Login.__init__(self, provider)
+        self.globus_client = None
+
+        try:
+            self.globus_client = globus_sdk.ConfidentialAppAuthClient(
+                self.provider.cfg.get('client_id'), self.provider.cfg.get('client_secret'))
+        except:
+            pass
+
     def login(self, manager, context, db, **kwargs):
         user_id = oauth2.OAuth2Login.login(self, manager, context, db, **kwargs)
         other_tokens = self.payload.get('other_tokens')
@@ -146,8 +150,12 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
         group_token_processor = None
         context.globus_identities = set()
         context.globus_identities.add(user_id)
-        identity_set = self.userinfo.get('identities_set')
-        issuer = self.userinfo.get('iss')
+        identity_set = self.userinfo.get('identity_set_detail')
+        if identity_set is None:
+            identity_set = self.userinfo.get('identities_set')
+        if identity_set is None:
+            identity_set = self.userinfo.get('identities_set')
+        issuer = self.introspect.get('iss')
         all_group_processors = [
             GlobusViewGroupTokenProcessor(group_base_url=group_base, issuer=issuer),
             GlobusLegacyGroupTokenProcessor(group_base_url=group_base, issuer=issuer)
@@ -155,7 +163,7 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
         context.client[IDENTITIES] = []
         if identity_set != None:
             for id in identity_set:
-                full_id = issuer + '/' + id
+                full_id = issuer + '/' + id.get('sub')
                 context.globus_identities.add(KeyedDict({ID : full_id}))
                 context.client[IDENTITIES].append(full_id)
 
@@ -188,26 +196,28 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
 
     def add_extra_token_request_headers(self, token_request):
         client_id = self.provider.cfg.get('client_id')
-#        web.debug("client id is {i}".format(i=client_id))
         client_secret = self.provider.cfg.get('client_secret')
         basic_auth_token = base64.b64encode((client_id + ':' + client_secret).encode())
         token_request.add_header('Authorization', 'Basic ' + basic_auth_token.decode())
 
-    def make_userinfo_request(self, endpoint, access_token):
-        req = urllib.request.Request(endpoint, urllib.parse.urlencode({'token' : access_token, 'include' : 'identities_set'}).encode())
-        self.add_extra_token_request_headers(req)
-        return req
+    def get_introspect_result(self, access_token):
+        if self.globus_client:
+            return self.globus_client.oauth2_token_introspect(access_token,include='identity_set,identity_set_detail,session_info').data
+        else:
+            endpoint = self.provider.cfg.get('introspect_endpoint')
+            req = urllib.request.Request(endpoint, urllib.parse.urlencode({'token' : access_token, 'include' : 'identity_set,identity_set_detail,session_info'}).encode())
+            self.add_extra_token_request_headers(req)
+            f = self.open_url(req, "getting introspect")
+            return json.load(f)
 
     def payload_from_bearer_token(self, bearer_token, context, db):
         oauth2.OAuth2Login.payload_from_bearer_token(self, bearer_token, context, db)
-        if USE_GLOBUS_SDK:
-            client = globus_sdk.ConfidentialAppAuthClient(self.provider.cfg.get('client_id'), self.provider.cfg.get('client_secret'))            
+        if self.globus_client:
             # attempt to get dependent tokens
             try:
-#                introspect_response = client.oauth2_token_introspect(bearer_token)
-                token_response = client.oauth2_get_dependent_tokens(bearer_token).data
+                token_response = self.globus_client.oauth2_get_dependent_tokens(bearer_token).data
                 if token_response != None and len(token_response) > 0:
-                    self.payload['dependent_tokens_source'] = client.base_url
+                    self.payload['dependent_tokens_source'] = self.globus_client.base_url
                     if self.payload['dependent_tokens_source'].endswith('/'):
                         self.payload['dependent_tokens_source'] = self.payload['dependent_tokens_source'][:-1]
                     if self.payload.get('dependent_tokens') == None:
@@ -216,7 +226,7 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
             except globus_sdk.AuthAPIError as ex:
                 web.debug("WARNING: dependent token request returned {ex}".format(ex=ex))
         else:
-            web.debug("WARNING: No globus_sdk installed; skipping dependent token request. This means no group info and an empty wallet for sessions authenticated by bearer token.")
+            web.debug("WARNING: No globus_sdk installed (or couldn't get globus confidential client); skipping dependent token request. This means no group info and an empty wallet for sessions authenticated by bearer token.")
     
 # Sometimes Globus whitelist entries will have typos in the URLs ("//" instead of "/" is very common),
 # and it can take a long time to get those fixed.
@@ -228,6 +238,39 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
         else:
             return oauth2.OAuth2Login.my_uri(self)
 
+    def add_context_extensions(self, context):
+        val = self.introspect.get('session_info')
+        if val is not None:
+            # RAS-specific extension
+            context.extensions = val
+            ras_possible = False
+            if val and 'authentications' in val.keys():
+                ras_perms = []
+                max_expiration = None
+                for authentication in val['authentications'].values():
+                    if authentication.get('custom_claims'):
+                        cfde_claim = authentication['custom_claims'].get('cfde_ga4gh_passport_v1')
+                        if cfde_claim:
+                            for claim in cfde_claim:
+                                if 'ras_dbgap_permissions' in claim.keys():
+                                    ras_possible = True
+                                    for perm in claim['ras_dbgap_permissions']:
+                                        ras_perms.append(perm)
+                                    exp = claim.get('exp')
+                                    if exp and exp > 0:
+                                        if max_expiration:
+                                            max_expiration = min(max_expiration, exp)
+                                        else:
+                                            max_expiration = exp
+                if max_expiration and len(ras_perms) > 0:
+                    context.session.max_expiration = datetime.datetime.fromtimestamp(max_expiration, tz=datetime.timezone.utc)
+                if ras_possible:
+                    context.client['extensions'] = {'has_ras_permissions': len(ras_perms) > 0}
+                if len(ras_perms) > 0:
+                    context.client['extensions']['ras_dbgap_permissions'] = ras_perms
+
+    def fill_context_from_userinfo(self, context, username, userinfo):
+        oauth2.OAuth2Login.fill_context_from_userinfo(self, context, username, userinfo)
 
 class GlobusAuthClientProvider (oauth2.OAuth2ClientProvider):
 
@@ -264,6 +307,10 @@ class GlobusAuthAttributeClient (AttributeClient):
         if hasattr(context, 'globus_groups'):
             context.attributes.update(group for group in context.globus_groups)
         context.attributes.update(identity for identity in context.globus_identities)
+
+    def add_extras_to_msg_context(self, context):
+        if context.extra_values.get('max_expiration'):
+            context.session.max_expiration = context.extra_values['max_expiration']
 
 class GlobusAuthAttributeProvider (database.DatabaseAttributeProvider):
     """

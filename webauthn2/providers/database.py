@@ -231,11 +231,26 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
 
     # data storage format version
     major = 2
-    minor = 2
+    minor = 3
 
     def __init__(self, config):
         SessionStateProvider(config)
         DatabaseConnection2.__init__(self, config)
+
+    def deploy_minor_upgrade(self, minor_version, db):
+        if self.major == 2 and minor_version < 3:
+            def db_body(db):
+                db.query(
+                    "ALTER TABLE %(stable)s ADD COLUMN IF NOT EXISTS max_expiration timestamptz" % {
+                        'stable': self._table(self.storage_name)
+                    }
+                )
+
+            if db:
+                return db_body(db)
+            else:
+                return self._db_wrapper(db_body)
+
 
     def set_msg_context(self, manager, context, sessionids, db=None):
         """
@@ -248,6 +263,7 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
         to map to the new canonical keying.
 
         """
+
         def db_body(db):
             return self._session(db, sessionids)
 
@@ -259,10 +275,12 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
 
             context.session = Session([ srow.key ], 
                                       srow.since,
-                                      srow.expires)
+                                      srow.expires,
+                                      srow.max_expiration)
 
             context.client = srow.get('client')
             context.attributes = srow.get('attributes')
+
             for e in self.extra_columns:
                 context.extra_values[e[0]] = srow.get(e[0])
             return srow
@@ -301,6 +319,8 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
             if not context.session.expires:
                 duration = datetime.timedelta(minutes=int(manager.config.get('session_expiration_minutes', 30)))
                 context.session.expires = context.session.since + duration
+                if context.session.max_expiration:
+                    context.session.expires = min(context.session.expires, context.session.max_expiration)
 
             usercols=[]
             uservals=[]
@@ -311,15 +331,17 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
             extras = self._new_session_extras(manager, context, db)
             extracols = [ sql_identifier(extra[0]) for extra in extras ]
             extravals = [ sql_literal(extra[1]) for extra in extras ]
+            
             db.query(
                 """
-INSERT INTO %(stable)s (key, since, keysince, expires, client, attributes, %(usercols)s %(extracols)s)
-  VALUES (%(key)s, %(since)s, %(since)s, %(expires)s, %(client)s, %(attributes)s, %(uservals)s %(extravals)s) ;
+INSERT INTO %(stable)s (key, since, keysince, expires, max_expiration, client, attributes, %(usercols)s %(extracols)s)
+  VALUES (%(key)s, %(since)s, %(since)s, %(expires)s, %(max_expiration)s,%(client)s, %(attributes)s, %(uservals)s %(extravals)s) ;
 """ % {
     'stable': self._table(self.storage_name),
     'key': sql_literal(context.session.keys[0]),
     'since': sql_literal(context.session.since),
     'expires': sql_literal(context.session.expires),
+    'max_expiration': sql_literal(context.session.max_expiration),
     'client': sql_literal(json.dumps(context.client)),
     'attributes': 'ARRAY[%s]::json[]' % ','.join([ sql_literal(json.dumps(a)) for a in context.attributes ]),
     'usercols': ','.join(usercols),
@@ -353,6 +375,8 @@ INSERT INTO %(stable)s (key, since, keysince, expires, client, attributes, %(use
             if (srow.expires > expires) or (expires - srow.expires).seconds < 5:
                 # don't update too often
                 return
+            if srow.get('max_expiration'):
+                expires = min(expires, srow['max_expiration'])
             db.query(
                 """
 UPDATE %(stable)s SET expires = %(expires)s WHERE key = %(key)s AND %(expires)s > expires ;
@@ -438,6 +462,7 @@ CREATE TABLE %(stable)s (
   since timestamptz,
   keysince timestamptz,
   expires timestamptz,
+  max_expiration timestamptz,
   client json,
   attributes json[],
   %(user_columns)s                
