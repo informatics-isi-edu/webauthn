@@ -213,7 +213,7 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
                     if self.payload.get('dependent_tokens') == None:
                         self.payload['dependent_tokens'] = dict()
                     self.payload['dependent_tokens'] = token_response
-            except globus_sdk.exc.AuthAPIError as ex:
+            except globus_sdk.AuthAPIError as ex:
                 web.debug("WARNING: dependent token request returned {ex}".format(ex=ex))
         else:
             web.debug("WARNING: No globus_sdk installed; skipping dependent token request. This means no group info and an empty wallet for sessions authenticated by bearer token.")
