@@ -366,31 +366,36 @@ class Context (object):
             )
         )
 
-def session_from_environment():
+def session_from_environment(environ):
     """
     Get and decode session details from the environment set by the http server (with mod_webauthn).
-    Returns a dictionary on success, None if the environment variable is unset (or blank).
+
+    :param environ: The dict-like WSGI environment
+
+    Returns a dictionary on success, None if the environment variable is unset/blank.
+
     Throws TypeError if the base64 decode fails and ValueError if json decode fails
     """
-    b64_session_string = None
-    try:
-        b64_session_string = flask.request.environ['WEBAUTHN_SESSION_BASE64']
-    except:
-        b64_session_string = os.environ.get('WEBAUTHN_SESSION_BASE64')
-
-    if b64_session_string == None or b64_session_string.strip() == '':
+    b64_session_string = environ.get('WEBAUTHN_SESSION_BASE64', '')
+    if not b64_session_string.strip():
         return None
     session_string=base64.standard_b64decode(b64_session_string).decode()
     return jsonReader(session_string)
 
-def context_from_environment(fallback=True):
+def context_from_environment(environ, fallback=True):
     """
     Get and decode session details from the environment set by the http server (with mod_webauthn).
+
+    :param environ: The dict-like WSGI environment
+    :param fallback: Whether to return an anonymous context when environment lacks context info (default).
+
     Returns a Context instance which may be empty (anonymous).
+
     If fallback=False, returns None if context was not found in environment.
+
     Throws TypeError if the base64 decode fails and ValueError if json decode fails
     """
-    context_dict = session_from_environment()
+    context_dict = session_from_environment(environ)
     context = Context()
     if context_dict:
         context.client = context_dict['client']

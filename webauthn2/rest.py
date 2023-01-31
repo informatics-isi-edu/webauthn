@@ -24,11 +24,12 @@ AJAX UI front-end to these features.
 A sibling application can deploy with mod_webauthn and get the
 context info from the WSGI service environment:
 
+  import flask
   from webauthn2.util import context_from_environment
 
   class AppHandler (object):
      def GET(self):
-        self.context = context_from_environment()
+        self.context = context_from_environment(flask.request.environ)
 
 A legacy deployment can use the Manager instance directly in its
 own message handlers:
@@ -83,41 +84,28 @@ app = flask.Flask(__name__)
 # instantiate manager based on service config
 _manager = Manager()
 
-def get_log_parts(start_time_key, request_guid_key, content_range_key, content_type_key):
-    """Generate a dictionary of interpolation keys used by our logging template.
-
-       Arguments:
-          start_time_key: key to entry in deriva_ctx w/ current request start timestamp
-          request_guid_key: key to entry in deriva_ctx w/ current request GUID
-          content_range_key: key to entry in deriva_ctx w/ HTTP range
-          content_type_key: key to entry in deriva_ctx w/ HTTP content type
-    """
+def elapsed_float_seconds(start_time):
+    """Calculate floating point elapsed seconds since start_time."""
     now = datetime.datetime.now(timezone.utc)
-    elapsed = (now - getattr(deriva_ctx, start_time_key))
-    client_identity_obj = deriva_ctx.webauthn2_context.client if deriva_ctx.webauthn2_context else None
-    parts = dict(
-        elapsed = elapsed.seconds + 0.001 * (elapsed.microseconds/1000),
-        client_ip = flask.request.remote_addr,
-        client_identity_obj = client_identity_obj,
-        reqid = getattr(deriva_ctx, request_guid_key),
-        content_range = getattr(deriva_ctx, content_range_key),
-        content_type = getattr(deriva_ctx, content_type_key),
-        )
-    return parts
+    elapsed = (now - start_time)
+    return elapsed.seconds + 0.001 * (elapsed.microseconds/1000)
 
-def request_trace_json(tracedata, parts):
+def format_trace_json(tracedata, *, start_time, req, client, webauthn2_context):
     """Format one tracedata event as part of a request's audit trail.
 
-       tracedata: a string representation of trace event data
-       parts: dictionary of log parts
+    :param tracedata: basic JSON serializable trace event value
+    :param start_time: datetime when request processing started
+    :param req: the unique request id string for trace correlation
+    :param client: the client network address
+    :param webauthn2_context: the webauthn2 authentication context
     """
     od = OrderedDict([
         (k, v) for k, v in [
-            ('elapsed', parts['elapsed']),
-            ('req', parts['reqid']),
+            ('elapsed', elapsed_float_seconds(start_time)),
+            ('req', req),
             ('trace', tracedata),
-            ('client', parts['client_ip']),
-            ('user', parts['client_identity_obj']),
+            ('client', client),
+            ('user', webauthn2_context.client if webauthn2_context else None),
         ]
         if v
     ])
@@ -152,9 +140,21 @@ def prune_excessive_dcctx(dcctx):
     prune_facet(dcctx)
     return dcctx
 
-def request_final_json(parts, extra={}):
+def format_final_json(*, environ, start_time, req, client, webauthn2_context, status, content_range, content_type, track, **kwargs):
+    """Format final request termination event as part of a request's audit trail.
+
+    :param environ: the WSGI environment
+    :param start_time: the datetime when request processing started
+    :param req: the unique request id string for trace correlation
+    :param client: the client network address
+    :param webauthn2_context: the webauthn2 authentication context
+    :param status: the HTTP response status
+    :param content_range: the HTTP response Content-Range
+    :param content_type: the HTTP response Content-Type
+    :param track: a tracking id for the HTTP client
+    """
     try:
-        dcctx = flask.request.environ.get('HTTP_DERIVA_CLIENT_CONTEXT', 'null')
+        dcctx = environ.get('HTTP_DERIVA_CLIENT_CONTEXT', 'null')
         dcctx = urllib.parse.unquote(dcctx)
         dcctx = prune_excessive_dcctx(json.loads(dcctx))
     except Exception as e:
@@ -163,20 +163,20 @@ def request_final_json(parts, extra={}):
 
     od = OrderedDict([
         (k, v) for k, v in [
-            ('elapsed', parts['elapsed']),
-            ('req', parts['reqid']),
-            ('scheme', flask.request.scheme),
-            ('host', flask.request.host),
-            ('status', deriva_ctx.deriva_response.status),
-            ('method', flask.request.method),
-            ('path', flask.request.environ['REQUEST_URI']),
-            ('range', parts['content_range']),
-            ('type', parts['content_type']),
-            ('client', parts['client_ip']),
-            ('user', parts['client_identity_obj']),
-            ('referrer', flask.request.environ.get('HTTP_REFERER')),
-            ('agent', flask.request.environ.get('HTTP_USER_AGENT')),
-            ('track', deriva_ctx.webauthn2_context.tracking),
+            ('elapsed', elapsed_float_seconds(start_time)),
+            ('req', req),
+            ('scheme', environ['wsgi.url_scheme']),
+            ('host', environ.get('HTTP_HOST', environ['SERVER_NAME'])),
+            ('status', status),
+            ('method', environ['REQUEST_METHOD']),
+            ('path', environ['REQUEST_URI']),
+            ('range', content_range),
+            ('type', content_type),
+            ('client', client),
+            ('user', webauthn2_context.client if webauthn2_context else None),
+            ('referrer', environ.get('HTTP_REFERER')),
+            ('agent', environ.get('HTTP_USER_AGENT')),
+            ('track', track),
             ('dcctx', dcctx),
         ]
         if v
@@ -186,27 +186,29 @@ def request_final_json(parts, extra={}):
         od['referrer_md5'] = hashlib.md5(od['referrer'].encode()).hexdigest()
         od['referrer'] = od['referrer'][0:500]
 
-    if deriva_ctx.webauthn2_context and deriva_ctx.webauthn2_context.session:
-        session = deriva_ctx.webauthn2_context.session
+    if webauthn2_context and webauthn2_context.session:
+        session = webauthn2_context.session
         if hasattr(session, 'to_dict'):
             session = session.to_dict()
         od['session'] = session
 
-    for k, v in extra.items():
+    for k, v in kwargs.items():
         od[k] = v
 
     return json.dumps(od, separators=(', ', ':'))
-    
-def log_parts():
-    """Generate a dictionary of interpolation keys used by our logging template."""
-    return get_log_parts('webauthn_start_time', 'webauthn_request_guid', 'webauthn_request_content_range', 'webauthn_content_type')
 
 def request_trace(tracedata):
     """Log one tracedata event as part of a request's audit trail.
 
        tracedata: a string representation of trace event data
     """
-    logger.info(request_trace_json(tracedata, log_parts()))
+    logger.info(format_trace_json(
+        tracedata,
+        req=deriva_ctx.webauthn_request_guid,
+        start_time=deriva_ctx.webauthn_start_time,
+        client=flask.request.remote_addr,
+        webauthn2_context=deriva_ctx.webauthn2_context,
+    ))
 
 @app.before_request
 def before_request():
@@ -241,7 +243,17 @@ def after_request(response):
        and hasattr(deriva_ctx.webauthn_dispatched_handler, 'context'):
         deriva_ctx.webauthn2_context = deriva_ctx.webauthn_dispatched_handler.context 
 
-    logger.info( request_final_json(log_parts()) )
+    logger.info(format_final_json(
+        environ=flask.request.environ,
+        webauthn2_context=deriva_ctx.webauthn2_context,
+        req=deriva_ctx.webauthn_request_guid,
+        start_time=deriva_ctx.webauthn_start_time,
+        client=flask.request.remote_addr,
+        status=deriva_ctx.webauthn_status,
+        content_range=deriva_ctx.webauthn_request_content_range,
+        content_type=deriva_ctx.webauthn_content_type,
+        track=deriva_ctx.webauthn2_context.tracking,
+    ))
     return response
 
 class RestHandlerFactory (object):
