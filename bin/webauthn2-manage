@@ -21,7 +21,7 @@ import sys
 import json
 import datetime
 
-import webauthn2
+from webauthn2.manager import Manager
 
 def usage():
     print(
@@ -70,7 +70,7 @@ Exit status:
 """
     )
 
-webauthn2_manager = webauthn2.Manager()
+webauthn2_manager = Manager()
 
 def main(args):
     try:
