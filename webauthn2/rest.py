@@ -579,7 +579,7 @@ class RestHandlerFactory (object):
                     if preauth_referrer is not None:
                         deriva_ctx.deriva_response.status = '303 See Other'
                         deriva_ctx.deriva_response.location = preauth_referrer
-                        deriva_ctx.deriva_respones.set_data('')
+                        deriva_ctx.deriva_response.set_data('')
                         return deriva_ctx.deriva_response
 
                 return self._login_response()
