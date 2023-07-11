@@ -196,6 +196,8 @@ module AP_MODULE_DECLARE_DATA webauthn_module =
     register_hooks   /* Our hook registering function */
   };
 
+APLOG_USE_MODULE(webauthn);
+
 static const authz_provider authz_webauthn_group_provider =
   {
     &webauthn_group_check_authorization,
