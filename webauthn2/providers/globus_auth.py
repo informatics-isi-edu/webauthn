@@ -212,7 +212,7 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
                     if self.payload.get('dependent_tokens') == None:
                         self.payload['dependent_tokens'] = dict()
                     self.payload['dependent_tokens'] = token_response
-            except globus_sdk.exc.AuthAPIError as ex:
+            except globus_sdk.exc.GlobusAPIError as ex:
                 deriva_debug("WARNING: dependent token request returned {ex}".format(ex=ex))
         else:
             deriva_debug("WARNING: No globus_sdk installed; skipping dependent token request. This means no group info and an empty wallet for sessions authenticated by bearer token.")
@@ -243,16 +243,6 @@ class GlobusAuthClientProvider (oauth2.OAuth2ClientProvider):
 class GlobusAuthPreauthProvider (oauth2.OAuth2PreauthProvider):
 
     key = 'globus_auth'
-
-# Sometimes Globus whitelist entries will have typos in the URLs ("//" instead of "/" is very common),
-# and it can take a long time to get those fixed.
-
-    def make_relative_uri(self, relative_uri):
-        override_uri = self.cfg.get('globus_auth_override_full_redirect_uri')
-        if override_uri is not None and override_uri != '':
-            return override_uri
-        else:
-            return oauth2.OAuth2PreauthProvider.make_relative_uri(self, relative_uri)
 
 class GlobusAuthAttributeClient (AttributeClient):
 

@@ -348,11 +348,16 @@ class OAuth2Login (ClientLogin):
         redirect_full_payload=json.dumps(vals, separators=(',', ':'))
 
         # Get id token
+        # Hack for httpd configs that add '/' to the ends if urls
+        redirect_uri = flask.request.root_url.rstrip('/') + flask.request.path
+        if redirect_uri.rstrip('/') == self.provider.cfg.get_redirect_uri().strip('/'):
+            redirect_uri = self.provider.cfg.get_redirect_uri()
+            
         token_args = {
             'code' : vals.get('code'),
             'client_id' : self.provider.cfg.get('client_id'),
             'client_secret' : self.provider.cfg.get('client_secret'),
-            'redirect_uri' : flask.request.root_url.rstrip('/') + flask.request.path,
+            'redirect_uri' : redirect_uri,
             'nonce' : nonce_vals['auth_url_nonce'],
             'grant_type' : 'authorization_code'}
 
@@ -697,9 +702,7 @@ class OAuth2PreauthProvider (PreauthProvider):
         """
         Initiate a login (redirect to OAuth2 provider)
         """
-        self.authentication_uri_args["redirect_uri"] = self.make_uri(self.cfg.get('oauth2_redirect_uri'))
-        if self.authentication_uri_args["redirect_uri"] == None:
-            self.authentication_uri_args["redirect_uri"] = self.make_relative_uri(str(self.cfg.get('oauth2_redirect_relative_uri')))
+        self.authentication_uri_args["redirect_uri"] = self.cfg.get_redirect_uri()
         session = self.make_session(conn, cur)
         self.nonce_state.log_referrer(session.get('auth_url_nonce'), web_input().get('referrer'), conn, cur)
         deriva_ctx.deriva_response.set_cookie(self.nonce_cookie_name, session.get('auth_cookie_nonce'), secure=True, path="/")
@@ -709,14 +712,6 @@ class OAuth2PreauthProvider (PreauthProvider):
         else:
             return self.make_redirect_uri(auth_request_args)
 
-    def make_uri(self, base):
-        if base is None:
-            return None
-        return "{prot}://{host}{path}".format(
-            prot=flask.request.scheme,
-            host=flask.request.host,
-            path=base,
-        )
 
     def preauth_referrer(self):
         """
@@ -728,9 +723,6 @@ class OAuth2PreauthProvider (PreauthProvider):
         else:
             return self.nonce_state.get_referrer(auth_url_nonce)
         
-    def make_relative_uri(self, relative_uri):
-        return flask.request.root_path + relative_uri
-
     def make_auth_request_args(self, session):
         auth_request_args=dict()
         for key in self.authentication_uri_args.keys():
@@ -1002,6 +994,17 @@ class OAuth2Config(MutableMapping):
 
     def __len__(self):
         return len(self.keys())
+
+    def get_redirect_uri(self):
+        if self.get('oauth2_redirect_uri'):
+            return "{prot}://{host}{path}".format(
+                prot=flask.request.scheme,
+                host=flask.request.host,
+                path=self.get('oauth2_redirect_uri'),
+            )
+        elif self.get('oauth2_redirect_relative_uri'):
+            return flask.request.root_path.rstrip('/') + self.get('oauth2_redirect_relative_uri')
+        return None
 
 
 class OAuth2SessionIdProvider (webcookie.WebcookieSessionIdProvider, database.DatabaseConnection2):
