@@ -39,7 +39,7 @@ jobs:
           sudo su -c 'python3 -c "import site;print(site.PREFIXES);"'
           sudo su -c 'python3 -c "import site;print(site.getsitepackages())"'
           sudo pip3 install psycopg2-binary
-          sudo pip3 install git+https://github.com/informatics-isi-edu/webpy.git
+          sudo pip3 install flask
           sudo useradd -m -r webauthn
           sudo su -c '/usr/bin/python3 -c "import sys;import pprint;pprint.pprint(sys.path)"' - webauthn
       - name: Install webauthn

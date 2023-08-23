@@ -1,6 +1,6 @@
 
 # 
-# Copyright 2012 University of Southern California
+# Copyright 2012, 2023 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,10 +21,10 @@ Webauthn2 null provider stubs.
 
 """
 
-import web
+from ..util import *
 from .providers import *
 
-config_built_ins = web.storage()
+config_built_ins = web_storage()
 
 __all__ = [
     'NullSessionIdProvider',

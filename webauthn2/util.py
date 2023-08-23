@@ -1,6 +1,6 @@
 
 # 
-# Copyright 2010-2019 University of Southern California
+# Copyright 2010-2023 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 
 import psycopg2
 import psycopg2.extensions
-import web
+import psycopg2.extras
 import urllib
 import urllib.error
 import datetime
@@ -28,6 +28,11 @@ import os
 import sys
 import traceback
 import base64
+from collections import OrderedDict
+import flask
+from flask import g as deriva_ctx
+import werkzeug.exceptions
+import werkzeug.http
 
 psycopg2.extensions.register_type(psycopg2.extensions.JSON)
 psycopg2.extensions.register_type(psycopg2.extensions.JSONARRAY)
@@ -42,9 +47,50 @@ jsonFileReader = json.load
 LOGOUT_URL = "logout_url"
 DEFAULT_LOGOUT_PATH = "default_logout_path"
 
+def deriva_debug(*args):
+    """Shim to emulate web.debug non-logger diagnostics.
+    """
+    if len(args) > 1:
+        v = str(tuple(args))
+    else:
+        v = str(args[0])
+
+    print(v, file=sys.stderr, flush=True)
+
+class web_storage(dict):
+    """Shim to emulate web.storage attr-dict class.
+    """
+    def __getattribute__(self, a):
+        """Allow reading of dict keys as attributes.
+
+        Don't allow dict keys to shadow actual attributes of dict, and
+        proxy those instead.
+        """
+        sself = super(web_storage, self)
+        try:
+            return sself.__getattribute__(a)
+        except:
+            if a in self:
+                return self[a]
+            else:
+                raise AttributeError(a)
+
+def web_input():
+    """Shim to emulate web.input form/query parser.
+
+    This returns form inputs if available or falls back to query params.
+    """
+    storage1 = web_storage(flask.request.form)
+    storage2 = web_storage(flask.request.args)
+    #deriva_debug('web_input %r environ=%r form=%r args=%r' % (flask.request.full_path, flask.request.environ, storage1, storage2))
+    if storage1:
+        return storage1
+    else:
+        return storage2
+
 def jsonWriter(o, indent=None):
     def munge(o):
-        if isinstance(o, (dict, web.Storage)):
+        if isinstance(o, (dict, web_storage)):
             return {
                 p[0]: munge(p[1])
                 for p in o.items()
@@ -60,8 +106,11 @@ def jsonWriter(o, indent=None):
 
     return json.dumps( munge(o), indent=indent, ensure_ascii=False ).encode()
 
-def negotiated_content_type(supported_types=['text/csv', 'application/json', 'application/x-json-stream'], default=None):
+def negotiated_content_type(environ, supported_types=['text/csv', 'application/json', 'application/x-json-stream'], default=None):
     """Determine negotiated response content-type from Accept header.
+
+       environ: the WSGI dict-like environment containing
+         HTTP_* header content.
 
        supported_types: a list of MIME types the caller would be able
          to implement if the client has requested one.
@@ -86,7 +135,7 @@ def negotiated_content_type(supported_types=['text/csv', 'application/json', 'ap
         return (q, t)
 
     try:
-        accept = web.ctx.env['HTTP_ACCEPT']
+        accept = environ['HTTP_ACCEPT']
     except:
         accept = ""
             
@@ -107,7 +156,7 @@ def negotiated_content_type(supported_types=['text/csv', 'application/json', 'ap
 
 def merge_config(overrides=None, defaults=None, jsonFileName=None, built_ins={}):
     """
-    Construct web.storage config result from inputs.
+    Construct web_storage config result from inputs.
 
     The configuration parameters are obtained in descending order
     of preference from these sources:
@@ -144,7 +193,7 @@ def merge_config(overrides=None, defaults=None, jsonFileName=None, built_ins={})
         if type(defaults) != dict:
             raise TypeError('%r' % defaults)
 
-    config = web.storage()
+    config = web_storage()
     config.update(built_ins)
     if defaults:
         config.update(defaults)
@@ -161,15 +210,13 @@ def string_wrap(s, escape='\\', protect=[]):
 
 def sql_identifier(s):
     # double " to protect from SQL
-    # double % to protect from web.db
-    return '"%s"' % string_wrap(string_wrap(s, '%'), '"') 
+    return '"%s"' % string_wrap(s, '"') 
 
 def sql_literal(v):
     if v != None:
         # double ' to protect from SQL
-        # double % to protect from web.db
         s = '%s' % v
-        return "'%s'" % string_wrap(string_wrap(s, '%'), "'")
+        return "'%s'" % string_wrap(s, "'")
     else:
         return 'NULL'
 
@@ -186,17 +233,16 @@ def urlunquote(url):
     "common URL unquote mechanism for URL value embeddings"
     return urllib.parse.unquote_plus(url)
 
-def urlunquote_webpy(url):
-    "common URL unquote mechanism for URL value embeddings"
-    # this hack works around broken URL decoding already done by web.py which somehow cast UTF-8 buffer as str w/o decoding
-    return url.encode('latin1').decode()
-
 def expand_relative_url(path):
-    if path == None:
+    if path is None:
         return None
     path = path.strip()
     if path[0] == '/':
-        return "{prot}://{host}{path}".format(prot=web.ctx.protocol, host=web.ctx.host, path=path)
+        return "{prot}://{host}{path}".format(
+            prot=flask.request.scheme,
+            host=flask.request.host,
+            path=path
+        )
     return path
 
 def generate_random_string(length=24, alpha=True, numeric=True, symbols=False, source=None):
@@ -248,7 +294,7 @@ class Context (object):
 
     """
 
-    def __init__(self, manager=None, setheader=False, db=None):
+    def __init__(self, manager=None, setheader=False, conn=None, cur=None):
         """
         Construct one Context instance using the manager and setheader policy as needed.
 
@@ -265,29 +311,29 @@ class Context (object):
         if manager:
             # look for existing session ID context in message
             if manager.sessionids:
-                sessionids = manager.sessionids.get_request_sessionids(manager, self, db)
+                sessionids = manager.sessionids.get_request_sessionids(manager, self, conn, cur)
             else:
                 sessionids = set()
 
             if sessionids:
                 # look up existing session data for discovered IDs
                 if manager.sessions:
-                    manager.sessions.set_msg_context(manager, self, sessionids, db)
+                    manager.sessions.set_msg_context(manager, self, sessionids, conn, cur)
 
             if manager.clients.msgauthn:
                 # look for embedded client identity
                 oldclient = self.get_client_id()
 
-                manager.clients.msgauthn.set_msg_context(manager, self, db)
+                manager.clients.msgauthn.set_msg_context(manager, self, conn, cur)
 
                 if oldclient != self.get_client_id() and manager.attributes.client:
                     # update attributes for newly modified client ID
                     self.attributes = set()
-                    manager.attributes.client.set_msg_context(manager, self, db)
+                    manager.attributes.client.set_msg_context(manager, self, conn, cur)
 
             if manager.attributes.msgauthn:
                 # look for embedded client attributes
-                manager.attributes.msgauthn.set_msg_context(manager, self, db)
+                manager.attributes.msgauthn.set_msg_context(manager, self, conn, cur)
 
     @property
     def client_id(self):
@@ -320,31 +366,36 @@ class Context (object):
             )
         )
 
-def session_from_environment():
+def session_from_environment(environ):
     """
     Get and decode session details from the environment set by the http server (with mod_webauthn).
-    Returns a dictionary on success, None if the environment variable is unset (or blank).
+
+    :param environ: The dict-like WSGI environment
+
+    Returns a dictionary on success, None if the environment variable is unset/blank.
+
     Throws TypeError if the base64 decode fails and ValueError if json decode fails
     """
-    b64_session_string = None
-    try:
-        b64_session_string = web.ctx.env['WEBAUTHN_SESSION_BASE64']
-    except:
-        b64_session_string = os.environ.get('WEBAUTHN_SESSION_BASE64')
-
-    if b64_session_string == None or b64_session_string.strip() == '':
+    b64_session_string = environ.get('WEBAUTHN_SESSION_BASE64', '')
+    if not b64_session_string.strip():
         return None
     session_string=base64.standard_b64decode(b64_session_string).decode()
     return jsonReader(session_string)
 
-def context_from_environment(fallback=True):
+def context_from_environment(environ, fallback=True):
     """
     Get and decode session details from the environment set by the http server (with mod_webauthn).
+
+    :param environ: The dict-like WSGI environment
+    :param fallback: Whether to return an anonymous context when environment lacks context info (default).
+
     Returns a Context instance which may be empty (anonymous).
+
     If fallback=False, returns None if context was not found in environment.
+
     Throws TypeError if the base64 decode fails and ValueError if json decode fails
     """
-    context_dict = session_from_environment()
+    context_dict = session_from_environment(environ)
     context = Context()
     if context_dict:
         context.client = context_dict['client']
@@ -361,54 +412,106 @@ def context_from_environment(fallback=True):
     else:
         return None
 
+class RestException (werkzeug.exceptions.HTTPException):
+    """Generic REST exception overriding flask/werkzeug defaults.
 
-class NoMethod(web.HTTPError):
-    """`405 Method Not Allowed` error."""
-    message = "method not allowed"
-    def __init__(self, message=None):
-        status = '405 Method Not Allowed'
-        headers = {'Content-Type': 'text/html'}
-        web.HTTPError.__init__(self, status, headers, message or self.message)
+    Our API defaults to text error responses but supports
+    negotiated HTML and possible further customization.
+    """
+    # allow app to give us runtime config
+    config = {}
 
-class Conflict(web.HTTPError):
-    """`409 Conflict` error."""
-    message = "conflict"
-    def __init__(self, message=None):
-        status = '409 Conflict'
-        headers = {'Content-Type': 'text/html'}
-        web.HTTPError.__init__(self, status, headers, message or self.message)
+    # werkzeug fields
+    code = None
+    description = None
 
-class Forbidden(web.HTTPError):
-    """`403 Forbidden` error."""
-    message = "forbidden"
-    def __init__(self, message=None):
-        status = '403 Forbidden'
-        headers = {'Content-Type': 'text/html'}
-        web.HTTPError.__init__(self, status, headers, message or self.message)
+    # refactoring of prior hatrac templating
+    title = None
+    response_templates = OrderedDict([
+        ("text/plain", "%(message)s"),
+        ("text/html", "<html><body><h1>%(title)s</h1><p>%(message)s</p></body></html>"),
+    ])
 
-class Unauthorized(web.HTTPError):
-    """`401 Unauthorized` error."""
-    message = "unauthorized"
-    def __init__(self, message=None):
-        status = '401 Unauthorized'
-        headers = {'Content-Type': 'text/html'}
-        web.HTTPError.__init__(self, status, headers, message or self.message)
+    def __init__(self, description=None, headers={}):
+        self.headers = dict(headers)
+        if description is not None:
+            self.description = description
+        super().__init__()
+        # allow ourselves to customize the error title for our UX
+        if self.title is None:
+            self.title = werkzeug.http.HTTP_STATUS_CODES.get(self.code)
 
-class NotFound(web.HTTPError):
-    """`404 Not Found` error."""
-    message = "not found"
-    def __init__(self, message=None):
-        status = '404 Not Found'
-        headers = {'Content-Type': 'text/html'}
-        web.HTTPError.__init__(self, status, headers, message or self.message)
+        # lookup templates overrides in runtime config
+        #
+        # OrderedDict.update() maintains ordering for keys already
+        # controlled above, but has indeterminate order for new
+        # additions from JSON dict!
+        #
+        # default templates override built-in templates
+        self.response_templates = self.response_templates.copy()
+        self.response_templates.update(
+            self.config.get('error_templates', {}).get("default", {})
+        )
+        # code-specific templates override default templates
+        self.response_templates.update(
+            self.config.get('error_templates', {}).get(str(self.code), {})
+        )
+        # legacy config syntax
+        #   code_typesuffix: template,
+        #   ...
+        for content_type in list(self.response_templates.keys()):
+            template_key = '%s_%s' % (self.code, content_type.split('/')[-1])
+            if template_key in self.config:
+                self.response_templates[content_type] = self.config[template_key]
 
-class BadRequest(web.HTTPError):
-    """`400 Bad Request` error."""
-    message = "bad request"
-    def __init__(self, message=None):
-        status = '400 Bad Request'
-        headers = {'Content-Type': 'text/html'}
-        web.HTTPError.__init__(self, status, headers, message or self.message)
+        # find client's negotiated type
+        supported_content_types = list(self.response_templates.keys())
+        default_content_type = supported_content_types[0]
+        self.content_type = negotiated_content_type(flask.request.environ, supported_content_types, default_content_type)
+        self.headers['content-type'] = self.content_type
+
+    # override the werkzeug base exception to use our state management
+    def get_description(self, environ=None, scope=None):
+        return self.description
+
+    def get_body(self, environ=None, scope=None):
+        template = self.response_templates[self.content_type]
+        description = self.get_description()
+        return (template + '\n') % {
+            "code": self.code,
+            "description": description,
+            "message": description, # for existing hatrac_config template feature
+            "title": self.title, # for our new generic templates
+        }
+
+    def get_headers(self, environ=None, scope=None):
+        return self.headers
+
+class NoMethod (RestException):
+    code = 405
+    description = 'Request method not allowed on this resource.'
+
+class Conflict (RestException):
+    code = 409
+    description = 'Request conflicts with state of server.'
+
+class Forbidden (RestException):
+    code = 403
+    description = 'Access forbidden.'
+    title = 'Access Forbidden'
+
+class Unauthorized (RestException):
+    code = 401
+    description = 'Access requires authentication.'
+    title = 'Authentication Required'
+
+class NotFound (RestException):
+    code = 404
+    description = 'Resource not found.'
+
+class BadRequest (RestException):
+    code = 400
+    description = 'Request malformed.'
 
 class PooledConnection (object):
     """
@@ -450,18 +553,56 @@ class PooledConnection (object):
         """Close an actual connection previously opened."""
         pass
 
-def force_query(db, *args, **kwargs):
-    """Force db.query SELECT generator results as expected by legacy code here."""
-    return list(db.query(*args, **kwargs))
+def force_query(conn, cur, *args, **kwargs):
+    """Force cur.query SELECT generator results as expected by legacy code here."""
+    cur.execute(*args, **kwargs)
+    return list(cur)
+
+class AttrDictRow (psycopg2.extras.DictRow):
+    """A row object to allow row.columname access as well as dict and tuple access.
+
+    Tweaks the normal psycopg2.extras.DictRow to also allow
+    attribute-style access to columns, but will not shadow actual
+    python object attributes. Use the dict or tuple-style access or
+    rewrite your queries to avoid such collisions.
+
+    This access is ONLY for reading a specific field by name as a
+    compatibility shim. Do not try to set field values via attribute
+    assignment nor to discover field names by introspection with
+    dir(row)!
+
+    It would be better to migrate consumers to use the dict or tuple
+    access methods, inherited from the superclass, and eventually
+    deprecate this attribute-based access mechanism.
+
+    """
+    def __getattribute__(self, a):
+        g = super().__getattribute__
+        try:
+            # real attributes take precedence
+            return g(a)
+        except AttributeError:
+            try:
+                return self[a]
+            except KeyError:
+                raise AttributeError(a)
+
+class AttrDictCursor(psycopg2.extras.DictCursor):
+    """A cursor that produces AttrDictRow rather than DictRow instances."""
+    def __init__(self, *args, **kwargs):
+        # DictCursor.__init__ blindly sets its own row_factor kwarg
+        super().__init__(*args, **kwargs)
+        # so, override where it is saved in DictCursorBase instead...
+        self.row_factory = AttrDictRow
 
 class DatabaseConnection (PooledConnection):
     """
-    Concrete base class for pooled web.database connections.
+    Concrete base class for pooled psycopg2 connections.
 
-    Multiple pools are maintained for each database type/database name
-    pair encountered from the config storage passed to the constructor.
+    Multiple pools are maintained for each dsn
+    encountered from the config storage passed to the constructor.
 
-    This class is a useful base class for a web.py request handler
+    This class is a useful base class for a request handler
     class that will want to use transactional database queries as part
     of its request handling logic.
 
@@ -479,16 +620,15 @@ class DatabaseConnection (PooledConnection):
         config.database_max_retries  (e.g. 5)
 
         """
-        config_tuple = (config.database_dsn,
-                        config.database_type)
-        PooledConnection.__init__(self, config_tuple)
+        if config.database_type != 'postgres':
+            raise NotImplementedError('webauthn2 only supports database_type="postgres"')
 
+        config_tuple = (config.database_dsn,)
+        super(DatabaseConnection, self).__init__(config_tuple)
+
+        self.database_dsn = config_tuple[0]
         self.database_schema = config.database_schema
         self.database_max_retries = max(config.database_max_retries, 0)
-
-        self.database_dsn, \
-            self.database_type, \
-            = self.config_tuple
 
         if extended_exceptions:
             self.extended_exceptions = extended_exceptions
@@ -496,22 +636,23 @@ class DatabaseConnection (PooledConnection):
             self.extended_exceptions = []
 
     def _new_connection(self):
-        return web.database(dbn=self.database_type, dsn=self.database_dsn, pooling=False)
+        return psycopg2.connect(
+            dsn=self.database_dsn,
+            cursor_factory=AttrDictCursor,
+        )
 
     def _close_connection(self, conn):
         del conn
 
     def _db_wrapper(self, db_thunk):
         """
-        Run db_thunk(db) with automatic transaction handling.
+        Run db_thunk(conn) with automatic transaction handling.
 
-        A pooled db is obtained from self._get_pooled_connection() and
-        returned with self._put_pooled_connection(db).
+        A pooled conn is obtained from self._get_pooled_connection() and
+        returned with self._put_pooled_connection(conn).
 
-        A transaction is started before db_thunk(db) and committed
-        before returning thunk results. A web.SeeOther is caught to
-        commit the transaction and then re-raised as a psuedo return
-        value.
+        A transaction is started before db_thunk(conn) and committed
+        before returning thunk results.
 
         Several transient exceptions are caught
         (psycopg2.InterfaceError, psycopg2.IntegrityError,
@@ -528,48 +669,48 @@ class DatabaseConnection (PooledConnection):
 
         """
         retries = self.database_max_retries + 1
-        db = None
+        conn = None
         last_ev = None
 
         try:
             while retries > 0:
-                if db == None:
-                    db = self._get_pooled_connection()
+                if conn is None:
+                    conn = self._get_pooled_connection()
 
                 try:
-                    t = db.transaction()
-                    val = db_thunk(db)
-                    t.commit()
+                    with conn.cursor() as cur:
+                        val = db_thunk(conn, cur)
+                    conn.commit()
                     return val
 
-                except web.SeeOther as ev:
-                    t.commit() # this is a psuedo-exceptional success case
-                    raise ev
+                #except web.SeeOther as ev:
+                #    conn.commit() # this is a psuedo-exceptional success case
+                #    raise ev
 
                 except (psycopg2.InterfaceError, psycopg2.OperationalError) as ev:
                     et, ev2, tb = sys.exc_info()
-                    web.debug('got exception "%s" during _db_wrapper(), retries = %d' % (str(ev2), retries),
+                    deriva_debug('got exception "%s" during _db_wrapper(), retries = %d' % (str(ev2), retries),
                               traceback.format_exception(et, ev2, tb))
                     # abandon stale db connection and retry
-                    if db is not None:
-                        self._close_connection(db)
-                    db = None
+                    if conn is not None:
+                        self._close_connection(conn)
+                    conn = None
                     last_ev = ev
 
                 except (psycopg2.IntegrityError, 
                         psycopg2.extensions.TransactionRollbackError, 
                         IOError, urllib.error.URLError) as ev:
                     et, ev2, tb = sys.exc_info()
-                    web.debug('got exception "%s" during _db_wrapper(), retries = %d' % (str(ev2), retries),
+                    deriva_debug('got exception "%s" during _db_wrapper(), retries = %d' % (str(ev2), retries),
                               traceback.format_exception(et, ev2, tb))
                     # these are likely transient errors so rollback and retry
-                    t.rollback()
+                    conn.rollback()
                     last_ev = ev
 
-                except web.HTTPError as ev:
+                except RestException as ev:
                     # don't log these "normal" exceptions
                     try:
-                        t.rollback()
+                        conn.rollback()
                     except:
                         pass
                     raise ev
@@ -578,7 +719,7 @@ class DatabaseConnection (PooledConnection):
                     def trace():
                         et, ev2, tb = sys.exc_info()
                         if tb is not None:
-                            web.debug('Exception in db_wrapper here: {t}'.format(t=traceback.format_tb(tb)))
+                            deriva_debug('Exception in db_wrapper here: {t}'.format(t=traceback.format_tb(tb)))
 
                     # see if subclass told us how to handle exception
                     for cls, do_commit, do_trace in self.extended_exceptions:
@@ -586,10 +727,10 @@ class DatabaseConnection (PooledConnection):
                             if do_trace:
                                 trace()
                             if do_commit:
-                                t.commit()
+                                conn.commit()
                             else:
                                 try:
-                                    t.rollback()
+                                    conn.rollback()
                                 except:
                                     pass
                             raise ev
@@ -597,7 +738,7 @@ class DatabaseConnection (PooledConnection):
                     # assume all other exceptions are fatal
                     trace()
                     try:
-                        t.rollback()
+                        conn.rollback()
                     except:
                         pass
                     raise ev
@@ -608,18 +749,18 @@ class DatabaseConnection (PooledConnection):
                     # we never get here unless:
                     # 1. an exception prevented 'return val' above
                     # 2. we caught it in an except branch above and it got saved as last_ev for possible retry
-                    web.debug('giving up with %s after %d retries' % (str(type(last_ev)), self.database_max_retries))
+                    deriva_debug('giving up with %s after %d retries' % (str(type(last_ev)), self.database_max_retries))
                     raise last_ev
                 else:
                     attempt = (retries - self.database_max_retries - 1) * -1
                     delay =  random.uniform(0.75, 1.25) * math.pow(10.0, attempt) * 0.00000001
-                    web.debug('transaction attempt %d of %d: delaying %f after "%s"' % (attempt, self.database_max_retries, delay, str(last_ev)))
+                    deriva_debug('transaction attempt %d of %d: delaying %f after "%s"' % (attempt, self.database_max_retries, delay, str(last_ev)))
                     time.sleep(delay)
 
         finally:
-            # return db to pool if we didn't abandon it above
-            if db != None:
-                self._put_pooled_connection(db)
+            # return conn to pool if we didn't abandon it above
+            if conn is not None:
+                self._put_pooled_connection(conn)
 
     def _table(self, tablename):
         """Return sql_identifier(tablename) but qualify with self.database_schema if defined."""
@@ -630,11 +771,11 @@ class DatabaseConnection (PooledConnection):
         else:
             return table
 
-    def _view_exists(self, db, tablename):
+    def _view_exists(self, conn, cur, tablename):
         """Return True or False depending on whether (schema.)tablename view exists in our database."""
 
         results = force_query(
-            db,
+            conn, cur,
             """
 SELECT * FROM information_schema.views
 WHERE table_schema = %(schema)s
@@ -646,11 +787,11 @@ WHERE table_schema = %(schema)s
         )
         return len(results) > 0
     
-    def _table_exists(self, db, tablename):
+    def _table_exists(self, conn, cur, tablename):
         """Return True or False depending on whether (schema.)tablename exists in our database."""
 
         results = force_query(
-            db,
+            conn, cur,
             """
 SELECT * FROM information_schema.tables
 WHERE table_schema = %(schema)s
@@ -662,11 +803,11 @@ WHERE table_schema = %(schema)s
         )
         return len(results) > 0
     
-    def _schema_exists(self, db, schemaname):
+    def _schema_exists(self, conn, cur, schemaname):
         """Return True or False depending on whether schema exists in our database."""
 
         results = force_query(
-            db,
+            conn, cur,
             """
 SELECT * FROM information_schema.schemata
 WHERE schema_name = %(schema)s

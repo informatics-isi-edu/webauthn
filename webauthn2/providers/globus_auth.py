@@ -1,5 +1,6 @@
+
 # 
-# Copyright 2010-2019 University of Southern California
+# Copyright 2010-2023 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,8 +21,6 @@ Globus flavor of OAuth2. They require HTTP Basic authentication for token reques
 import base64
 import urllib
 import json
-
-import web
 
 from .providers import *
 from ..util import *
@@ -85,7 +84,7 @@ class GlobusViewGroupTokenProcessor(GlobusGroupTokenProcessor):
                                            group_base_url if group_base_url else self.default_base_url)
 
     def get_groups(self):
- #       web.debug("trying view_my_groups, token is {t}".format(t=str(self.token)))
+ #       deriva_debug("trying view_my_groups, token is {t}".format(t=str(self.token)))
         final_groups = set()
         if self.token != None:
             group_request = urllib.request.Request(self.group_base_url)
@@ -115,7 +114,7 @@ class GlobusLegacyGroupTokenProcessor(GlobusGroupTokenProcessor):
         }
 
     def get_groups(self):
-#        web.debug("Using legacy Globus group processor")
+#        deriva_debug("Using legacy Globus group processor")
         final_groups = set()
         if self.token != None:
             urltuple = urllib.parse.urlsplit(self.group_base_url)
@@ -137,8 +136,8 @@ class GlobusLegacyGroupTokenProcessor(GlobusGroupTokenProcessor):
 
 class GlobusAuthLogin(oauth2.OAuth2Login):
     
-    def login(self, manager, context, db, **kwargs):
-        user_id = oauth2.OAuth2Login.login(self, manager, context, db, **kwargs)
+    def login(self, manager, context, conn, cur, **kwargs):
+        user_id = oauth2.OAuth2Login.login(self, manager, context, conn, cur, **kwargs)
         other_tokens = self.payload.get('other_tokens')
         dependent_tokens = self.payload.get('dependent_tokens')
         dependent_tokens_source = self.payload.get('dependent_tokens_source')
@@ -177,18 +176,18 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
                             processor.set_token(token)
                             group_token_processor = processor
                     
-#        web.debug("wallet: " + str(context.wallet))
-#        web.debug("token processor: " + str(group_token_processor))
+#        deriva_debug("wallet: " + str(context.wallet))
+#        deriva_debug("token processor: " + str(group_token_processor))
         if group_token_processor is not None:
             context.globus_groups = group_token_processor.get_groups()
             
-        self.provider.manage.update_last_login(manager, context, context.client[ID], db)
-        self.provider.manage.update_last_group_update(manager, context, context.client[ID], db)
+        self.provider.manage.update_last_login(manager, context, context.client[ID], conn, cur)
+        self.provider.manage.update_last_group_update(manager, context, context.client[ID], conn, cur)
         return context.client
 
     def add_extra_token_request_headers(self, token_request):
         client_id = self.provider.cfg.get('client_id')
-#        web.debug("client id is {i}".format(i=client_id))
+#        deriva_debug("client id is {i}".format(i=client_id))
         client_secret = self.provider.cfg.get('client_secret')
         basic_auth_token = base64.b64encode((client_id + ':' + client_secret).encode())
         token_request.add_header('Authorization', 'Basic ' + basic_auth_token.decode())
@@ -198,8 +197,8 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
         self.add_extra_token_request_headers(req)
         return req
 
-    def payload_from_bearer_token(self, bearer_token, context, db):
-        oauth2.OAuth2Login.payload_from_bearer_token(self, bearer_token, context, db)
+    def payload_from_bearer_token(self, bearer_token, context, conn, cur):
+        oauth2.OAuth2Login.payload_from_bearer_token(self, bearer_token, context, conn, cur)
         if USE_GLOBUS_SDK:
             client = globus_sdk.ConfidentialAppAuthClient(self.provider.cfg.get('client_id'), self.provider.cfg.get('client_secret'))            
             # attempt to get dependent tokens
@@ -214,9 +213,9 @@ class GlobusAuthLogin(oauth2.OAuth2Login):
                         self.payload['dependent_tokens'] = dict()
                     self.payload['dependent_tokens'] = token_response
             except globus_sdk.AuthAPIError as ex:
-                web.debug("WARNING: dependent token request returned {ex}".format(ex=ex))
+                deriva_debug("WARNING: dependent token request returned {ex}".format(ex=ex))
         else:
-            web.debug("WARNING: No globus_sdk installed; skipping dependent token request. This means no group info and an empty wallet for sessions authenticated by bearer token.")
+            deriva_debug("WARNING: No globus_sdk installed; skipping dependent token request. This means no group info and an empty wallet for sessions authenticated by bearer token.")
     
 # Sometimes Globus whitelist entries will have typos in the URLs ("//" instead of "/" is very common),
 # and it can take a long time to get those fixed.
@@ -245,22 +244,12 @@ class GlobusAuthPreauthProvider (oauth2.OAuth2PreauthProvider):
 
     key = 'globus_auth'
 
-# Sometimes Globus whitelist entries will have typos in the URLs ("//" instead of "/" is very common),
-# and it can take a long time to get those fixed.
-
-    def make_relative_uri(self, relative_uri):
-        override_uri = self.cfg.get('globus_auth_override_full_redirect_uri')
-        if override_uri is not None and override_uri != '':
-            return override_uri
-        else:
-            return oauth2.OAuth2PreauthProvider.make_relative_uri(self, relative_uri)
-
 class GlobusAuthAttributeClient (AttributeClient):
 
     def __init__(self, provider):
         AttributeClient.__init__(self, provider)
 
-    def set_msg_context(self, manager, context, db=None):
+    def set_msg_context(self, manager, context, conn=None, cur=None):
         if hasattr(context, 'globus_groups'):
             context.attributes.update(group for group in context.globus_groups)
         context.attributes.update(identity for identity in context.globus_identities)
@@ -283,13 +272,13 @@ class GlobusAuthSessionStateProvider(oauth2.OAuth2SessionStateProvider):
 
     key = 'globus_auth'
 
-    def terminate(self, manager, context, db=None, preferred_final_url=None):
+    def terminate(self, manager, context, conn=None, cur=None, preferred_final_url=None):
         globus_args = ['client_id', 'redirect_name']
-        oauth2.OAuth2SessionStateProvider.terminate(self, manager, context, db)
+        oauth2.OAuth2SessionStateProvider.terminate(self, manager, context, conn, cur)
         logout_base = self.cfg.get('revocation_endpoint')
-        if logout_base == None:
+        if logout_base is None:
             raise oauth2.OAuth2ConfigurationError("No revocation endpoint configured")
-        rest_args = web.input()
+        rest_args = web_input()
         args=dict()
         for key in globus_args:
             val=rest_args.get('logout_' + key)
@@ -297,9 +286,7 @@ class GlobusAuthSessionStateProvider(oauth2.OAuth2SessionStateProvider):
                 val = self.cfg.get(self.key + '_logout_' + key)
             if val != None:
                 args[key] = val
-        if preferred_final_url != None:
+        if preferred_final_url is not None:
             args['redirect_uri'] = preferred_final_url
         globus_logout_url = logout_base + "?" + urllib.parse.urlencode(args)
-        retval = dict()
-        retval[LOGOUT_URL] = globus_logout_url
-        return retval
+        return {LOGOUT_URL: globus_logout_url}

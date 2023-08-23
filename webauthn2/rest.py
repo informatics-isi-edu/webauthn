@@ -1,5 +1,5 @@
 # 
-# Copyright 2012-2019 University of Southern California
+# Copyright 2012-2023 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,46 +14,25 @@
 # limitations under the License.
 #
 """
-Webauthn2 REST library supports dispatch from web.py applications.
-
-A factory model encapsulates an entire webauthn2 security context
-Manager instance that can be reused by the per-request message handler
-classes expected by web.py:
-
-  webauthn2factory = RestHandlerFactory()
-
-  urls = (
-     ...
-     '/myapp/session(/[^/]+)',  webauthn2factory.UserSession,
-     '/myapp/password(/[^/]+)', webauthn2factory.UserPassword,
-     '/myapp/user(/[^/]+)', webauthn2factory.UserManage,
-     '/myapp/attribute(/[^/]+)', webauthn2factory.AttrManage,
-     '/myapp/user/([^/]+)/attribute(/[^/]+), webauthn2factory.AttrAssign,
-     '/myapp/attribute/([^/]+)/implies(/[^/]+), webauthn2factory.AttrNest
-  )
+Webauthn2 REST service.
 
 These REST handlers use basic form/URI inputs and return only basic
 URI or JSON results to support AJAX clients.  An application MAY
 expose these REST APIs for where appropriate, including its own
 AJAX UI front-end to these features.
 
-The handler base class webauthn2factory.RestHandler can be extended by
-an application in order to get an integrated security manager with an
-optimized database connection pooling feature:
+A sibling application can deploy with mod_webauthn and get the
+context info from the WSGI service environment:
 
-  class AppHandler (webauthn2factory.RestHandler):
+  import flask
+  from webauthn2.util import context_from_environment
 
-     def __init__(self):
-         webauthn2factory.RestHandler.__init__(self)
-
+  class AppHandler (object):
      def GET(self):
-         def db_body(db):
-            self.context = self.manager.get_request_context(db=db)
-            ... # other application use of db
-         return self._db_wrapper(db_body)
+        self.context = context_from_environment(flask.request.environ)
 
-But this support class is entirely optional.  An application can also
-just use the Manager instance directly in its own message handlers:
+A legacy deployment can use the Manager instance directly in its
+own message handlers:
 
   manager = webauthn2factory.manager
 
@@ -62,12 +41,13 @@ just use the Manager instance directly in its own message handlers:
      def GET(self):
         self.context = manager.get_request_context()
 
+but this requires that the application have access to the entire
+webauthn2 service container and backend resources. The mod_webauthn
+approach is preferred to allow isolation between these components.
+
 """
 
 from __future__ import print_function
-from .util import *
-from .manager import Manager, Context
-from .providers import Session
 import re
 import logging
 from logging.handlers import SysLogHandler
@@ -77,10 +57,14 @@ import struct
 import json
 import hashlib
 from collections import OrderedDict
-
-import web
 import traceback
 import sys
+import flask
+import flask.views
+
+from .util import *
+from .manager import Manager, Context
+from .providers import Session
 
 ## setup logger and web request log helpers
 logger = logging.getLogger('webauthn')
@@ -95,41 +79,33 @@ sysloghandler.setFormatter(syslogformatter)
 logger.addHandler(sysloghandler)
 logger.setLevel(logging.INFO)
 
-def get_log_parts(start_time_key, request_guid_key, content_range_key, content_type_key):
-    """Generate a dictionary of interpolation keys used by our logging template.
+app = flask.Flask(__name__)
 
-       Arguments:
-          start_time_key: key to entry in web.ctx w/ current request start timestamp
-          request_guid_key: key to entry in web.ctx w/ current request GUID
-          content_range_key: key to entry in web.ctx w/ HTTP range
-          content_type_key: key to entry in web.ctx w/ HTTP content type
-    """
+# instantiate manager based on service config
+_manager = Manager()
+
+def elapsed_float_seconds(start_time):
+    """Calculate floating point elapsed seconds since start_time."""
     now = datetime.datetime.now(timezone.utc)
-    elapsed = (now - web.ctx[start_time_key])
-    client_identity_obj = web.ctx.webauthn2_context and web.ctx.webauthn2_context.client or None
-    parts = dict(
-        elapsed = elapsed.seconds + 0.001 * (elapsed.microseconds/1000),
-        client_ip = web.ctx.ip,
-        client_identity_obj = client_identity_obj,
-        reqid = web.ctx[request_guid_key],
-        content_range = web.ctx[content_range_key],
-        content_type = web.ctx[content_type_key],
-        )
-    return parts
+    elapsed = (now - start_time)
+    return elapsed.seconds + 0.001 * (elapsed.microseconds/1000)
 
-def request_trace_json(tracedata, parts):
+def format_trace_json(tracedata, *, start_time, req, client, webauthn2_context):
     """Format one tracedata event as part of a request's audit trail.
 
-       tracedata: a string representation of trace event data
-       parts: dictionary of log parts
+    :param tracedata: basic JSON serializable trace event value
+    :param start_time: datetime when request processing started
+    :param req: the unique request id string for trace correlation
+    :param client: the client network address
+    :param webauthn2_context: the webauthn2 authentication context
     """
     od = OrderedDict([
         (k, v) for k, v in [
-            ('elapsed', parts['elapsed']),
-            ('req', parts['reqid']),
+            ('elapsed', elapsed_float_seconds(start_time)),
+            ('req', req),
             ('trace', tracedata),
-            ('client', parts['client_ip']),
-            ('user', parts['client_identity_obj']),
+            ('client', client),
+            ('user', webauthn2_context.client if webauthn2_context else None),
         ]
         if v
     ])
@@ -164,31 +140,43 @@ def prune_excessive_dcctx(dcctx):
     prune_facet(dcctx)
     return dcctx
 
-def request_final_json(parts, extra={}):
+def format_final_json(*, environ, start_time, req, client, webauthn2_context, status, content_range, content_type, track, **kwargs):
+    """Format final request termination event as part of a request's audit trail.
+
+    :param environ: the WSGI environment
+    :param start_time: the datetime when request processing started
+    :param req: the unique request id string for trace correlation
+    :param client: the client network address
+    :param webauthn2_context: the webauthn2 authentication context
+    :param status: the HTTP response status
+    :param content_range: the HTTP response Content-Range
+    :param content_type: the HTTP response Content-Type
+    :param track: a tracking id for the HTTP client
+    """
     try:
-        dcctx = web.ctx.env.get('HTTP_DERIVA_CLIENT_CONTEXT', 'null')
+        dcctx = environ.get('HTTP_DERIVA_CLIENT_CONTEXT', 'null')
         dcctx = urllib.parse.unquote(dcctx)
         dcctx = prune_excessive_dcctx(json.loads(dcctx))
     except Exception as e:
-        web.debug('Error during dcctx decoding: %s' % e)
+        deriva_debug('Error during dcctx decoding: %s' % e)
         dcctx = None
 
     od = OrderedDict([
         (k, v) for k, v in [
-            ('elapsed', parts['elapsed']),
-            ('req', parts['reqid']),
-            ('scheme', web.ctx.protocol),
-            ('host', web.ctx.host),
-            ('status', web.ctx.status),
-            ('method', web.ctx.method),
-            ('path', web.ctx.env['REQUEST_URI']),
-            ('range', parts['content_range']),
-            ('type', parts['content_type']),
-            ('client', parts['client_ip']),
-            ('user', parts['client_identity_obj']),
-            ('referrer', web.ctx.env.get('HTTP_REFERER')),
-            ('agent', web.ctx.env.get('HTTP_USER_AGENT')),
-            ('track', web.ctx.webauthn2_context.tracking),
+            ('elapsed', elapsed_float_seconds(start_time)),
+            ('req', req),
+            ('scheme', environ['wsgi.url_scheme']),
+            ('host', environ.get('HTTP_HOST', environ['SERVER_NAME'])),
+            ('status', status),
+            ('method', environ['REQUEST_METHOD']),
+            ('path', environ['REQUEST_URI']),
+            ('range', content_range),
+            ('type', content_type),
+            ('client', client),
+            ('user', webauthn2_context.client if webauthn2_context else None),
+            ('referrer', environ.get('HTTP_REFERER')),
+            ('agent', environ.get('HTTP_USER_AGENT')),
+            ('track', track),
             ('dcctx', dcctx),
         ]
         if v
@@ -198,54 +186,76 @@ def request_final_json(parts, extra={}):
         od['referrer_md5'] = hashlib.md5(od['referrer'].encode()).hexdigest()
         od['referrer'] = od['referrer'][0:500]
 
-    if web.ctx.webauthn2_context and web.ctx.webauthn2_context.session:
-        session = web.ctx.webauthn2_context.session
+    if webauthn2_context and webauthn2_context.session:
+        session = webauthn2_context.session
         if hasattr(session, 'to_dict'):
             session = session.to_dict()
         od['session'] = session
 
-    for k, v in extra.items():
+    for k, v in kwargs.items():
         od[k] = v
 
     return json.dumps(od, separators=(', ', ':'))
-    
-def log_parts():
-    """Generate a dictionary of interpolation keys used by our logging template."""
-    return get_log_parts('webauthn_start_time', 'webauthn_request_guid', 'webauthn_request_content_range', 'webauthn_content_type')
 
 def request_trace(tracedata):
     """Log one tracedata event as part of a request's audit trail.
 
        tracedata: a string representation of trace event data
     """
-    logger.info(request_trace_json(tracedata, log_parts()))
+    logger.info(format_trace_json(
+        tracedata,
+        req=deriva_ctx.webauthn_request_guid,
+        start_time=deriva_ctx.webauthn_start_time,
+        client=flask.request.remote_addr,
+        webauthn2_context=deriva_ctx.webauthn2_context,
+    ))
 
-def web_method():
-    """Augment web handler method with common service logic."""
-    def helper(original_method):
-        def wrapper(*args):
-            # request context init
-            web.ctx.webauthn_request_guid = base64.b64encode( struct.pack('Q', random.getrandbits(64)) ).decode()
-            web.ctx.webauthn_start_time = datetime.datetime.now(timezone.utc)
-            web.ctx.webauthn_request_content_range = None
-            web.ctx.webauthn_content_type = None
-            web.ctx.webauthn2_manager = args[0]
-            web.ctx.webauthn2_context = Context() # set empty context for sanity
-            web.ctx.webauthn_request_trace = request_trace
+@app.before_request
+def before_request():
+    # request context init
+    deriva_ctx.webauthn_dispatched_handler = None
+    deriva_ctx.deriva_response = flask.Response() # allow us to accumulate response content by side-effect
+    deriva_ctx.webauthn_request_guid = base64.b64encode( struct.pack('Q', random.getrandbits(64)) ).decode()
+    deriva_ctx.webauthn_start_time = datetime.datetime.now(timezone.utc)
+    deriva_ctx.webauthn_request_content_range = None
+    deriva_ctx.webauthn_content_type = None
+    deriva_ctx.webauthn2_context = Context() # set empty context for sanity
+    deriva_ctx.webauthn_request_trace = request_trace
 
-            try:
-                # run actual method
-                return original_method(*args)
-            finally:
-                # finalize
-                self = args[0]
-                if hasattr(self, 'context'):
-                    web.ctx.webauthn2_context = self.context
+@app.after_request
+def after_request(response):
+    if isinstance(response, flask.Response):
+        deriva_ctx.webauthn_status = response.status
+    elif isinstance(response, RestException):
+        deriva_ctx.webauthn_status = response.code
+    deriva_ctx.webauthn_content_type = response.headers.get('content-type', 'none')
+    if 'content-range' in response.headers:
+        content_range = response.headers['content-range']
+        if content_range.startswith('bytes '):
+            content_range = content_range[6:]
+        deriva_ctx.webauthn_request_content_range = content_range
+    elif 'content-length' in response.headers:
+        deriva_ctx.webauthn_request_content_range = '*/%s' % response.headers['content-length']
+    else:
+        deriva_ctx.webauthn_request_content_range = '*/0'
 
-                logger.info( request_final_json(log_parts()) )
-        return wrapper
-    return helper
-    
+    if deriva_ctx.webauthn_dispatched_handler is not None \
+       and hasattr(deriva_ctx.webauthn_dispatched_handler, 'context'):
+        deriva_ctx.webauthn2_context = deriva_ctx.webauthn_dispatched_handler.context 
+
+    logger.info(format_final_json(
+        environ=flask.request.environ,
+        webauthn2_context=deriva_ctx.webauthn2_context,
+        req=deriva_ctx.webauthn_request_guid,
+        start_time=deriva_ctx.webauthn_start_time,
+        client=flask.request.remote_addr,
+        status=deriva_ctx.webauthn_status,
+        content_range=deriva_ctx.webauthn_request_content_range,
+        content_type=deriva_ctx.webauthn_content_type,
+        track=deriva_ctx.webauthn2_context.tracking,
+    ))
+    return response
+
 class RestHandlerFactory (object):
     """
     RestHandlerFactory encapsulates one-time application startup.
@@ -272,16 +282,16 @@ class RestHandlerFactory (object):
         session_uri = manager.config.get('handler_uri_usersession', None)
         session_duration = datetime.timedelta(minutes=int(manager.config.get('session_expiration_minutes', 30)))
 
-        class RestHandler (DatabaseConnection):
+        class RestHandler (DatabaseConnection, flask.views.MethodView):
             """
-            RestHandler is a base class suitable for use as a web.py request handler.
+            RestHandler is a base class suitable for use as a flask request handler.
 
             It initializes its self.manager and its parent class
             DatabaseConnection.  Derived application classes must
             implement their own web methods PUT, GET, etc. and
             initialize their own self.context such as:
 
-               self.context = self.manager.get_request_context(db=db)
+               self.context = self.manager.get_request_context(conn=conn, cur=cur)
 
             if they already have opened a pooled connection, or:
 
@@ -293,19 +303,21 @@ class RestHandlerFactory (object):
             def __init__(self):
                 DatabaseConnection.__init__(self, manager.config)
                 self.manager = manager
+                deriva_ctx.webauthn_dispatched_handler = self
 
         class UserSession (RestHandler):
             """
             UserSession is a RESTful login/logout handler.
 
-            Register it at a web.py URI pattern like:
+            Register it at a flask route like:
 
-               "your_session_prefix(/?)"
-               "your_session_prefix(/[^/]+)"
+               "your_session_prefix"
+               "your_session_prefix/"
+               "your_session_prefix/<sessionids>"
+               "your_session_prefix/<sessionids>/"
 
-            so its methods recieve one positional argument with a URI
-            fragment containing an explicit session ID prefixed with
-            the '/' character.
+            so its methods recieve one optional argument with a URI
+            fragment containing an explicit session ID
             
             """
             def __init__(self):
@@ -313,8 +325,7 @@ class RestHandlerFactory (object):
                 self.session_uri = session_uri
                 self.session_duration = session_duration
 
-            @web_method()
-            def POST(self, sessionids, storage=None):
+            def post(self, sessionids='', storage=None):
                 """
                 Session start (login) uses POST with form parameters.
 
@@ -328,10 +339,6 @@ class RestHandlerFactory (object):
 
                 """
                 if sessionids:
-                    # trim leading '/'
-                    sessionids = sessionids[1:]
-
-                if sessionids:
                     # no POST support for session ID URLs
                     raise NoMethod()
 
@@ -342,7 +349,7 @@ class RestHandlerFactory (object):
                     raise NoMethod()
 
                 if not storage:
-                    storage = web.input()
+                    storage = web_input()
 
                 return self._login_get_or_post(storage)
 
@@ -361,14 +368,13 @@ class RestHandlerFactory (object):
 
                 if sessionids:
                     # format is /key,... so unpack
-                    sessionids = [ urlunquote_webpy(i) for i in sessionids[1:].split(',') ]
+                    sessionids = [ urlunquote(i) for i in sessionids.split(',') ]
 
                     for uri_key in sessionids:
                         if uri_key not in self.context.session.keys:
                             raise Forbidden('third-party session access for key "%s" forbidden' % uri_key)
 
-            @web_method()
-            def GET(self, sessionids, db=None):
+            def get(self, sessionids='', conn=None, cur=None):
                 """
                 Session status uses GET.
 
@@ -385,46 +391,47 @@ class RestHandlerFactory (object):
 
                 """
                 # Debug for referrer tracing
-                referrer_arg = str(web.input().get('referrer'))
-                referer_header = str(web.ctx.env.get('HTTP_REFERER'))
-                #web.debug("in GET /session, referrer arg is '{referrer_arg}', Referrer header is '{referer_header}'".format(referrer_arg=referrer_arg, referer_header=referer_header))
+                referrer_arg = str(web_input().get('referrer'))
+                referer_header = str(flask.request.environ.get('HTTP_REFERER'))
+                deriva_debug("in GET /session, referrer arg is '{referrer_arg}', Referrer header is '{referer_header}'".format(referrer_arg=referrer_arg, referer_header=referer_header))
                 
-                def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                def db_body(conn, cur):
+                    self.context = Context(self.manager, False, conn, cur)
                     self._session_authz(sessionids, get_html=True)
 
-                if db:
-                    db_body(db)
+                if conn is not None and cur is not None:
+                    db_body(conn, cur)
                 else:
                     self._db_wrapper(db_body)
 
                 # just report on current session status
                 content_type = negotiated_content_type(
+                    flask.request.environ,
                     ['application/json'],
                     'application/json'
                     )
 
                 def has_login_params():
-                    for p in web.input():
+                    for p in web_input():
                         if p != 'referrer' and p != 'cid':
                             return True
                     return False
-
 
                 if self.manager.clients.login != None:
                     if ((self.manager.clients.login.accepts_login_get() and has_login_params())
                         or self.manager.clients.login.request_has_relevant_auth_headers()):
                         if self.context.session is None:
-                            return self._login_get_or_post(web.input())
+                            return self._login_get_or_post(web_input())
                         else:
                             # Horrible special case. The user has logged in via GET /session with arguments and then
                             # hit the back button.
                             if self.manager.preauth != None:
                                 preauth_referrer = self.manager.preauth.preauth_referrer()
                                 if preauth_referrer != None:
-                                    web.ctx.status = '303 See Other'
-                                    web.header('Location', preauth_referrer)
-                                    return ''
+                                    deriva_ctx.deriva_response.set_data('')
+                                    deriva_ctx.deriva_response.status = '303 See Other'
+                                    deriva_ctx.deriva_response.location = preauth_referrer
+                                    return deriva_ctx.deriva_response
 
                 if self.context.session == None:
                     raise NotFound('No existing login session found.')
@@ -446,14 +453,13 @@ class RestHandlerFactory (object):
                     tracking=self.context.tracking,
                     )
                 response = jsonWriter(response) + b'\n'
-                if 'env' in web.ctx:
-                    web.ctx.status = '200 OK'
-                    web.header('Content-Type', 'application/json')
-                    web.header('Content-Length', len(response))
-                return response
+                deriva_ctx.deriva_response.set_data(response)
+                deriva_ctx.deriva_response.status = '200 OK'
+                deriva_ctx.deriva_response.content_type = 'application/json'
+                deriva_ctx.deriva_response.content_length = len(response)
+                return deriva_ctx.deriva_response
 
-            @web_method()
-            def PUT(self, sessionids):
+            def put(self, sessionids=''):
                 """
                 Session extension uses PUT.
 
@@ -468,24 +474,23 @@ class RestHandlerFactory (object):
                 # just extend session and then act like GET
                 now = datetime.datetime.now(timezone.utc)
 
-                def db_body_get_context(db):
-                    return Context(self.manager, False, db)
+                def db_body_get_context(conn, cur):
+                    return Context(self.manager, False, conn, cur)
 
                 self.context = self._db_wrapper(db_body_get_context)
                 
                 if self.context.session is None and self.manager.clients.login is not None and self.manager.clients.login.request_has_relevant_auth_headers():
-                    return self._login_get_or_post(web.input())
+                    return self._login_get_or_post(web_input())
                 
-                def db_body(db):
+                def db_body(conn, cur):
                     self._session_authz(sessionids)
                     self.context.session.expires = now + self.session_duration
-                    self.manager.sessions.extend(self.manager, self.context, db)
+                    self.manager.sessions.extend(self.manager, self.context, conn, cur)
                     return self._login_response()
 
                 return self._db_wrapper(db_body)
 
-            @web_method()
-            def DELETE(self, sessionids):
+            def delete(self, sessionids=''):
                 """
                 Session termination uses DELETE.
 
@@ -498,59 +503,48 @@ class RestHandlerFactory (object):
 
                 """
 
-                preferred_final_url =  web.input().get(LOGOUT_URL)
+                preferred_final_url =  web_input().get(LOGOUT_URL)
                 if preferred_final_url == None:
                     preferred_final_url = self.manager.config.get(DEFAULT_LOGOUT_PATH)
 
                 preferred_final_url = expand_relative_url(preferred_final_url)
 
                 if preferred_final_url == None:
-                    # Should probably have a real logging facility
-                    logfile=None
-                    if 'env' in web.ctx:
-                        logfile=web.ctx.env.get('wsgi.errors')
-                    if logfile == None:
-                        logfile=sys.stderr
-                    print("Warning: Configuration error: no logout URL specified or configured", file=logfile)
+                    deriva_debug("Warning: Configuration error: no logout URL specified or configured")
 
-                def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                def db_body(conn, cur):
+                    self.context = Context(self.manager, False, conn, cur)
                     self._session_authz(sessionids)
-                    rv = self.manager.sessions.terminate(self.manager, self.context, db, preferred_final_url)
-                    self.manager.sessionids.terminate(self.manager, self.context, db)
-                    if rv == None:
+                    rv = self.manager.sessions.terminate(self.manager, self.context, conn, cur, preferred_final_url)
+                    self.manager.sessionids.terminate(self.manager, self.context, conn, cur)
+                    if rv is None:
                         rv = {LOGOUT_URL : preferred_final_url}
                     return rv
 
-                response = ''
-
-                status = "200 OK"
                 try:
                     retval = self._db_wrapper(db_body)
+                    status = "200 OK"
                 except NotFound as ex:
                     no_session_url = expand_relative_url(self.manager.config.get('logout_no_session_path'))
-                    if no_session_url == None:
+                    if no_session_url is None:
                         no_session_url = preferred_final_url
                     retval = {LOGOUT_URL : no_session_url}
                     status = "404 Not Found"
 
-                if 'env' in web.ctx:
-                    if isinstance(retval, dict):
-                        response=jsonWriter(retval) + b'\n'
-                        web.ctx.status = status
-                        web.header('Content-Type', 'application/json')
-                        web.header('Content-Length', len(response))
-
-                return response
+                response=jsonWriter(retval) + b'\n'
+                deriva_ctx.deriva_response.set_data(response)
+                deriva_ctx.deriva_response.status = status
+                deriva_ctx.deriva_response.content_type = 'application/json'
+                deriva_ctx.deriva_response.content_length = len(response)
+                return deriva_ctx.deriva_response
 
             def _login_get_or_post(self, storage):
-
                 for key in self.manager.clients.login.login_keywords():
                     if key not in storage:
                         raise BadRequest('missing required parameter "%s"' % key)
 
-                def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                def db_body(conn, cur):
+                    self.context = Context(self.manager, False, conn, cur)
 
                     if self.context.session or self.context.get_client_id():
                         raise Conflict('Login request conflicts with current client authentication state.')
@@ -561,7 +555,7 @@ class RestHandlerFactory (object):
 
                     try:
                         # perform authentication
-                        self.context.client = self.manager.clients.login.login(self.manager, self.context, db, **storage)
+                        self.context.client = self.manager.clients.login.login(self.manager, self.context, conn, cur, **storage)
                     except (KeyError, ValueError) as ev:
                         request_trace('session establishment failed: %s %s' % (type(ev), ev))
                         # we don't reveal detailed reason for failed login 
@@ -569,26 +563,24 @@ class RestHandlerFactory (object):
 
                     if self.manager.attributes.client:
                         # dig up attributes for client
-                        self.manager.attributes.client.set_msg_context(self.manager, self.context, db)
+                        self.manager.attributes.client.set_msg_context(self.manager, self.context, conn, cur)
 
                     # try to register new session
-                    self.manager.sessions.new(self.manager, self.context, db)
-                    return True
+                    self.manager.sessions.new(self.manager, self.context, conn, cur)
 
                 # run entire sequence in a restartable db transaction
-                result = self._db_wrapper(db_body)
-                if result is None:
-                    return
-                
+                self._db_wrapper(db_body)
+
                 # build response
                 self.manager.sessionids.set_request_sessionids(self.manager, self.context)
 
-                if self.manager.preauth != None:
+                if self.manager.preauth is not None:
                     preauth_referrer = self.manager.preauth.preauth_referrer()
-                    if preauth_referrer != None:
-                        web.ctx.status = '303 See Other'
-                        web.header('Location', preauth_referrer)
-                        return ''
+                    if preauth_referrer is not None:
+                        deriva_ctx.deriva_response.status = '303 See Other'
+                        deriva_ctx.deriva_response.location = preauth_referrer
+                        deriva_ctx.deriva_response.set_data('')
+                        return deriva_ctx.deriva_response
 
                 return self._login_response()
 
@@ -597,7 +589,7 @@ class RestHandlerFactory (object):
             """
             UserPassword is a RESTful password management handler.
 
-            Register it at a web.py URI pattern like:
+            Register it at a flask URI pattern like:
 
                "your_passwd_prefix(/?)"
                "your_passwd_prefix(/[^/]+)"
@@ -615,8 +607,8 @@ class RestHandlerFactory (object):
                     raise NoMethod()
 
                 if userids:
-                    # format is /user,...
-                    userids = set([ urlunquote_webpy(i) for i in userids[1:].split(',') ])
+                    # format is user,...
+                    userids = set([ urlunquote(i) for i in userids.split(',') ])
                 elif self.context.get_client_id():
                     userids = [ self.context.client.get_client_id() ]
                 else:
@@ -624,8 +616,7 @@ class RestHandlerFactory (object):
 
                 return userids
 
-            @web_method()
-            def PUT(self, userids, storage=None):
+            def put(self, userids='', storage=None):
                 """
                 Password update uses PUT.
 
@@ -647,13 +638,13 @@ class RestHandlerFactory (object):
 
                 """
                 if not storage:
-                    storage = web.input()
+                    storage = web_input()
                 password = storage.get('password', None)
                 old_password = storage.get('old_password', None)
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
                         
@@ -665,7 +656,8 @@ class RestHandlerFactory (object):
                                                                                        userid,
                                                                                        password,
                                                                                        old_password,
-                                                                                       db)
+                                                                                       conn,
+                                                                                       cur)
                         except KeyError as ev:
                             # this is only raised by password provider if authorized
                             raise NotFound('user "%s"' % userid)
@@ -674,14 +666,13 @@ class RestHandlerFactory (object):
                     return new_passwords
         
                 response = jsonWriter(self._db_wrapper(db_body)) + b'\n'
-                if 'env' in web.ctx:
-                    web.ctx.status = '200 OK'
-                    web.header('Content-Type', 'application/json')
-                    web.header('Content-Length', len(response))
-                return response
+                deriva_ctx.deriva_response.set_data(response)
+                deriva_ctx.deriva_response.status = '200 OK'
+                deriva_ctx.deriva_response.content_type = 'application/json'
+                deriva_ctx.deriva_response.content_length = len(response)
+                return deriva_ctx.deriva_response
 
-            @web_method()
-            def DELETE(self, userids, storage=None):
+            def delete(self, userids='', storage=None):
                 """
                 Password disable uses DELETE.
 
@@ -700,22 +691,23 @@ class RestHandlerFactory (object):
 
                 """
                 if not storage:
-                    storage = web.input()
+                    storage = web_input()
                 old_password = storage.get('old_password', None)
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
                     for userid in self._password_prep(userids):
                         try:
                             self.manager.clients.passwd.delete(self.manager,
-                                                                 self.context,
-                                                                 userid,
-                                                                 old_password,
-                                                                 db)
+                                                               self.context,
+                                                               userid,
+                                                               old_password,
+                                                               conn,
+                                                               cur)
                         except KeyError as ev:
                             # this is only raised by password provider if authorized
                             raise NotFound('user "%s"' % userid)
@@ -723,18 +715,20 @@ class RestHandlerFactory (object):
                             raise Forbidden('delete of password for user "%s" forbidden' % userid)
     
                 self._db_wrapper(db_body)
-                if 'env' in web.ctx:
-                    web.ctx.status = '204 No Content'
-                return ''
+                deriva_ctx.deriva_response.set_data('')
+                deriva_ctx.deriva_response.status = '204 No Content'
+                return deriva_ctx.deriva_response
 
         class UserManage (RestHandler):
             """
             UserManage is a RESTful user identity management handler.
 
-            Register it at a web.py URI pattern like:
+            Register it at a flask route like:
 
-               "your_user_prefix(/?)"
-               "your_user_prefix(/[^/]+)"
+               "your_user_prefix"
+               "your_user_prefix/"
+               "your_user_prefix/<userids>"
+               "your_user_prefix/<userids>/"
 
             so its methods recieve one positional argument with a URI
             fragment containing an explicit user ID.
@@ -743,8 +737,7 @@ class RestHandlerFactory (object):
             def __init__(self):
                 RestHandler.__init__(self)
 
-            @web_method()
-            def GET(self, userids, storage=None):
+            def get(self, userids='', storage=None):
                 """
                 User identity listing uses GET.
 
@@ -758,15 +751,15 @@ class RestHandlerFactory (object):
 
                 """
                 if userids:
-                    # format is /user,...
+                    # format is user,...
                     userids_orig = userids
-                    userids = set([ urlunquote_webpy(i) for i in userids[1:].split(',') ])
+                    userids = set([ urlunquote(i) for i in userids.split(',') ])
                 else:
                     userids = set()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -778,14 +771,14 @@ class RestHandlerFactory (object):
                     if not userids:
                         # request without userids means list all users
                         clients = self.manager.clients.search.get_all_clients(self.manager, self.context)
-                        response = clients and list(clients)
+                        response = list(clients) if clients else clients
                     elif userids.difference( set([ c for c in [self.context.get_client_id()] if c ]) ):
                         # request with userids means list only specific users other than self
                         clients = self.manager.clients.search.get_all_clients(self.manager, self.context)
                         if clients and userids.difference( clients ):
-                            web.debug(clients, userids)
+                            deriva_debug(clients, userids)
                             raise NotFound('Some client identities not found: %s.' % ', '.join(userids.difference( clients )))
-                        response = clients and list(clients)
+                        response = list(clients) if clients else clients
                     elif len(userids) == 1 \
                          and list(userids)[0] == self.context.get_client_id():
                         # request with userid equal to self.context.client can be answered without search API
@@ -802,14 +795,13 @@ class RestHandlerFactory (object):
                     raise Forbidden('listing of other client identities forbidden')
 
                 response = jsonWriter(response) + b'\n'
-                if 'env' in web.ctx:
-                    web.ctx.status = '200 OK'
-                    web.header('Content-Type', 'application/json')
-                    web.header('Content-Length', len(response))
-                return response
+                deriva_ctx.deriva_response.set_data(response)
+                deriva_ctx.deriva_response.status = '200 OK'
+                deriva_ctx.deriva_response.content_type = 'application/json'
+                deriva_ctx.deriva_response.content_length = len(response)
+                return deriva_ctx.deriva_response
 
-            @web_method()
-            def PUT(self, userids, storage=None):
+            def put(self, userids='', storage=None):
                 """
                 User identity creation uses PUT.
 
@@ -823,17 +815,17 @@ class RestHandlerFactory (object):
 
                 """
                 if userids:
-                    # format is /user,...
-                    userids = set([ urlunquote_webpy(i) for i in userids[1:].split(',') ])
+                    # format is user,...
+                    userids = set([ urlunquote(i) for i in userids.split(',') ])
                 else:
                     userids = set()
 
                 if not self.manager.clients.manage:
                     raise NoMethod()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -842,21 +834,21 @@ class RestHandlerFactory (object):
                             self.manager.clients.manage.create(self.manager,
                                                                self.context,
                                                                userid,
-                                                               db)
+                                                               conn,
+                                                               cur)
                         except ValueError as ev:
                             raise Forbidden('creation of client identity forbidden')
 
                     return list(userids)
         
                 response = jsonWriter( self._db_wrapper(db_body) ) + b'\n'
-                if 'env' in web.ctx:
-                    web.ctx.status = '200 OK'
-                    web.header('Content-Type', 'application/json')
-                    web.header('Content-Length', len(response))
-                return response
+                deriva_ctx.deriva_response.set_data(response)
+                deriva_ctx.deriva_response.status = '200 OK'
+                deriva_ctx.deriva_response.content_type = 'application/json'
+                deriva_ctx.deriva_response.content_length = len(response)
+                return deriva_ctx.deriva_response
 
-            @web_method()
-            def DELETE(self, userids, storage=None):
+            def delete(self, userids='', storage=None):
                 """
                 User identity removal uses DELETE.
 
@@ -866,14 +858,14 @@ class RestHandlerFactory (object):
                 
                 """
                 if userids:
-                    # format is /user,...
-                    userids = set([ urlunquote_webpy(i) for i in userids[1:].split(',') ])
+                    # format is user,...
+                    userids = set([ urlunquote(i) for i in userids.split(',') ])
                 else:
                     userids = set()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -882,7 +874,8 @@ class RestHandlerFactory (object):
                             self.manager.clients.manage.delete(self.manager,
                                                                self.context,
                                                                userid,
-                                                               db)
+                                                               conn,
+                                                               cur)
                         except KeyError as ev:
                             # this is only raised by password provider if authorized
                             raise NotFound('user "%s"' % userid)
@@ -890,18 +883,20 @@ class RestHandlerFactory (object):
                             raise Forbidden('delete of client identity forbidden')
     
                 self._db_wrapper(db_body)
-                if 'env' in web.ctx:
-                    web.ctx.status = '204 No Content'
-                return ''
+                deriva_ctx.deriva_response.set_data('')
+                deriva_ctx.deriva_response.status = '204 No Content'
+                return deriva_ctx.deriva_response
 
         class AttrManage (RestHandler):
             """
             AttrManage is a RESTful attribute management handler.
 
-            Register it at a web.py URI pattern like:
+            Register it at a flask route like:
 
-               "your_attr_prefix(/?)"
-               "your_attr_prefix(/[^/]+)"
+               "your_attr_prefix"
+               "your_attr_prefix/"
+               "your_attr_prefix/<attrs>"
+               "your_attr_prefix/<attrs>/"
 
             so its methods recieve one positional argument with a URI
             fragment containing an explicit attr ID.
@@ -910,8 +905,7 @@ class RestHandlerFactory (object):
             def __init__(self):
                 RestHandler.__init__(self)
 
-            @web_method()
-            def GET(self, attrs, storage=None):
+            def get(self, attrs='', storage=None):
                 """
                 Attribute listing uses GET.
 
@@ -925,14 +919,14 @@ class RestHandlerFactory (object):
 
                 """
                 if attrs:
-                    # format is /attr,...
-                    attrs = set([ urlunquote_webpy(i) for i in attrs[1:].split(',') ])
+                    # format is attr,...
+                    attrs = set([ urlunquote(i) for i in attrs.split(',') ])
                 else:
                     attrs = set()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -943,10 +937,10 @@ class RestHandlerFactory (object):
 
                     if not attrs:
                         # request without attrs means list all attrs
-                        response = list(self.manager.attributes.search.get_all_attributes(self.manager, self.context, db, False))
+                        response = list(self.manager.attributes.search.get_all_attributes(self.manager, self.context, conn, cur, False))
                     elif self.manager.attributes.search:
                         # request with attrs means list only specific attrs
-                        allattrs = set(self.manager.attributes.search.get_all_attributes(self.manager, self.context, db, False))
+                        allattrs = set(self.manager.attributes.search.get_all_attributes(self.manager, self.context, conn, cur, False))
                         if attrs.difference( allattrs ):
                             raise NotFound('Some attributes not found: %s.' % ', '.join(attrs.difference( allattrs )))
                         response = list(attrs)
@@ -962,14 +956,13 @@ class RestHandlerFactory (object):
                 except ValueError:
                     raise Forbidden('listing of other attributes forbidden')
 
-                if 'env' in web.ctx:
-                    web.ctx.status = '200 OK'
-                    web.header('Content-Type', 'application/json')
-                    web.header('Content-Length', len(response))
-                return response
+                deriva_ctx.deriva_response.set_data(response)
+                deriva_ctx.deriva_response.status = '200 OK'
+                deriva_ctx.deriva_response.content_type = 'application/json'
+                deriva_ctx.deriva_response.content_length = len(response)
+                return deriva_ctx.deriva_response
 
-            @web_method()
-            def PUT(self, attrs, storage=None):
+            def put(self, attrs='', storage=None):
                 """
                 Attribute creation uses PUT.
 
@@ -983,17 +976,17 @@ class RestHandlerFactory (object):
 
                 """
                 if attrs:
-                    # format is /attr,...
-                    attrs = set([ urlunquote_webpy(i) for i in attrs[1:].split(',') ])
+                    # format is attr,...
+                    attrs = set([ urlunquote(i) for i in attrs.split(',') ])
                 else:
                     attrs = set()
 
                 if not self.manager.attributes.manage:
                     raise NoMethod()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -1002,21 +995,21 @@ class RestHandlerFactory (object):
                             self.manager.attributes.manage.create(self.manager,
                                                                   self.context,
                                                                   attr,
-                                                                  db)
+                                                                  conn,
+                                                                  cur)
                         except ValueError as ev:
                             raise Forbidden('creation of attribute forbidden')
 
                     return list(attrs)
         
                 response = jsonWriter( self._db_wrapper(db_body) ) + b'\n'
-                if 'env' in web.ctx:
-                    web.ctx.status = '200 OK'
-                    web.header('Content-Type', 'application/json')
-                    web.header('Content-Length', len(response))
-                return response
+                deriva_ctx.deriva_response.set_data(response)
+                deriva_ctx.deriva_response.status = '200 OK'
+                deriva_ctx.deriva_response.content_type = 'application/json'
+                deriva_ctx.deriva_response.content_length = len(response)
+                return deriva_ctx.deriva_response
 
-            @web_method()
-            def DELETE(self, attrs, storage=None):
+            def delete(self, attrs='', storage=None):
                 """
                 Attribute removal uses DELETE.
 
@@ -1026,14 +1019,14 @@ class RestHandlerFactory (object):
                 
                 """
                 if attrs:
-                    # format is /attr,...
-                    attrs = set([ urlunquote_webpy(i) for i in attrs[1:].split(',') ])
+                    # format is attr,...
+                    attrs = set([ urlunquote(i) for i in attrs.split(',') ])
                 else:
                     attrs = set()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -1042,7 +1035,8 @@ class RestHandlerFactory (object):
                             self.manager.attributes.manage.delete(self.manager,
                                                                   self.context,
                                                                   attr,
-                                                                  db)
+                                                                  conn,
+                                                                  cur)
                         except KeyError as ev:
                             # this is only raised by password provider if authorized
                             raise NotFound('attribute "%s"' % attr)
@@ -1050,17 +1044,20 @@ class RestHandlerFactory (object):
                             raise Forbidden('delete of attribute forbidden')
     
                 self._db_wrapper(db_body)
-                if 'env' in web.ctx:
-                    web.ctx.status = '204 No Content'
-                return ''
+                deriva_ctx.deriva_response.set_data('')
+                deriva_ctx.deriva_response.status = '204 No Content'
+                return deriva_ctx.deriva_response
 
         class AttrAssign (RestHandler):
             """
             AttrAssign is a RESTful attribute assignment management handler.
 
-            Register it at a web.py URI pattern like:
+            Register it at a flask route like:
 
-               "your_user_prefix/([^/]+)/attribute(/[^/]+)"
+               "your_user_prefix/<userid>/attribute"
+               "your_user_prefix/<userid>/attribute/"
+               "your_user_prefix/<userid>/attribute/<attrs>"
+               "your_user_prefix/<userid>/attribute/<attrs>/"
 
             so its methods recieve one positional argument with a URI
             fragment containing an explicit user ID and one positional
@@ -1070,8 +1067,7 @@ class RestHandlerFactory (object):
             def __init__(self):
                 RestHandler.__init__(self)
 
-            @web_method()
-            def GET(self, userid, attrs, storage=None):
+            def get(self, userid, attrs='', storage=None):
                 """
                 Attribute assignment listing uses GET.
 
@@ -1085,14 +1081,14 @@ class RestHandlerFactory (object):
 
                 """
                 if attrs:
-                    # format is /attr,...
-                    attrs = set([ urlunquote_webpy(i) for i in attrs[1:].split(',') ])
+                    # format is attr,...
+                    attrs = set([ urlunquote(i) for i in attrs.split(',') ])
                 else:
                     attrs = set()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -1102,7 +1098,7 @@ class RestHandlerFactory (object):
                         # fall back behavior only if provider API isn't available
                         allattrs = self.context.attributes
                     else:
-                        allattrs = self.manager.attributes.assign.list(self.manager, self.context, userid, db)
+                        allattrs = self.manager.attributes.assign.list(self.manager, self.context, userid, conn, cur)
     
                     if not attrs:
                         # request without attrs means list all of user's attrs
@@ -1120,14 +1116,13 @@ class RestHandlerFactory (object):
                 except ValueError:
                     raise Forbidden('listing of user attributes forbidden')
 
-                if 'env' in web.ctx:
-                    web.ctx.status = '200 OK'
-                    web.header('Content-Type', 'application/json')
-                    web.header('Content-Length', len(response))
-                return response
+                deriva_ctx.deriva_response.set_data(response)
+                deriva_ctx.deriva_response.status = '200 OK'
+                deriva_ctx.deriva_response.content_type = 'application/json'
+                deriva_ctx.deriva_response.content_length = len(response)
+                return deriva_ctx.deriva_response
 
-            @web_method()
-            def PUT(self, userid, attrs, storage=None):
+            def put(self, userid, attrs='', storage=None):
                 """
                 Attribute assignment creation uses PUT.
 
@@ -1141,8 +1136,8 @@ class RestHandlerFactory (object):
 
                 """
                 if attrs:
-                    # format is /attr,...
-                    attrs = set([ urlunquote_webpy(i) for i in attrs[1:].split(',') ])
+                    # format is attr,...
+                    attrs = set([ urlunquote(i) for i in attrs.split(',') ])
                 else:
                     attrs = set()
 
@@ -1151,7 +1146,7 @@ class RestHandlerFactory (object):
 
                 def db_body(db):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -1161,21 +1156,21 @@ class RestHandlerFactory (object):
                                                                   self.context,
                                                                   attr,
                                                                   userid,
-                                                                  db)
+                                                                  conn,
+                                                                  cur)
                         except ValueError as ev:
                             raise Forbidden('creation of attribute assignment forbidden')
 
                     return list(attrs)
         
                 response = jsonWriter( self._db_wrapper(db_body) ) + b'\n'
-                if 'env' in web.ctx:
-                    web.ctx.status = '200 OK'
-                    web.header('Content-Type', 'application/json')
-                    web.header('Content-Length', len(response))
-                return response
+                deriva_ctx.deriva_response.set_data(response)
+                deriva_ctx.deriva_response.status = '200 OK'
+                deriva_ctx.deriva_response.content_type = 'application/json'
+                deriva_ctx.deriva_response.content_length = len(response)
+                return deriva_ctx.deriva_response
 
-            @web_method()
-            def DELETE(self, userid, attrs, storage=None):
+            def delete(self, userid, attrs='', storage=None):
                 """
                 Attribute removal uses DELETE.
 
@@ -1185,17 +1180,17 @@ class RestHandlerFactory (object):
                 
                 """
                 if attrs:
-                    # format is /attr,...
-                    attrs = set([ urlunquote_webpy(i) for i in attrs[1:].split(',') ])
+                    # format is attr,...
+                    attrs = set([ urlunquote(i) for i in attrs.split(',') ])
                 else:
                     attrs = set()
 
                 if not self.manager.attributes.assign:
                     raise NoMethod()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -1205,7 +1200,8 @@ class RestHandlerFactory (object):
                                                                   self.context,
                                                                   attr,
                                                                   userid,
-                                                                  db)
+                                                                  conn,
+                                                                  cur)
                         except KeyError as ev:
                             # this is only raised by password provider if authorized
                             raise NotFound(str(ev))
@@ -1213,17 +1209,20 @@ class RestHandlerFactory (object):
                             raise Forbidden('delete of attribute assignment forbidden')
     
                 self._db_wrapper(db_body)
-                if 'env' in web.ctx:
-                    web.ctx.status = '204 No Content'
-                return ''
+                deriva_ctx.deriva_response.set_data('')
+                deriva_ctx.deriva_response.status = '204 No Content'
+                return deriva_ctx.deriva_response
 
         class AttrNest (RestHandler):
             """
             AttrNest is a RESTful attribute nesting management handler.
 
-            Register it at a web.py URI pattern like:
+            Register it at a flask route like:
 
-               "your_attr_prefix/([^/]+)/implies(/[^/]+)"
+               "your_attr_prefix/<child>/implies"
+               "your_attr_prefix/<child>/implies/"
+               "your_attr_prefix/<child>/implies/<parents>"
+               "your_attr_prefix/<child>/implies/<parents>/"
 
             so its methods recieve first positional argument with a
             URI fragment containing an explicit attribute ID and one
@@ -1234,8 +1233,7 @@ class RestHandlerFactory (object):
             def __init__(self):
                 RestHandler.__init__(self)
 
-            @web_method()
-            def GET(self, child, parents, storage=None):
+            def get(self, child, parents, storage=None):
                 """
                 Attribute nesting listing uses GET.
 
@@ -1249,21 +1247,21 @@ class RestHandlerFactory (object):
 
                 """
                 if parents:
-                    # format is /attr,...
-                    parents = set([ urlunquote_webpy(i) for i in parents[1:].split(',') ])
+                    # format is attr,...
+                    parents = set([ urlunquote(i) for i in parents.split(',') ])
                 else:
                     parents = set()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
                     if not self.manager.attributes.nest:
                         raise Conflict('Server does not support listing of attribute nesting.')
 
-                    allparents = self.manager.attributes.nest.list(self.manager, self.context, child, db)
+                    allparents = self.manager.attributes.nest.list(self.manager, self.context, child, conn, cur)
     
                     if not parents:
                         # request without parents means list all of child's parents
@@ -1283,14 +1281,13 @@ class RestHandlerFactory (object):
                 except ValueError:
                     raise Forbidden('listing of nested/implied attributes forbidden')
 
-                if 'env' in web.ctx:
-                    web.ctx.status = '200 OK'
-                    web.header('Content-Type', 'application/json')
-                    web.header('Content-Length', len(response))
-                return response
+                deriva_ctx.deriva_response.set_data(response)
+                deriva_ctx.deriva_response.status = '200 OK'
+                deriva_ctx.deriva_response.content_type = 'application/json'
+                deriva_ctx.deriva_response.content_length = len(response)
+                return deriva_ctx.deriva_response
 
-            @web_method()
-            def PUT(self, child, parents, storage=None):
+            def put(self, child, parents, storage=None):
                 """
                 Attribute nesting creation uses PUT.
 
@@ -1305,17 +1302,17 @@ class RestHandlerFactory (object):
 
                 """
                 if parents:
-                    # format is /attr,...
-                    parents = set([ urlunquote_webpy(i) for i in parents[1:].split(',') ])
+                    # format is attr,...
+                    parents = set([ urlunquote(i) for i in parents.split(',') ])
                 else:
                     parents = set()
 
                 if not self.manager.attributes.nest:
                     raise NoMethod()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -1325,21 +1322,21 @@ class RestHandlerFactory (object):
                                                                 self.context,
                                                                 parent,
                                                                 child,
-                                                                db)
+                                                                conn,
+                                                                cur)
                         except ValueError as ev:
                             raise Forbidden('creation of attribute nesting forbidden')
 
                     return list(parents)
         
                 response = jsonWriter( self._db_wrapper(db_body) ) + b'\n'
-                if 'env' in web.ctx:
-                    web.ctx.status = '200 OK'
-                    web.header('Content-Type', 'application/json')
-                    web.header('Content-Length', len(response))
-                return response
+                deriva_ctx.deriva_response.set_data(response)
+                deriva_ctx.deriva_response.status = '200 OK'
+                deriva_ctx.deriva_response.content_type = 'application/json'
+                deriva_ctx.deriva_response.content_length = len(response)
+                return deriva_ctx.deriva_response
 
-            @web_method()
-            def DELETE(self, child, parents, storage=None):
+            def delete(self, child, parents, storage=None):
                 """
                 Attribute nest removal uses DELETE.
 
@@ -1350,17 +1347,17 @@ class RestHandlerFactory (object):
                 
                 """
                 if parents:
-                    # format is /attr,...
-                    parents = set([ urlunquote_webpy(i) for i in parents[1:].split(',') ])
+                    # format is attr,...
+                    parents = set([ urlunquote(i) for i in parents.split(',') ])
                 else:
                     parents = set()
 
                 if not self.manager.attributes.nest:
                     raise NoMethod()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
-                        self.context = self.manager.get_request_context(db=db)
+                        self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
                         raise Unauthorized()
 
@@ -1370,74 +1367,76 @@ class RestHandlerFactory (object):
                                                                 self.context,
                                                                 parent,
                                                                 child,
-                                                                db)
+                                                                conn,
+                                                                cur)
                         except KeyError as ev:
                             raise NotFound(str(ev))
                         except ValueError as ev:
                             raise Forbidden('delete of attribute nesting forbidden')
     
                 self._db_wrapper(db_body)
-                if 'env' in web.ctx:
-                    web.ctx.status = '204 No Content'
-                return ''
+                deriva_ctx.deriva_response.set_data('')
+                deriva_ctx.deriva_response.status = '204 No Content'
+                return deriva_ctx.deriva_response
 
         class Preauth (RestHandler):
             """
             Preauth is a RESTful pre-authentication handler.
 
-            Register it at a web.py URI pattern like:
+            Register it at a flask route like:
 
-               "your_preauth_prefix(/?)"
-               "your_preauth_prefix(/[^/]+)"
+               "your_preauth_prefix"
+               "your_preauth_prefix/"
             
             """
             def __init__(self):
                 RestHandler.__init__(self)
 
-            @web_method()
-            def GET(self, db=None):
+            def get(self, conn=None, cur=None):
                 """
                 Return pre-authentication data (e.g., display a web form for users to select among IdPs).
                 """
-                referrer_arg = str(web.input().get('referrer'))
-                referer_header = str(web.ctx.env.get('HTTP_REFERER'))
-                do_redirect = (str(web.input().get('do_redirect')) == 'true')
-                #web.debug("in GET /preauth, user agent is '{user_agent}'".format(user_agent=str(web.ctx.env.get('HTTP_USER_AGENT'))))
-                #web.debug("in GET /preauth, referrer arg is '{referrer_arg}', Referrer header is '{referer_header}'".format(referrer_arg=referrer_arg, referer_header=referer_header))
+                referrer_arg = str(web_input().get('referrer'))
+                referer_header = str(flask.request.environ.get('HTTP_REFERER'))
+                do_redirect = (str(web_input().get('do_redirect')) == 'true')
+                #deriva_debug("in GET /preauth, user agent is '{user_agent}'".format(user_agent=str(flask.request.environ.get('HTTP_USER_AGENT'))))
+                #deriva_debug("in GET /preauth, referrer arg is '{referrer_arg}', Referrer header is '{referer_header}'".format(referrer_arg=referrer_arg, referer_header=referer_header))
 
-                def db_body(db):
-                    self.context = Context(self.manager, False, db)
+                def db_body(conn, cur):
+                    self.context = Context(self.manager, False, conn, cur)
                     # Should probably fail or something if the user is logged in, but for now we won't bother
 
-                if db:
-                    db_body(db)
+                if conn is not None and cur is not None:
+                    db_body(conn, cur)
                 else:
                     self._db_wrapper(db_body)
 
                 try:
-                    preauth_info = self.manager.preauth.preauth_info(self.manager, self.context, db)
-                    if preauth_info == None:
+                    preauth_info = self.manager.preauth.preauth_info(self.manager, self.context, conn, cur)
+                    if preauth_info is None:
                         raise NotFound()
                     if do_redirect:
-                        raise web.seeother(preauth_info.get('redirect_url'))
+                        raise flask.redirect(preauth_info.get('redirect_url'), code=303)
                     response = jsonWriter(preauth_info)
 
                 except NotImplementedError:
                     raise NotFound()
 
-                if 'env' in web.ctx:
-                    web.ctx.status = '200 OK'
-                    web.header('Content-Type', 'application/json')
-                    web.header('Content-Length', len(response))
-                return response
+                deriva_ctx.deriva_response.set_data(response)
+                deriva_ctx.deriva_response.status = '200 OK'
+                deriva_ctx.deriva_response.content_type = 'application/json'
+                deriva_ctx.deriva_response.content_length = len(response)
+                return deriva_ctx.deriva_response
 
         class DebugUserSession(UserSession):
             """
             This class should be used only for debugging, to provide a convenient interface for
-            DELETE /session. If you decide to register it use a web.py pattern like:
+            DELETE /session. If you decide to register it use a flask route like:
 
-               "your_session_prefix(/?)"
-               "your_session_prefix(/[^/]+)"
+               "your_session_prefix"
+               "your_session_prefix/"
+               "your_session_prefix/<sessionids>"
+               "your_session_prefix/<sessionids>/"
 
             so its methods recieve one positional argument. Currently the only recognized argument
             is "/logout", which will do the same as DELETE /session.
@@ -1446,39 +1445,29 @@ class RestHandlerFactory (object):
             def __init(self):
                 RestHandler.__init__(self)
 
-            @web_method()
-            def GET(self, sessionids, db=None):
-                return self.DELETE(sessionids)
+            def get(self, sessionids='', conn=None, cur=None):
+                return self.delete(sessionids)
                 
         class Discovery(RestHandler):
             """
             This class is used to provide discovery information (e.g., oauth2 sessions accepted in request headers).
 
-            Register it at a web.py URI pattern like:
+            Register it at a flask route like:
 
-               "your_session_prefix(/?)"
+               "your_session_prefix"
+               "your_session_prefix/"
             
             """
             def __init(self):
                 RestHandler.__init__(self)
 
-            @web_method()
-            def GET(self, db=None):
+            def get(self, conn=None, cur=None):
                 response = jsonWriter(self.manager.discovery_info) + b'\n'
-                if 'env' in web.ctx:
-                    web.ctx.status = '200 OK'
-                    web.header('Content-Type', 'application/json')
-                    web.header('Content-Length', len(response))
-                return response
-
-            def PUT(self):
-                raise NoMethod()
-
-            def POST(self):
-                raise NoMethod()
-
-            def DELETE(self):
-                raise NoMethod()
+                deriva_ctx.deriva_response.set_data(response)
+                deriva_ctx.deriva_response.status = '200 OK'
+                deriva_ctx.deriva_response.content_type = 'application/json'
+                deriva_ctx.deriva_response.content_length = len(response)
+                return deriva_ctx.deriva_response
 
         # make these classes available from factory instance
         self.RestHandler = RestHandler
@@ -1493,6 +1482,79 @@ class RestHandlerFactory (object):
         self.Discovery = Discovery
 
 
-
 class ConfigurationError(RuntimeError):
     pass
+
+# instantiate REST endpoints and setup flask routes...
+_handler_factory = RestHandlerFactory(manager=_manager)
+
+_Session_view = app.route(
+    '/session'
+)(app.route(
+    '/session/'
+)(app.route(
+    '/session/<sessionids>'
+)(app.route(
+    '/session/<sessionids>/'
+)(_handler_factory.UserSession.as_view('Session')))))
+
+_Preauth_view = app.route(
+    '/preauth'
+)(app.route(
+    '/preauth/'
+)(_handler_factory.Preauth.as_view('Preauth')))
+
+_Discovery_view = app.route(
+    '/discovery'
+)(app.route(
+    '/discovery/'
+)(_handler_factory.Discovery.as_view('Discovery')))
+
+# TODO: delete entirely?
+# roughed these out for flask port, but don't think they are
+# useful in contemporary deployments...
+_disabled_api_routes = """
+
+if _manager.clients.passwd is not None:
+    # only route when password endpoint is configured
+    _Password_view = app.route(
+        '/password'
+    )(app.route(
+        '/password/<userids>'
+    )(_handler_factory.UserPassword.as_view('Password')))
+
+if _manager.clients.search is not None \
+   and _manager.clients.manage is not None:
+    # only route when user management endpoints are configured
+    _User_view = app.route(
+        '/user'
+    )(app.route(
+        '/user/<userids>'
+    )(_handler_factory.UserManage.as_view('User')))
+
+if _manager.attributes.search is not None \
+   and _manager.attributes.manage is not None:
+    # only route when attribute management endpoints are configured
+    _Attribute_view = app.route(
+        '/attribute'
+    )(app.route(
+        '/attribute/<attrs>'
+    )(_handler_factory.AttrManage.as_view('Attribute')))
+
+if _manager.attributes.assign is not None:
+    # only route when attribute assignment endpoint is configured
+    _AttributeAssign_view = app.route(
+        '/user/<userid>/attribute'
+    )(app.route(
+        '/user/<userid>/attribute/<attrs>'
+    )(_handler_factory.AttrAssign.as_view('AttributeAssign')))
+
+if _manager.attributes.nest is not None:
+    # only route when attribute nesting endpoint is configured
+    _AttributeNest_view = app.route(
+        '/attribute/<child>/implies'
+    )(app.route(
+        '/user/<child>/implies/<parents>'
+    )(_handler_factory.AttrNest.as_view('AttributeNest')))
+
+"""

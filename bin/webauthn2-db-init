@@ -1,9 +1,9 @@
 #!/usr/bin/python
 
 import sys
-import webauthn2
+from webauthn2.manager import Manager
 
-webauthn2_manager = webauthn2.Manager()
+webauthn2_manager = Manager()
 
 def main(args):
     try:

@@ -18,7 +18,7 @@ stable enough to use in several production science projects.
 ## Using Webauthn
 
 Webauthn is a server software library meant to be integrated into a
-web service written in Python and using the web.py web framework.
+web service written in Python and using the Flask web framework.
 
 1. Install the webauthn software and prerequisites.
 2. Create a customized local JSON configuration file.

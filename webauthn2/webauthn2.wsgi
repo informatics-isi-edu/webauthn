@@ -15,50 +15,6 @@
 # limitations under the License.
 #
 
-import sys
-import webauthn2
-import web
+from webauthn2.rest import app
 
-webauthn2_manager = webauthn2.Manager()
-
-# expose webauthn REST APIs
-webauthn2_handler_factory = webauthn2.RestHandlerFactory(manager=webauthn2_manager)
-UserSession = webauthn2_handler_factory.UserSession
-UserPassword = webauthn2_handler_factory.UserPassword
-UserManage = webauthn2_handler_factory.UserManage
-AttrManage = webauthn2_handler_factory.AttrManage
-AttrAssign = webauthn2_handler_factory.AttrAssign
-AttrNest = webauthn2_handler_factory.AttrNest
-Preauth = webauthn2_handler_factory.Preauth
-Discovery = webauthn2_handler_factory.Discovery
-
-def web_urls():
-    """Builds and returns the web_urls for web.py.
-    """
-    urls = (
-        # user authentication via webauthn2
-        '/session(/[^/]+)', UserSession,
-        '/session/?()', UserSession,
-        '/password(/[^/]+)', UserPassword,
-        '/password/?()', UserPassword,
-    
-        # user account management via webauthn2
-        '/user(/[^/]+)', UserManage,
-        '/user/?()', UserManage,
-        '/attribute(/[^/]+)', AttrManage,
-        '/attribute/?()', AttrManage,
-        '/user/([^/]+)/attribute(/[^/]+)', AttrAssign,
-        '/user/([^/]+)/attribute/?()', AttrAssign,
-        '/attribute/([^/]+)/implies(/[^/]+)', AttrNest,
-        '/attribute/([^/]+)/implies/?()', AttrNest,
-        '/preauth(/[^/]+)', Preauth,
-        '/preauth/?()', Preauth,
-        '/discovery(/[^/]+)', Discovery,
-        '/discovery/?()', Discovery,	
-    )
-    return tuple(urls)
-
-
-# this creates the WSGI app using the web_urls map and the web.py framework
-application = web.application(web_urls(), globals()).wsgifunc()
-
+application = app

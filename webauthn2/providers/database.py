@@ -1,6 +1,6 @@
 
 # 
-# Copyright 2010-2019 University of Southern California
+# Copyright 2010-2023 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -49,7 +49,6 @@ Provider-specific parameters for database module:
 """
 
 import json
-import web
 
 import hmac
 import random
@@ -58,12 +57,13 @@ from datetime import timezone
 import urllib
 import re
 import sys
+import flask
 
 from .providers import *
 from ..util import *
 from ..exc import *
 
-config_built_ins = web.storage(
+config_built_ins = web_storage(
     database_type= 'postgres',
     database_dsn= 'dbname=',
     database_schema= 'webauthn2',
@@ -133,7 +133,7 @@ class DatabaseConnection2 (DatabaseConnection):
         # create a raw client early to force config errors
         self._put_pooled_connection(self._get_pooled_connection())
 
-    def deploy_upgrade(self, db, versioninfo):
+    def deploy_upgrade(self, conn, cur, versioninfo):
         """
         Upgrade database storage format to current version with tri-state response.
 
@@ -149,14 +149,14 @@ class DatabaseConnection2 (DatabaseConnection):
         elif versioninfo.minor > self.minor:
             return False
         elif versioninfo.minor < self.minor:
-            return self.deploy_minor_upgrade(versioninfo.minor, db)
+            return self.deploy_minor_upgrade(versioninfo.minor, conn, cur)
         else:
             return None
 
-    def deploy_minor_upgrade(self, old_minor, db=None):
+    def deploy_minor_upgrade(self, old_minor, conn=None, cur=None):
         return False
 
-    def deploy_guard(self, db, suffix=''):
+    def deploy_guard(self, conn, cur, suffix=''):
         """
         Atomic test and set deployed version info with optional suffix for version storage.
 
@@ -165,8 +165,8 @@ class DatabaseConnection2 (DatabaseConnection):
         upgrades.
 
         """
-        if not self._table_exists(db, 'webauthn2_version' + suffix):
-            db.query(
+        if not self._table_exists(conn, cur, 'webauthn2_version' + suffix):
+            cur.execute(
                 """
 CREATE VIEW %(version)s AS
   SELECT %(major)s::int AS major, %(minor)s::int AS minor;
@@ -178,20 +178,20 @@ CREATE VIEW %(version)s AS
             )
 
         else:
-            results = force_query(db, "SELECT * FROM %s" % self._table('webauthn2_version' + suffix))
+            results = force_query(conn, cur, "SELECT * FROM %s" % self._table('webauthn2_version' + suffix))
 
             if len(results) != 1:
                 raise TypeError('Unexpected version info format in %s' % self._table('webauthn2_version' + suffix))
 
             versioninfo = results[0]
 
-            test_result = self.deploy_upgrade(db, versioninfo)
+            test_result = self.deploy_upgrade(conn, cur, versioninfo)
 
             if test_result == False:
                 raise ValueError('Incompatible %s == %s.' % (self._table('webauthn2_version' + suffix), versioninfo))
 
             elif test_result == True:
-                db.query(
+                cur.execute(
                     """
 DROP VIEW %(version)s;
 CREATE VIEW %(version)s AS
@@ -203,14 +203,14 @@ CREATE VIEW %(version)s AS
 }
                 )
     
-    def deploy(self, db=None):
+    def deploy(self, conn=None, cur=None):
         """
         Deploy custom schema if necessary.
 
         """
-        def db_body(db):
-            if self.database_schema and not self._schema_exists(db, self.database_schema):
-                db.query(
+        def db_body(conn, cur):
+            if self.database_schema and not self._schema_exists(conn, cur, self.database_schema):
+                cur.execute(
                     """
 CREATE SCHEMA %(schema)s ;
 """  % {
@@ -218,8 +218,8 @@ CREATE SCHEMA %(schema)s ;
 }
                 )
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self._db_wrapper(db_body)
 
@@ -237,7 +237,7 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
         SessionStateProvider(config)
         DatabaseConnection2.__init__(self, config)
 
-    def set_msg_context(self, manager, context, sessionids, db=None):
+    def set_msg_context(self, manager, context, sessionids, conn=None, cur=None):
         """
         Load existing session state keyed by sessionids.
 
@@ -248,12 +248,12 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
         to map to the new canonical keying.
 
         """
-        def db_body(db):
-            return self._session(db, sessionids)
+        def db_body(conn, cur):
+            return self._session(conn, cur, sessionids)
 
         try:
-            if db:
-                srow = db_body(db)
+            if conn is not None and cur is not None:
+                srow = db_body(conn, cur)
             else:
                 srow = self._db_wrapper(db_body)
 
@@ -271,14 +271,14 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
             context.session = None
             return None
 
-    def _new_session_extras(self, manager, context, db):
+    def _new_session_extras(self, manager, context, conn, cur):
         """
         Generate extra (column, value) pairs for INSERT of new session.
 
         """
         return []
 
-    def new(self, manager, context, db=None):
+    def new(self, manager, context, conn=None, cur=None):
         """
         Create a new persistent session state mirroring context.
 
@@ -286,9 +286,9 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
         storage, throw a KeyError exception.
 
         """
-        def db_body(db):
+        def db_body(conn, cur):
             try:
-                srow = self._session(db, context.session.keys)
+                srow = self._session(conn, cur, context.session.keys)
             except KeyError:
                 srow = None
 
@@ -308,10 +308,10 @@ class DatabaseSessionStateProvider (SessionStateProvider, DatabaseConnection2):
                 if context.client.get(key) != None:
                     usercols.append(sql_identifier(key))
                     uservals.append(sql_literal(context.client.get(key)))
-            extras = self._new_session_extras(manager, context, db)
+            extras = self._new_session_extras(manager, context, conn, cur)
             extracols = [ sql_identifier(extra[0]) for extra in extras ]
             extravals = [ sql_literal(extra[1]) for extra in extras ]
-            db.query(
+            cur.execute(
                 """
 INSERT INTO %(stable)s (key, since, keysince, expires, client, attributes, %(usercols)s %(extracols)s)
   VALUES (%(key)s, %(since)s, %(since)s, %(expires)s, %(client)s, %(attributes)s, %(uservals)s %(extravals)s) ;
@@ -329,19 +329,19 @@ INSERT INTO %(stable)s (key, since, keysince, expires, client, attributes, %(use
 }
             )
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self._db_wrapper(db_body)
         
 
-    def extend(self, manager, context, db=None, duration=None):
+    def extend(self, manager, context, conn=None, cur=None, duration=None):
         """
         Update expiration time of existing session mirroring context in persistent store.
 
         """
-        def db_body(db):
-            srow = self._session(db, context.session.keys)
+        def db_body(conn, cur):
+            srow = self._session(conn, cur, context.session.keys)
             now = datetime.datetime.now(timezone.utc)
             if duration is None:
                 newduration = datetime.timedelta(minutes=int(manager.config.get('session_expiration_minutes', 30)))
@@ -353,7 +353,7 @@ INSERT INTO %(stable)s (key, since, keysince, expires, client, attributes, %(use
             if (srow.expires > expires) or (expires - srow.expires).seconds < 5:
                 # don't update too often
                 return
-            db.query(
+            cur.execute(
                 """
 UPDATE %(stable)s SET expires = %(expires)s WHERE key = %(key)s AND %(expires)s > expires ;
 """ % {
@@ -363,20 +363,20 @@ UPDATE %(stable)s SET expires = %(expires)s WHERE key = %(key)s AND %(expires)s 
 }
             )
             if manager.clients != None and manager.clients.manage != None:
-                manager.clients.manage.update_last_session_extension(manager, context, context.client[ID], db)
-        if db:
-            return db_body(db)
+                manager.clients.manage.update_last_session_extension(manager, context, context.client[ID], conn, cur)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self._db_wrapper(db_body)
 
-    def terminate(self, manager, context, db=None, preferred_final_url=None):
+    def terminate(self, manager, context, conn=None, cur=None, preferred_final_url=None):
         """
         Destroy any persistent session mirroring context.
 
         """
-        def db_body(db):
-            srow = self._session(db, context.session.keys)
-            db.query(
+        def db_body(conn, cur):
+            srow = self._session(conn, cur, context.session.keys)
+            cur.execute(
                 """
 DELETE FROM %(stable)s WHERE key = %(key)s ;
 """ % {
@@ -384,17 +384,17 @@ DELETE FROM %(stable)s WHERE key = %(key)s ;
     'key': sql_literal(srow.key),
 }
             )
-            web.setcookie(DatabasePreauthProvider.cookie_name, "", expires=-1)
+            deriva_ctx.deriva_response.set_cookie(DatabasePreauthProvider.cookie_name, "", expires=-1)
             return None
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self._db_wrapper(db_body)
 
-    def _session(self, db, sessionids):
+    def _session(self, conn, cur, sessionids):
         # purge old sessions before searching for valid keys
-        db.query(
+        cur.execute(
             """
 DELETE FROM %(stable)s WHERE expires < 'now'::timestamptz ;
 """ % {
@@ -402,7 +402,7 @@ DELETE FROM %(stable)s WHERE expires < 'now'::timestamptz ;
 }
         )
         results = force_query(
-            db,
+            conn, cur,
             """
 SELECT * FROM %(stable)s 
 WHERE key IN ( %(keys)s ) OR key_old IN ( %(keys)s )
@@ -421,16 +421,16 @@ ORDER BY expires DESC ;
         else:
             raise KeyError(str('sessionids'))
 
-    def deploy(self, db=None):
+    def deploy(self, conn=None, cur=None):
         """
         Deploy initial provider state.
 
         """
-        def db_body(db):
+        def db_body(conn, cur):
             DatabaseConnection2.deploy(self)
 
-            if not self._table_exists(db, self.storage_name):
-                db.query(
+            if not self._table_exists(conn, cur, self.storage_name):
+                cur.execute(
                     """
 CREATE TABLE %(stable)s (
   key text UNIQUE,
@@ -449,30 +449,30 @@ CREATE TABLE %(stable)s (
     'extras': ','.join(self.extra_columns and [ '' ] + [ '%s %s' % ec for ec in self.extra_columns ]),
 }
                 )
-            self.deploy_guard(db, '_' + self.storage_name)
+            self.deploy_guard(conn, cur, '_' + self.storage_name)
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self._db_wrapper(db_body)
         
-    def _add_extra_columns(self, db):
+    def _add_extra_columns(self, conn, cur):
         """
         Add additional columns during a minor upgrade
 
         """
-        def db_body(db):
+        def db_body(conn, cur):
             DatabaseConnection2.deploy(self)
             for cols in self.extra_columns:
-                db.query(
+                cur.execute(
                     "ALTER TABLE %(stable)s ADD COLUMN IF NOT EXISTS %(colname)s %(coltype)s;" % {
                         'stable': self._table(self.storage_name),
                         'colname': cols[0],
                         'coltype': cols[1],
                     }
                 )
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self._db_wrapper(db_body)
         
@@ -482,16 +482,16 @@ class DatabaseClientSearch (ClientSearch):
     def __init__(self, provider):
         ClientSearch.__init__(self, provider)
 
-    def get_all_clients_noauthz(self, manager, context, db=None):
+    def get_all_clients_noauthz(self, manager, context, conn=None, cur=None):
         """
         Return set of all available client identifiers.
 
         """
-        def db_body(db):
+        def db_body(conn, cur):
             return {
                 row.get(ID)
                 for row in force_query(
-                        db,
+                        conn, cur,
                         """
 SELECT %(username)s FROM %(utable)s ;
 """ % {
@@ -501,8 +501,8 @@ SELECT %(username)s FROM %(utable)s ;
                 )
             }
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self.provider._db_wrapper(db_body)
 
@@ -512,7 +512,7 @@ class DatabaseLogin (ClientLogin):
     def __init__(self, provider):
         ClientLogin.__init__(self, provider)
 
-    def login(self, manager, context, db, **kwargs):
+    def login(self, manager, context, conn, cur, **kwargs):
         """
         Return username if the user can be logged in using 'username' and 'password' keyword arguments.
 
@@ -530,18 +530,18 @@ class DatabaseLogin (ClientLogin):
             # treat lack of proper kwargs as a type error
             raise TypeError(str(ve))
 
-        def db_body(db):
-            uname = self.provider._client_passwd_matches(db, username, password)
+        def db_body(conn, cur):
+            uname = self.provider._client_passwd_matches(conn, cur, username, password)
             if uname != None:
                 context.client = KeyedDict()
                 context.client[ID] = uname
                 context.client[DISPLAY_NAME] = uname
                 context.client[IDENTITIES] = [context.client.get(ID)]
-                self.provider.manage.update_last_login(manager, context, context.client[ID], db)
+                self.provider.manage.update_last_login(manager, context, context.client[ID], conn, cur)
                 return context.client
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self.provider._db_wrapper(db_body)
 
@@ -551,23 +551,23 @@ class DatabaseClientManage (ClientManage):
     def __init__(self, provider):
         ClientManage.__init__(self, provider)
 
-    def _create_noauthz_extras(self, manager, context, clientname, db):
+    def _create_noauthz_extras(self, manager, context, clientname, conn, cur):
         """
         Generate extra (column, value) pairs for INSERT of new client.
 
         """
         return []
 
-    def create_noauthz(self, manager, context, clientname, db=None):
-        def db_body(db):
-            if self.provider._client_exists(db, clientname):
+    def create_noauthz(self, manager, context, clientname, conn=None, cur=None):
+        def db_body(conn, cur):
+            if self.provider._client_exists(conn, cur, clientname):
                 return
 
-            extras = self._create_noauthz_extras(manager, context, clientname, db)
+            extras = self._create_noauthz_extras(manager, context, clientname, conn, cur)
             extracols = [ extra[0] for extra in extras ]
             extravals = [ extra[1] for extra in extras ]
 
-            results = db.query(
+            cur.execute(
                 """
 INSERT INTO %(utable)s (%(id)s %(extracols)s) VALUES ( %(uname)s %(extravals)s );
 """ % {
@@ -579,17 +579,17 @@ INSERT INTO %(utable)s (%(id)s %(extracols)s) VALUES ( %(uname)s %(extravals)s )
 }
             )
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self.provider._db_wrapper(db_body)
 
-    def delete_noauthz(self, manager, context, clientname, db=None):
-        def db_body(db):
-            if not self.provider._client_exists(db, clientname):
+    def delete_noauthz(self, manager, context, clientname, conn=None, cur=None):
+        def db_body(conn, cur):
+            if not self.provider._client_exists(conn, cur, clientname):
                 raise KeyError(clientname)
 
-            results = db.query(
+            cur.execute(
                 """
 DELETE FROM %(utable)s WHERE %(username)s = %(uname)s ;
 """ % {
@@ -599,23 +599,21 @@ DELETE FROM %(utable)s WHERE %(username)s = %(uname)s ;
 }
             )
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self.provider._db_wrapper(db_body)
 
-    def update_noauthz(self, manager, context, clientname, db=None):
-        def db_body(db):
-            if not self.provider._client_exists(db, clientname):
+    def update_noauthz(self, manager, context, clientname, conn=None, cur=None):
+        def db_body(conn, cur):
+            if not self.provider._client_exists(conn, cur, clientname):
                 raise ValueError("User does not exist")
 
-            rawcols = self._get_noauthz_updatecols(manager, context, clientname, db)
+            rawcols = self._get_noauthz_updatecols(manager, context, clientname, conn, cur)
             cols=[]
-            vals=dict()
             for c in rawcols:
-                cols.append(c[0] + '= $' + c[0])
-                vals[c[0]] = c[1]
-            results = db.query(
+                cols.append('%s = %s' % (c[0], sql_literal(c[1])))
+            cur.execute(
                 """
 UPDATE %(utable)s SET %(colstring)s where %(username)s=%(uname)s
 """ % {
@@ -623,16 +621,15 @@ UPDATE %(utable)s SET %(colstring)s where %(username)s=%(uname)s
     'colstring': ','.join(cols),
     'username': ID,
     'uname': sql_literal(clientname),
-},
-                vars=vals
+}
             )
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self.provider._db_wrapper(db_body)
 
-    def update_last_login(self, manager, context, username, db=None):
-        db.query(
+    def update_last_login(self, manager, context, username, conn=None, cur=None):
+        cur.execute(
             """
 UPDATE %(utable)s SET last_login = now() WHERE id = %(id)s
 """ % {
@@ -641,8 +638,8 @@ UPDATE %(utable)s SET last_login = now() WHERE id = %(id)s
 }
         )
 
-    def update_last_session_extension(self, manager, context, username, db=None):
-        db.query(
+    def update_last_session_extension(self, manager, context, username, conn=None, cur=None):
+        cur.execute(
             """
 UPDATE %(utable)s SET last_session_extension = now() WHERE id = %(id)s
 """ % {
@@ -651,8 +648,8 @@ UPDATE %(utable)s SET last_session_extension = now() WHERE id = %(id)s
 }
         )
 
-    def update_last_group_update(self, manager, context, username, db=None):
-        db.query(
+    def update_last_group_update(self, manager, context, username, conn=None, cur=None):
+        cur.execute(
             """
 UPDATE %(utable)s SET last_group_update = now() WHERE id = %(id)s
 """ % {
@@ -666,14 +663,14 @@ class DatabaseClientPasswd (ClientPasswd):
     def __init__(self, provider):
         ClientPasswd.__init__(self, provider)
 
-    def _create_noauthz_extras(self, manager, context, clientname, db):
+    def _create_noauthz_extras(self, manager, context, clientname, conn, cur):
         """
         Generate extra (column, value) pairs for INSERT of new client.
 
         """
         return []
 
-    def create_noauthz(self, manager, context, clientname, password=None, oldpasswd=None, db=None):
+    def create_noauthz(self, manager, context, clientname, password=None, oldpasswd=None, conn=None, cur=None):
         made_random = False
         if not password:
             made_random = True
@@ -681,10 +678,10 @@ class DatabaseClientPasswd (ClientPasswd):
 
         pwhash, salthex, reps = hash_password(password, reps=self.provider.hash_passwd_reps)
 
-        def db_body(db):
+        def db_body(conn, cur):
             if oldpasswd != None:
                 try:
-                    self.provider._client_passwd_matches(db, clientname, oldpasswd)
+                    self.provider._client_passwd_matches(conn, cur, clientname, oldpasswd)
                 except KeyError:
                     # trying to compare to non-existant current passwd?
                     raise
@@ -692,17 +689,17 @@ class DatabaseClientPasswd (ClientPasswd):
                     # oldpasswd doesn't match new passwd
                     raise ValueError('user %s or old password' % clientname)
             
-            if self.provider._client_passwd(db, clientname) != None:
-                self.delete_noauthz(manager, context, clientname, db=db)
+            if self.provider._client_passwd(conn, cur, clientname) != None:
+                self.delete_noauthz(manager, context, clientname, conn=conn, cur=cur)
 
-            extras = self._create_noauthz_extras(manager, context, clientname, db)
+            extras = self._create_noauthz_extras(manager, context, clientname, conn, cur)
             extracols = [ extra[0] for extra in extras ]
             extravals = [ extra[1] for extra in extras ]
             
-            if not self.provider._client_exists(db, clientname):
+            if not self.provider._client_exists(conn, cur, clientname):
                 raise KeyError(clientname)
             
-            results = db.query(
+            cur.execute(
                 """
 INSERT INTO %(ptable)s (uid, pwhash, salthex, reps %(extracols)s) 
   SELECT uid, %(pwhash)s, %(salthex)s, %(reps)s %(extravals)s
@@ -725,28 +722,28 @@ INSERT INTO %(ptable)s (uid, pwhash, salthex, reps %(extracols)s)
             else:
                 return True
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self.provider._db_wrapper(db_body)
 
-    def delete_noauthz(self, manager, context, clientname, oldpasswd=None, db=None):
-        def db_body(db):
-            prow = self.provider._client_passwd(db, clientname)
+    def delete_noauthz(self, manager, context, clientname, oldpasswd=None, conn=None, cur=None):
+        def db_body(conn, cur):
+            prow = self.provider._client_passwd(conn, cur, clientname)
             if prow == None:
                 raise KeyError(clientname)
 
             if oldpasswd != None:
                 try:
-                    self.provider._client_passwd_matches(db, clientname, oldpasswd)
+                    self.provider._client_passwd_matches(conn, cur, clientname, oldpasswd)
                 except KeyError:
                     # trying to compare to non-existant current passwd?
                     raise
                 except ValueError:
                     # oldpasswd doesn't match new passwd
                     raise ValueError('user %s or old password' % clientname)
-            
-            results = db.query(
+
+            cur.execute(
                 """
 DELETE FROM %(ptable)s p
 USING %(utable)s u
@@ -760,8 +757,8 @@ WHERE u.%(username)s = %(uname)s
 }
             )
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self.provider._db_wrapper(db_body)
 
@@ -792,9 +789,9 @@ class DatabaseClientProvider (ClientProvider, DatabaseConnection2):
         self.manage = Manage(self)
         self.passwd = Passwd(self)
 
-    def _client_exists(self, db, clientname):
+    def _client_exists(self, conn, cur, clientname):
         results = force_query(
-            db,
+            conn, cur,
             """
 SELECT * FROM %(utable)s WHERE %(username)s = %(uname)s ;
 """ % {
@@ -805,9 +802,9 @@ SELECT * FROM %(utable)s WHERE %(username)s = %(uname)s ;
         )
         return len(results) > 0
 
-    def _client_passwd(self, db, clientname):
+    def _client_passwd(self, conn, cur, clientname):
         results = force_query(
-            db,
+            conn, cur,
             """
 SELECT
   u.uid uid,
@@ -834,8 +831,8 @@ WHERE u.%(username)s = %(uname)s
         else:
             return None
 
-    def _client_passwd_matches(self, db, clientname, passwd):
-        row = self._client_passwd(db, clientname)
+    def _client_passwd_matches(self, conn, cur, clientname, passwd):
+        row = self._client_passwd(conn, cur, clientname)
         if row == None:
             raise KeyError(clientname)
 
@@ -846,11 +843,11 @@ WHERE u.%(username)s = %(uname)s
         else:
             raise ValueError('user %s or password' % clientname)
 
-    def deploy_views(self, db):
-        if self._table_exists(db, self.summary_storage_name):
-            db.query('DROP VIEW %s' % self._table(self.summary_storage_name))
+    def deploy_views(self, conn, cur):
+        if self._table_exists(conn, cur, self.summary_storage_name):
+            cur.execute('DROP VIEW %s' % self._table(self.summary_storage_name))
 
-        db.query(
+        cur.execute(
             """
 CREATE VIEW %(summary)s AS
   SELECT *
@@ -864,7 +861,7 @@ CREATE VIEW %(summary)s AS
 }
         )
 
-    def deploy_upgrade(self, db, versioninfo):
+    def deploy_upgrade(self, conn, cur, versioninfo):
         """
         Conditionally upgrade provider state.
 
@@ -874,23 +871,23 @@ CREATE VIEW %(summary)s AS
             return None
         elif versioninfo.major == self.major and versioninfo.minor < self.minor:
             # minor updates only change the helper view definitions but not the tables?
-            self.deploy_views(db)
+            self.deploy_views(conn, cur)
             return True
         else:
             return False
 
-    def deploy(self, db=None):
+    def deploy(self, conn=None, cur=None):
         """
         Deploy initial provider state.
 
         """
-        def db_body(db):
+        def db_body(conn, cur):
             DatabaseConnection2.deploy(self)
             tables_added = False
 
-            if not self._table_exists(db, self.client_storage_name):
+            if not self._table_exists(conn, cur, self.client_storage_name):
                 tables_added = True
-                db.query(
+                cur.execute(
                     """
 CREATE TABLE %(utable)s (
   uid serial PRIMARY KEY,
@@ -911,9 +908,9 @@ CREATE TABLE %(utable)s (
 }
                 )
 
-            if not self._table_exists(db, self.passwd_storage_name):
+            if not self._table_exists(conn, cur, self.passwd_storage_name):
                 tables_added = True
-                db.query(
+                cur.execute(
                     """
 CREATE TABLE %(ptable)s (
   uid int PRIMARY KEY REFERENCES %(utable)s (uid) ON DELETE CASCADE,
@@ -930,13 +927,13 @@ CREATE TABLE %(ptable)s (
 }
                 )
 
-            self.deploy_guard(db, '_client')
+            self.deploy_guard(conn, cur, '_client')
 
             if tables_added:
-                self.deploy_views(db)
+                self.deploy_views(conn, cur)
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self._db_wrapper(db_body)
 
@@ -945,7 +942,7 @@ class DatabaseAttributeClient (AttributeClient):
     def __init__(self, provider):
         AttributeClient.__init__(self, provider)
 
-    def set_msg_context(self, manager, context, db=None):
+    def set_msg_context(self, manager, context, conn=None, cur=None):
         """
         Update context with client attributes.
 
@@ -953,7 +950,7 @@ class DatabaseAttributeClient (AttributeClient):
         directly from context.client identifier.
 
         """
-        def db_body(db):
+        def db_body(conn, cur):
             if context.client != None:
                 context.attributes.add(context.client)
 
@@ -961,7 +958,7 @@ class DatabaseAttributeClient (AttributeClient):
             context.attributes.update({
                 KeyedDict({ID : row.attribute, DISPLAY_NAME : row.attribute})
                 for row in force_query(
-                        db,
+                        conn, cur,
                         """
 SELECT a.attribute AS attribute
 FROM %(uatable)s ua 
@@ -979,7 +976,7 @@ WHERE ua.%(username)s = %(uname)s ;
             # recursively expand nested-attributes
             while True:
                 results = force_query(
-                    db,
+                    conn, cur,
                     """
 SELECT p.aid, p.attribute AS attribute
 FROM %(natable)s na 
@@ -999,10 +996,10 @@ WHERE c.attribute IN ( %(attrs)s )
                     for row in results:
                         context.attributes.add({ID : row.aid, DISPLAY_NAME : row.attribute})
             if manager.clients != None:
-                manager.clients.manage.update_last_group_update(manager, context, context.client[ID], db)
+                manager.clients.manage.update_last_group_update(manager, context, context.client[ID], conn, cur)
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self.provider._db_wrapper(db_body)
 
@@ -1011,16 +1008,16 @@ class DatabaseAttributeSearch (AttributeSearch):
     def __init__(self, provider):
         AttributeSearch.__init__(self, provider)
 
-    def get_all_attributes_noauthz(self, manager, context, clientnames, db=None):
+    def get_all_attributes_noauthz(self, manager, context, clientnames, conn=None, cur=None):
         """
         Return set of all available attributes including all clientnames.
 
         """
-        def db_body(db):
+        def db_body(conn, cur):
             return {
                 row.attribute
                 for row in force_query(
-                        db,
+                        conn, cur,
                         """
 SELECT attribute FROM %(atable)s ;
 """ % {
@@ -1029,8 +1026,8 @@ SELECT attribute FROM %(atable)s ;
                 )
             }.union( set(clientnames) )
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self.provider._db_wrapper(db_body)
 
@@ -1039,12 +1036,12 @@ class DatabaseAttributeManage (AttributeManage):
     def __init__(self, provider):
         AttributeManage.__init__(self, provider)
 
-    def create_noauthz(self, manager, context, attributename, db=None):
-        def db_body(db):
-            if self.provider._attribute_exists(db, attributename):
+    def create_noauthz(self, manager, context, attributename, conn=None, cur=None):
+        def db_body(conn, cur):
+            if self.provider._attribute_exists(conn, cur, attributename):
                 return
 
-            results = db.query(
+            cur.execute(
                 """
 INSERT INTO %(atable)s (attribute) VALUES ( %(aname)s );
 """ % {
@@ -1053,17 +1050,17 @@ INSERT INTO %(atable)s (attribute) VALUES ( %(aname)s );
 }
             )
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self.provider._db_wrapper(db_body)
 
-    def delete_noauthz(self, manager, context, attributename, db=None):
-        def db_body(db):
-            if not self.provider._attribute_exists(db, attributename):
+    def delete_noauthz(self, manager, context, attributename, conn=None, cur=None):
+        def db_body(conn, cur):
+            if not self.provider._attribute_exists(conn, cur, attributename):
                 raise KeyError(attributename)
 
-            results = db.query(
+            cur.execute(
                 """
 DELETE FROM %(atable)s WHERE attribute = %(aname)s ;
 """ % {
@@ -1072,8 +1069,8 @@ DELETE FROM %(atable)s WHERE attribute = %(aname)s ;
 }
             )
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self.provider._db_wrapper(db_body)
 
@@ -1082,10 +1079,10 @@ class DatabaseAttributeAssign (AttributeAssign):
     def __init__(self, provider):
         AttributeAssign.__init__(self, provider)
 
-    def list_noauthz(self, manager, context, clientname, db=None):
-        def db_body(db):
+    def list_noauthz(self, manager, context, clientname, conn=None, cur=None):
+        def db_body(conn, cur):
             results = force_query(
-                db,
+                conn, cur,
                 """
 SELECT a.attribute AS attribute
 FROM %(uatable)s ua
@@ -1100,20 +1097,20 @@ WHERE ua.%(username)s = %(uname)s ;
             )
             return [ r.attribute for r in results ]
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self.provider._db_wrapper(db_body)
 
-    def create_noauthz(self, manager, context, attributename, clientname, db=None):
-        def db_body(db):
-            if self.provider._attribute_assigned(db, attributename, clientname):
+    def create_noauthz(self, manager, context, attributename, clientname, conn=None, cur=None):
+        def db_body(conn, cur):
+            if self.provider._attribute_assigned(conn, cur, attributename, clientname):
                 return
 
-            if not self.provider._attribute_exists(db, attributename):
+            if not self.provider._attribute_exists(conn, cur, attributename):
                 raise KeyError('attribute %s' % attributename)
 
-            results = db.query(
+            cur.execute(
                 """
 INSERT INTO %(uatable)s (aid, %(username)s)
   SELECT (SELECT aid FROM %(atable)s WHERE attribute = %(aname)s), %(uname)s ;
@@ -1126,20 +1123,20 @@ INSERT INTO %(uatable)s (aid, %(username)s)
 }
             )
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self.provider._db_wrapper(db_body)
 
-    def delete_noauthz(self, manager, context, attributename, clientname, db=None):
-        def db_body(db):
-            if not self.provider._attribute_exists(db, attributename):
+    def delete_noauthz(self, manager, context, attributename, clientname, conn=None, cur=None):
+        def db_body(conn, cur):
+            if not self.provider._attribute_exists(conn, cur, attributename):
                 raise KeyError('attribute %s' % attributename)
 
-            if not self.provider._attribute_assigned(db, attributename, clientname):
+            if not self.provider._attribute_assigned(conn, cur, attributename, clientname):
                 raise KeyError('attribute %s on client %s' % (attributename, clientname))
 
-            results = db.query(
+            cur.execute(
                 """
 DELETE FROM %(uatable)s ua
 USING %(atable)s a
@@ -1155,8 +1152,8 @@ WHERE a.attribute = %(aname)s
 }
             )
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self.provider._db_wrapper(db_body)
 
@@ -1165,13 +1162,13 @@ class DatabaseAttributeNest (AttributeNest):
     def __init__(self, provider):
         AttributeNest.__init__(self, provider)
 
-    def list_noauthz(self, manager, context, childname, db=None):
-        def db_body(db):
-            if not self.provider._attribute_exists(db, childname):
+    def list_noauthz(self, manager, context, childname, conn=None, cur=None):
+        def db_body(conn, cur):
+            if not self.provider._attribute_exists(conn, cur, childname):
                 raise KeyError('attribute %s' % childname)
 
             results = force_query(
-                db,
+                conn, cur,
                 """
 SELECT p.attribute AS attribute
 FROM %(aatable)s na
@@ -1187,23 +1184,23 @@ WHERE c.attribute = %(cname)s;
 
             return [ r.attribute for r in results ]
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self.provider._db_wrapper(db_body)
 
-    def create_noauthz(self, manager, context, parentname, childname, db=None):
-        def db_body(db):
-            if self.provider._attribute_nested(db, parentname, childname):
+    def create_noauthz(self, manager, context, parentname, childname, conn=None, cur=None):
+        def db_body(conn, cur):
+            if self.provider._attribute_nested(conn, cur, parentname, childname):
                 return
 
-            if not self.provider._attribute_exists(db, parentname):
+            if not self.provider._attribute_exists(conn, cur, parentname):
                 raise KeyError('attribute %s' % parentname)
 
-            if not self.provider._attribute_exists(db, childname):
+            if not self.provider._attribute_exists(conn, cur, childname):
                 raise KeyError('attribute %s' % childname)
 
-            results = db.query(
+            cur.execute(
                 """
 INSERT INTO %(aatable)s (parent, child)
   SELECT (SELECT aid FROM %(atable)s WHERE attribute = %(pname)s),
@@ -1216,23 +1213,23 @@ INSERT INTO %(aatable)s (parent, child)
 }
             )
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self.provider._db_wrapper(db_body)
 
-    def delete_noauthz(self, manager, context, parentname, childname, db=None):
-        def db_body(db):
-            if not self.provider._attribute_exists(db, parentname):
+    def delete_noauthz(self, manager, context, parentname, childname, conn=None, cur=None):
+        def db_body(conn, cur):
+            if not self.provider._attribute_exists(conn, cur, parentname):
                 raise KeyError('attribute %s' % parentname)
 
-            if not self.provider._attribute_exists(db, childname):
+            if not self.provider._attribute_exists(conn, cur, childname):
                 raise KeyError('attribute %s' % childname)
 
-            if not self.provider._attribute_nested(db, parentname, childname):
+            if not self.provider._attribute_nested(conn, cur, parentname, childname):
                 raise KeyError('attribute %s nested in attribute %s' % (parentname, childname))
 
-            results = db.query(
+            cur.execute(
                 """
 DELETE FROM %(aatable)s na
 USING %(atable)s p, %(atable)s c
@@ -1248,8 +1245,8 @@ WHERE p.attribute = %(pname)s
 }
             )
 
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             self.provider._db_wrapper(db_body)
 
@@ -1270,9 +1267,9 @@ class DatabaseAttributeProvider (AttributeProvider, DatabaseConnection2):
         self.assign = DatabaseAttributeAssign(self)
         self.nest   = DatabaseAttributeNest(self)
     
-    def _attribute_exists(self, db, attributename):
+    def _attribute_exists(self, conn, cur, attributename):
         results = force_query(
-            db,
+            conn, cur,
             """
 SELECT * FROM %(atable)s WHERE attribute = %(aname)s ;
 """ % {
@@ -1282,9 +1279,9 @@ SELECT * FROM %(atable)s WHERE attribute = %(aname)s ;
         )
         return len(results) > 0
 
-    def _attribute_assigned(self, db, attributename, clientname):
+    def _attribute_assigned(self, conn, cur, attributename, clientname):
         results = force_query(
-            db,
+            conn, cur,
             """
 SELECT * 
 FROM %(uatable)s ua
@@ -1301,9 +1298,9 @@ WHERE a.attribute = %(aname)s
         )
         return len(results) > 0
 
-    def _attribute_nested(self, db, parentname, childname):
+    def _attribute_nested(self, conn, cur, parentname, childname):
         results = force_query(
-            db,
+            conn, cur,
             """
 SELECT * 
 FROM %(natable)s na
@@ -1320,11 +1317,11 @@ WHERE c.attribute = %(cname)s
         )
         return len(results) > 0
 
-    def deploy_views(self, db):
-        if self._table_exists(db, 'attributesummary'):
-            db.query("DROP VIEW %s" % self._table('attributesummary'))
+    def deploy_views(self, conn, cur):
+        if self._table_exists(conn, cur, 'attributesummary'):
+            cur.execute("DROP VIEW %s" % self._table('attributesummary'))
 
-        db.query(
+        cur.execute(
             """
 CREATE VIEW %(summary)s AS
   WITH RECURSIVE taa(aid, taid) AS (
@@ -1393,7 +1390,7 @@ UNION
 }
         )
 
-    def deploy_upgrade(self, db, versioninfo):
+    def deploy_upgrade(self, conn, cur, versioninfo):
         """
         Conditionally upgrade provider state.
 
@@ -1403,23 +1400,23 @@ UNION
             return None
         elif versioninfo.major == self.major and versioninfo.minor < self.minor:
             # minor updates only change the helper view definitions but not the tables?
-            self.deploy_views(db)
+            self.deploy_views(conn, cur)
             return True
         else:
             return False
 
-    def deploy(self, db=None):
+    def deploy(self, conn=None, cur=None):
         """
         Deploy initial provider state.
 
         """
-        def db_body(db):
+        def db_body(conn, cur):
             DatabaseConnection2.deploy(self)
             tables_added = False
 
-            if not self._table_exists(db, 'attribute'):
+            if not self._table_exists(conn, cur, 'attribute'):
                 tables_added = True
-                db.query(
+                cur.execute(
                     """
 CREATE TABLE %(atable)s (
   aid serial PRIMARY KEY,
@@ -1430,9 +1427,9 @@ CREATE TABLE %(atable)s (
 }
                 )
 
-            if not self._table_exists(db, 'userattribute'):
+            if not self._table_exists(conn, cur, 'userattribute'):
                 tables_added = True
-                db.query(
+                cur.execute(
                     """
 CREATE TABLE %(uatable)s (
   %(username)s text,
@@ -1446,9 +1443,9 @@ CREATE TABLE %(uatable)s (
 }
                 )
 
-            if not self._table_exists(db, 'nestedattribute'):
+            if not self._table_exists(conn, cur, 'nestedattribute'):
                 tables_added = True
-                db.query(
+                cur.execute(
                     """
 CREATE TABLE %(aatable)s (
   child int REFERENCES %(atable)s (aid) ON DELETE CASCADE,
@@ -1461,13 +1458,13 @@ CREATE TABLE %(aatable)s (
 }
                 )
 
-            self.deploy_guard(db, '_attribute')
+            self.deploy_guard(conn, cur, '_attribute')
 
             if tables_added:
-                self.deploy_views(db)
+                self.deploy_views(conn, cur)
             
-        if db:
-            return db_body(db)
+        if conn is not None and cur is not None:
+            return db_body(conn, cur)
         else:
             return self._db_wrapper(db_body)
 
@@ -1481,13 +1478,17 @@ class DatabasePreauthProvider (PreauthProvider):
         self.form_url=config.get("{key}_login_form".format(key=self.key))
 
 
-    def preauth_info(self, manager, context, db):
-        referrer = web.input().get('referrer')
+    def preauth_info(self, manager, context, conn, cur):
+        referrer = web_input().get('referrer')
         if referrer != None:
-            web.setcookie(self.cookie_name, referrer)
+            deriva_ctx.deriva_response.set_cookie(self.cookie_name, referrer)
         if self.form_url != None:
             if self.form_url[0] == '/':
-                self.form_url = "{prot}://{host}{path}".format(prot=web.ctx.protocol, host=web.ctx.host, path=self.form_url)
+                self.form_url = "{prot}://{host}{path}".format(
+                    prot=flask.request.scheme,
+                    host=flask.request.host,
+                    path=self.form_url
+                )
             login_info = {REDIRECT_URL : self.form_url}
         else:
             login_info = {
@@ -1510,8 +1511,9 @@ class DatabasePreauthProvider (PreauthProvider):
         return login_info
 
     def preauth_referrer(self):
-        cookie = web.cookies().get(self.cookie_name)
+        cookie = flask.request.cookies.get(self.cookie_name)
         # The cookie is only used for this login, so it can be removed. But give a little bit of a grace
         # period in case they click more than once.
-        web.setcookie(self.cookie_name, cookie, expires=10, secure=True)
+        if cookie:
+            deriva_ctx.deriva_response.set_cookie(self.cookie_name, cookie, expires=10, secure=True)
         return cookie

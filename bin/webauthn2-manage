@@ -1,7 +1,7 @@
 #!/usr/bin/python
 
 # 
-# Copyright 2012-2018 University of Southern California
+# Copyright 2012-2023 University of Southern California
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,11 +20,8 @@ import os.path
 import sys
 import json
 import datetime
-import web
-web.config.debug = False
-web.config.debug_sql = False
 
-import webauthn2
+from webauthn2.manager import Manager
 
 def usage():
     print(
@@ -73,7 +70,7 @@ Exit status:
 """
     )
 
-webauthn2_manager = webauthn2.Manager()
+webauthn2_manager = Manager()
 
 def main(args):
     try:
