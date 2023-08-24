@@ -44,7 +44,20 @@ setup(
             "samples/globus_auth/discovery_globus.json",
         ])
     ],
-    requires=["flask", "psycopg2", "oauth", "oauth2client", "pyjwkest", "globus_sdk"],
+    requires=[
+        "flask",
+        "psycopg2",
+        "oauth",
+        "oauth2client",
+        "pyjwkest",
+        "globus_sdk"],
+    install_requires=[
+        "flask",
+        "psycopg2",
+        "oauth",
+        "oauth2client",
+        "pyjwkest",
+        "globus_sdk<4"],
     maintainer_email="isrd-support@isi.edu",
     license='Apache License, Version 2.0',
     classifiers=[

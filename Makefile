@@ -25,7 +25,7 @@ INSTALL_SCRIPT=./install-script
 
 # make this the default target
 install: samples/wsgi_webauthn2.conf force
-	pip3 install --no-deps --upgrade .
+	pip3 install --upgrade .
 	$(MAKE) -C apache_module install
 
 testvars: force
