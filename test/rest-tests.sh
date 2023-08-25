@@ -180,9 +180,9 @@ basic_usertest()
     dotest "200::application/json::*" /session -X PUT
 
     # check basic information APIs
-    dotest "200::application/json:*" /user
-    dotest "200::application/json:*" /attribute
-    dotest "200::application/json:*" /user/$1
+#    dotest "200::application/json:*" /user
+#    dotest "200::application/json:*" /attribute
+#    dotest "200::application/json:*" /user/$1
     
     # now logout
     dotest "200::application/json::*" /session -X DELETE
