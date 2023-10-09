@@ -3,7 +3,7 @@ AllowEncodedSlashes On
 
 WSGIPythonOptimize 1
 WSGIDaemonProcess @DAEMONUSER@ processes=1 threads=4 user=@DAEMONUSER@ maximum-requests=2000
-WSGIScriptAlias /authn @PYLIBDIR@/webauthn2/webauthn2.wsgi
+WSGIScriptAlias /authn @PYLIBDIR@/webauthn2/webauthn2.wsgi process-group=@DAEMONUSER@
 WSGIPassAuthorization On
 
 WSGISocketPrefix @WSGISOCKETPREFIX@
