@@ -47,6 +47,7 @@ setup(
     requires=[
         "flask",
         "psycopg2",
+        "cachetools",
         "oauth",
         "oauth2client",
         "pyjwkest",
@@ -54,6 +55,7 @@ setup(
     install_requires=[
         "flask",
         "psycopg2",
+        "cachetools",
         "oauth",
         "oauth2client",
         "pyjwkest",
