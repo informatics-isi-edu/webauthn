@@ -429,6 +429,7 @@ def context_from_environment(environ, fallback=True):
 
 class ClientSessionCachedProxy (object):
     _default_config = {
+        "session_host": "localhost",
         "session_path": "/authn/session",
         "web_cookie_name": "webauthn",
         "session_cache_max_age_s": 60,
@@ -441,12 +442,13 @@ class ClientSessionCachedProxy (object):
             config = {}
         config = merge_config(config, self._default_config)
 
+        self.session_host = config.session_host
         self.session_path = config.session_path
         self.session_cookie_name = config.web_cookie_name
         self.cache = cachetools.TTLCache(config.session_cache_max_entries, config.session_cache_max_age_s)
 
         self.requests_session = requests.session()
-        self.requests_session.verify = config.session_https_verify
+        self.requests_session.verify = False if self.session_host == 'localhost' else config.session_https_verify
         _retries = requests.packages.urllib3.util.retry.Retry(
             connect=5,
             read=5,
@@ -460,8 +462,7 @@ class ClientSessionCachedProxy (object):
         """Return (cache_key, url, headers, cookies) for given request environment and cookie store.
         """
         scheme = environ['wsgi.url_scheme']
-        server = environ.get('HTTP_HOST', environ['SERVER_NAME'])
-        url = '%(scheme)s://%(server)s%(path)s' % dict(scheme=scheme, server=server, path=self.session_path)
+        url = '%(scheme)s://%(server)s%(path)s' % dict(scheme=scheme, server=self.session_host, path=self.session_path)
         auth_hdr = environ.get('HTTP_AUTHORIZATION')
         auth_cookie = cookies.get(self.session_cookie_name)
         cache_key = (url, auth_hdr, auth_cookie)
