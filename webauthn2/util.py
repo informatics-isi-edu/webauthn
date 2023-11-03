@@ -33,6 +33,8 @@ import flask
 from flask import g as deriva_ctx
 import werkzeug.exceptions
 import werkzeug.http
+import requests
+import cachetools
 
 psycopg2.extensions.register_type(psycopg2.extensions.JSON)
 psycopg2.extensions.register_type(psycopg2.extensions.JSONARRAY)
@@ -382,20 +384,18 @@ def session_from_environment(environ):
     session_string=base64.standard_b64decode(b64_session_string).decode()
     return jsonReader(session_string)
 
-def context_from_environment(environ, fallback=True):
+def context_from_session_dict(session, fallback=True):
     """
-    Get and decode session details from the environment set by the http server (with mod_webauthn).
+    Decode session details from the dict-like /authn/session response
 
-    :param environ: The dict-like WSGI environment
-    :param fallback: Whether to return an anonymous context when environment lacks context info (default).
+    :param session: The dict-like session object or None
+    :param fallback: When True, return an anonymous context for missing sessions (default).
 
     Returns a Context instance which may be empty (anonymous).
 
-    If fallback=False, returns None if context was not found in environment.
-
-    Throws TypeError if the base64 decode fails and ValueError if json decode fails
+    If fallback=False, returns None if context is None or empty.
     """
-    context_dict = session_from_environment(environ)
+    context_dict = session
     context = Context()
     if context_dict:
         context.client = context_dict['client']
@@ -411,6 +411,103 @@ def context_from_environment(environ, fallback=True):
         return context
     else:
         return None
+
+def context_from_environment(environ, fallback=True):
+    """
+    Get and decode session details from the environment set by the http server (with mod_webauthn).
+
+    :param environ: The dict-like WSGI environment
+    :param fallback: Whether to return an anonymous context when environment lacks context info (default).
+
+    Returns a Context instance which may be empty (anonymous).
+
+    If fallback=False, returns None if context was not found in environment.
+
+    Throws TypeError if the base64 decode fails and ValueError if json decode fails
+    """
+    return context_from_session_dict(session_from_environment(environ), fallback=fallback)
+
+class ClientSessionCachedProxy (object):
+    _default_config = {
+        "session_path": "/authn/session",
+        "web_cookie_name": "webauthn",
+        "session_cache_max_age_s": 60,
+        "session_cache_max_entries": 100,
+        "session_https_verify": True,
+    }
+
+    def __init__(self, config=None):
+        if config is None:
+            config = {}
+        config = merge_config(config, self._default_config)
+
+        self.session_path = config.session_path
+        self.session_cookie_name = config.web_cookie_name
+        self.cache = cachetools.TTLCache(config.session_cache_max_entries, config.session_cache_max_age_s)
+
+        self.requests_session = requests.session()
+        self.requests_session.verify = config.session_https_verify
+        _retries = requests.packages.urllib3.util.retry.Retry(
+            connect=5,
+            read=5,
+            backoff_factor=1.0,
+            status_forcelist=[500, 502, 503, 504]
+        )
+        self.requests_session.mount('http://', requests.adapters.HTTPAdapter(max_retries=_retries))
+        self.requests_session.mount('https://', requests.adapters.HTTPAdapter(max_retries=_retries))
+
+    def _request_mapping(self, environ, cookies):
+        """Return (cache_key, url, headers, cookies) for given request environment and cookie store.
+        """
+        scheme = environ['wsgi.url_scheme']
+        server = environ.get('HTTP_HOST', environ['SERVER_NAME'])
+        url = '%(scheme)s://%(server)s%(path)s' % dict(scheme=scheme, server=server, path=self.session_path)
+        auth_hdr = environ.get('HTTP_AUTHORIZATION')
+        auth_cookie = cookies.get(self.session_cookie_name)
+        cache_key = (url, auth_hdr, auth_cookie)
+        return (cache_key, url, {"Authorization": auth_hdr} if auth_hdr else {}, cookies)
+
+    def get_session(self, environ, cookies):
+        """Return session response or None for given request environment and cookie store.
+        """
+        cache_key, url, headers, cookies = self._request_mapping(environ, cookies)
+        doc = self.cache.get(cache_key)
+        if doc is not None:
+            #deriva_debug('ClientSessionCachedProxy.get_session: returning cached session doc for client=%r' % (doc.get('client'),))
+            return doc
+        # we use PUT instead of GET to trigger webauthn's session extension logic
+        resp = self.requests_session.put(url, headers=headers, cookies=cookies)
+        if resp.status_code == 200:
+            doc = resp.json()
+            #deriva_debug('ClientSessionCachedProxy.get_session: saving and returning proxy response for client=%(client)r' % doc)
+        else:
+            doc = {}
+            #deriva_debug('ClientSessionCachedProxy.get_session: saving and returning proxy response for client=None')
+        self.cache[cache_key] = doc
+        return doc
+
+    def get_context(self, environ, cookies, fallback=True):
+        """
+        Decode request context into Context instance
+
+        :param environ: The dict-like WSGI environment
+        :param cookies: The dict-like cookies sent by the client
+        :param fallback: Whether to return an anonymous context when environment lacks context info (default).
+
+        Returns a Context instance which may be empty (anonymous).
+
+        If fallback=False, returns None if context was not found in environment.
+
+        Throws TypeError if the base64 decode fails and ValueError if json decode fails
+        """
+        if 'WEBAUTHN_SESSION_BASE64' in environ:
+            # if mod_webauthn already set environment, use it to avoid redundant work
+            #deriva_debug('ClientSessionCachedProxy.get_context: using detected mod_webauth env')
+            return context_from_environment(environ, fallback=fallback)
+        else:
+            # use method that does not depend on mod_webauthn
+            session = self.get_session(environ, cookies)
+            return context_from_session_dict(session, fallback=fallback)
 
 class RestException (werkzeug.exceptions.HTTPException):
     """Generic REST exception overriding flask/werkzeug defaults.
