@@ -35,6 +35,7 @@ import werkzeug.exceptions
 import werkzeug.http
 import requests
 import cachetools
+import threading
 
 psycopg2.extensions.register_type(psycopg2.extensions.JSON)
 psycopg2.extensions.register_type(psycopg2.extensions.JSONARRAY)
@@ -446,6 +447,7 @@ class ClientSessionCachedProxy (object):
         self.session_path = config.session_path
         self.session_cookie_name = config.web_cookie_name
         self.cache = cachetools.TTLCache(config.session_cache_max_entries, config.session_cache_max_age_s)
+        self.lock = threading.Lock()
 
         self.requests_session = requests.session()
         self.requests_session.verify = False if self.session_host == 'localhost' else config.session_https_verify
@@ -458,34 +460,32 @@ class ClientSessionCachedProxy (object):
         self.requests_session.mount('http://', requests.adapters.HTTPAdapter(max_retries=_retries))
         self.requests_session.mount('https://', requests.adapters.HTTPAdapter(max_retries=_retries))
 
-    def _request_mapping(self, environ, cookies):
-        """Return (cache_key, url, headers, cookies) for given request environment and cookie store.
-        """
-        scheme = environ['wsgi.url_scheme']
-        url = '%(scheme)s://%(server)s%(path)s' % dict(scheme=scheme, server=self.session_host, path=self.session_path)
-        auth_hdr = environ.get('HTTP_AUTHORIZATION')
-        auth_cookie = cookies.get(self.session_cookie_name)
-        cache_key = (url, auth_hdr, auth_cookie)
-        return (cache_key, url, {"Authorization": auth_hdr} if auth_hdr else {}, cookies)
+        self.session_urls = {
+            scheme: '%s://%s%s' % (scheme, self.session_host, self.session_path)
+            for scheme in ['http', 'https']
+        }
 
-    def get_session(self, environ, cookies):
-        """Return session response or None for given request environment and cookie store.
+    def _cache_key(self, headers, cookies):
+        return (headers.get("Authorization"), cookies.get(self.session_cookie_name))
+
+    @cachetools.cachedmethod(
+        lambda self: self.cache,
+        key=lambda self, scheme, headers, cookies: self._cache_key(headers, cookies),
+        lock=lambda self: self.lock,
+    )
+    def get_session(self, scheme, headers, cookies):
+        """Return session dict (decoded JSON doc or empty dict) for given request request parameters
+
+        :param scheme: the URL scheme to use for the session resource
+        :param headers: the headers to forward when requesting the resource
+        :param cookies: the cookies to forward when requesting the resource
         """
-        cache_key, url, headers, cookies = self._request_mapping(environ, cookies)
-        doc = self.cache.get(cache_key)
-        if doc is not None:
-            #deriva_debug('ClientSessionCachedProxy.get_session: returning cached session doc for client=%r' % (doc.get('client'),))
-            return doc
-        # we use PUT instead of GET to trigger webauthn's session extension logic
-        resp = self.requests_session.put(url, headers=headers, cookies=cookies)
+        # we use PUT to extend the session lifetime in the server
+        resp = self.requests_session.put(self.session_urls[scheme], headers=headers, cookies=cookies)
         if resp.status_code == 200:
-            doc = resp.json()
-            #deriva_debug('ClientSessionCachedProxy.get_session: saving and returning proxy response for client=%(client)r' % doc)
+            return resp.json()
         else:
-            doc = {}
-            #deriva_debug('ClientSessionCachedProxy.get_session: saving and returning proxy response for client=None')
-        self.cache[cache_key] = doc
-        return doc
+            return {}
 
     def get_context(self, environ, cookies, fallback=True):
         """
@@ -507,7 +507,12 @@ class ClientSessionCachedProxy (object):
             return context_from_environment(environ, fallback=fallback)
         else:
             # use method that does not depend on mod_webauthn
-            session = self.get_session(environ, cookies)
+            auth_hdr = environ.get('HTTP_AUTHORIZATION')
+            session = self.get_session(
+                environ['wsgi.url_scheme'].lower(),
+                {"Authorization": auth_hdr} if auth_hdr else {},
+                cookies,
+            )
             return context_from_session_dict(session, fallback=fallback)
 
 class RestException (werkzeug.exceptions.HTTPException):
