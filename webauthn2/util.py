@@ -36,6 +36,7 @@ import werkzeug.http
 import requests
 import cachetools
 import threading
+from http import cookiejar
 
 psycopg2.extensions.register_type(psycopg2.extensions.JSON)
 psycopg2.extensions.register_type(psycopg2.extensions.JSONARRAY)
@@ -428,6 +429,10 @@ def context_from_environment(environ, fallback=True):
     """
     return context_from_session_dict(session_from_environment(environ), fallback=fallback)
 
+class BlockSetCookie (cookiejar.DefaultCookiePolicy):
+    def set_ok(self, *args, **kwargs):
+        return False
+
 class ClientSessionCachedProxy (object):
     _default_config = {
         "session_host": "localhost",
@@ -459,6 +464,7 @@ class ClientSessionCachedProxy (object):
         )
         self.requests_session.mount('http://', requests.adapters.HTTPAdapter(max_retries=_retries))
         self.requests_session.mount('https://', requests.adapters.HTTPAdapter(max_retries=_retries))
+        self.requests_session.cookies.set_policy(BlockSetCookie())
 
         self.session_urls = {
             scheme: '%s://%s%s' % (scheme, self.session_host, self.session_path)
