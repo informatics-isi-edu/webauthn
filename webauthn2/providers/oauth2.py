@@ -1045,18 +1045,22 @@ class OAuth2SessionIdProvider (webcookie.WebcookieSessionIdProvider, database.Da
     def get_discovery_info(self):
         return(self.discovery_info)
 
-    def get_request_sessionids(self, manager, context, conn=None, cur=None):
+    def _get_request_bearer_token(self, manager, context, conn=None, cur=None):
         # Use md5 because apr library (used by webauthn apache module) doesn't support sha256
         bearer_token = bearer_token_util.token_from_request()
         if bearer_token != None:
             m = hashlib.md5()
             m.update(bearer_token.encode())
             return(["oauth2-hash:{hash}".format(hash=m.hexdigest())])
-            
+
+    def get_request_sessionids(self, manager, context, conn=None, cur=None):
+        res = self._get_request_bearer_token(manager, context, conn, cur)
+        if res:
+            return res
         return webcookie.WebcookieSessionIdProvider.get_request_sessionids(self, manager, context, conn, cur)
 
     def create_unique_sessionids(self, manager, context, conn=None, cur=None):
-        context.session.keys = self.get_request_sessionids(manager, context, conn, cur)
+        context.session.keys = self._get_request_bearer_token(manager, context, conn, cur)
         if context.session.keys == None or len(context.session.keys) == 0:
             webcookie.WebcookieSessionIdProvider.create_unique_sessionids(self, manager, context, conn, cur)
 
