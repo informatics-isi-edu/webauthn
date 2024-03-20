@@ -210,11 +210,30 @@ def request_trace(tracedata):
         webauthn2_context=deriva_ctx.webauthn2_context,
     ))
 
+class _Response (flask.Response):
+    """Like flask.Response but customizing set_cookie behavior for webauthn"""
+
+    def set_cookie(self, key, value='', max_age=None, expires=None, path=None, domain=None, secure=None, httponly=False):
+        """Allow webauthn config to customize default cookie parameters"""
+        if path is None:
+            path = _manager.config.get('web_cookie_path', '/')
+
+        if domain is None:
+            domain = _manager.config.get('web_cookie_domain', None)
+        if domain is True:
+            domain = '.%s' % (flask.request.host,)
+
+        if secure is None:
+            secure = _manager.config.get('web_cookie_secure', None)
+
+        return super(_Response, self).set_cookie(
+            key, value=value, max_age=max_age, expires=expires, path=path, domain=domain, secure=secure, httponly=httponly)
+
 @app.before_request
 def before_request():
     # request context init
     deriva_ctx.webauthn_dispatched_handler = None
-    deriva_ctx.deriva_response = flask.Response() # allow us to accumulate response content by side-effect
+    deriva_ctx.deriva_response = _Response() # allow us to accumulate response content by side-effect
     deriva_ctx.webauthn_request_guid = base64.b64encode( struct.pack('Q', random.getrandbits(64)) ).decode()
     deriva_ctx.webauthn_start_time = datetime.datetime.now(timezone.utc)
     deriva_ctx.webauthn_request_content_range = None
