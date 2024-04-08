@@ -61,12 +61,11 @@ from jwkest import jws
 from oauth2client.crypt import AppIdentityError, CLOCK_SKEW_SECS, AUTH_TOKEN_LIFETIME_SECS, MAX_TOKEN_LIFETIME_SECS, PyCryptoVerifier
 import time
 import base64
-from Crypto import Random
-from Crypto.Hash.HMAC import HMAC
-import Crypto.Hash.SHA256
-import Crypto.Hash.SHA512
-from Crypto.PublicKey import RSA
-from Crypto.Signature import PKCS1_v1_5
+from Cryptodome import Random
+from Cryptodome.Hash.HMAC import HMAC
+from Cryptodome.Hash import SHA256, SHA512
+from Cryptodome.PublicKey import RSA
+from Cryptodome.Signature import PKCS1_v1_5
 import datetime
 from datetime import timedelta, timezone
 import hashlib
@@ -100,7 +99,7 @@ config_built_ins = web_storage(
     )
 
 class nonce_util(database.DatabaseConnection2):
-    algorithm=Crypto.Hash.SHA256
+    algorithm=SHA256
     hash_key_table='oauth2_nonce'
     referrer_table='oauth2_nonce_referrer'
     default_referrer_timeout=3600
@@ -646,8 +645,8 @@ class OAuth2Login (ClientLogin):
 
     @staticmethod
     def verify_signature(alg_name, pem, signed, signature):
-        hash_algs = {'RS256' : Crypto.Hash.SHA256,
-                     'RS512' : Crypto.Hash.SHA512
+        hash_algs = {'RS256' : SHA256,
+                     'RS512' : SHA512
                      }
         hash_alg = hash_algs.get(alg_name)
         if hash_alg == None:
