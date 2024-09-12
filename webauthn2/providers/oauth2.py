@@ -238,8 +238,15 @@ WHERE nonce={nonce}
         return False
 
 class bearer_token_util():
+    TOKEN_ARG_NAME='token'
+
+    @classmethod
+    def token_from_request(cls):
+        header_token=cls.token_from_headers()
+        return header_token if header_token else cls.token_from_args()
+
     @staticmethod
-    def token_from_request():
+    def token_from_headers():
         authz_header=flask.request.environ.get('HTTP_AUTHORIZATION')
         if authz_header is None:
             return None
@@ -248,6 +255,10 @@ class bearer_token_util():
             deriva_debug('"Authorization:" header does not start with "Bearer "')
             return None
         return authz_header[7:].lstrip()
+
+    @classmethod
+    def token_from_args(cls):
+        return flask.request.args.get(cls.TOKEN_ARG_NAME)
 
 __all__ = [
     'OAuth2SessionStateProvider',
