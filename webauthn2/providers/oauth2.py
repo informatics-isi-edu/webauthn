@@ -291,15 +291,14 @@ class OAuth2Login (ClientLogin):
         # TODO: in theory the return value could be signed jwt
         userinfo_endpoint = self.provider.cfg.get('userinfo_endpoint')
         req = self.make_userinfo_request(self.provider.cfg.get('userinfo_endpoint'), self.payload.get('access_token'))
-#        deriva_debug(f"userinfo: {self.provider.cfg.get('userinfo_endpoint'}, {self.payload.get('access_token')}")
         f = self.open_url(req, "getting userinfo")
         self.userinfo=json.load(f)
-#        self.validate_userinfo()
+        self.validate_userinfo()
         f.close()
-        if self.id_token.get('iss') == None or self.id_token.get('sub') == None:
-            deriva_debug("Login failed, iss or sub is missing: {u}".format(u=str(self.id_token)))
-            raise OAuth2UserinfoError("Login failed, iss or sub is missing: {u}".format(u=str(self.id_token)))
-        username = str(self.id_token.get('iss') + '/' + self.id_token.get('sub'))
+        if self.userinfo.get('active') != True or self.userinfo.get('iss') == None or self.userinfo.get('sub') == None:
+            deriva_debug("Login failed, userinfo is not active, or iss or sub is missing: {u}".format(u=str(self.userinfo)))
+            raise OAuth2UserinfoError("Login failed, userinfo is not active, or iss or sub is missing: {u}".format(u=str(self.userinfo)))
+        username = str(self.userinfo.get('iss') + '/' + self.userinfo.get('sub'))
         context.user = dict()
         self.fill_context_from_userinfo(context, username, self.userinfo)
 
@@ -516,7 +515,7 @@ class OAuth2Login (ClientLogin):
             if a.get('scope') in found_scopes:
                 if a.get("issuer") == self.userinfo.get('iss'):
                     return
-        deriva_debug(f"Bad scope or issuer for OAuth2 bearer token, scopes={json.dumps(found_scopes)}, iss={self.userinfo.get('iss')}")
+        deriva_debug("Bad scope or issuer for OAuth2 bearer token")
         raise OAuth2UserinfoError("Bad scope or issuer for OAuth2 bearer token")
             
 
