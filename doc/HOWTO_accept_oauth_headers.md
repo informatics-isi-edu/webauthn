@@ -4,62 +4,67 @@ Making these changes will cause webauthn to look for HTTP headers of the form "A
 
 1. Preliminary steps
 
-Find your client's client id. On ISRD systems, that will be in a file called `/home/secrets/oauth2/client_secret_globus.json`, and the client id is the value of the `client_id` attribute. You can also find it on the [Globus Developers page](https://auth.globus.org/v2/web/developers). Add a DNS text record linking your host's fully qualified domain name to your client ID, like this:
-```
-webauthn-dev.isrd.isi.edu    text = "576d9c54-0788-4278-bb31-69432e7088ac"
-```
+    Find your client's client id. On ISRD systems, that will be in a file called `/home/secrets/oauth2/client_secret_globus.json`, and the client id is the value of the `client_id` attribute. You can also find it on the [Globus Developers page](https://auth.globus.org/v2/web/developers). Add a DNS text record linking your host's fully qualified domain name to your client ID, like this:
+    ```
+    webauthn-dev.isrd.isi.edu    text = "576d9c54-0788-4278-bb31-69432e7088ac"
+    ```
 
-2. Create a scope for your server. There are several ways to do this, including the [deriva-globus-auth-utils](http://docs.derivacloud.org/users-guide/managing-data.html) application included in the `deriva-py` distribution. Whichever way you choose, the underlying scope definition sent to the Globus server should look basically like this.
-```
-{
-    "scope": {
-        "name": "test-scope",
-        "description": "This is a scope for testing",
-        "scope_suffix": "test_scope",
-        "advertised": true,
-        "allows_refresh_tokens" : true,
-        "dependent_scopes": [
-            "openid",
-            "email",
-            "profile",
-            "urn:globus:auth:scope:auth.globus.org:view_identities",
-            "urn:globus:auth:scope:groups.api.globus.org:view_my_groups_and_memberships"
-        ]
+2. Create a scope for your server. The underlying scope definition sent to the Globus server should look basically like this:
+    ```
+    {
+        "scope": {
+            "name": "deriva-all",
+            "description": "Main scope for deriva",
+            "scope_suffix": "deriva_all",
+            "advertised": true,
+            "allows_refresh_tokens" : true,
+            "dependent_scopes": [
+                "openid",
+                "email",
+                "profile",
+                "urn:globus:auth:scope:auth.globus.org:view_identities",
+                "urn:globus:auth:scope:groups.api.globus.org:view_my_groups_and_memberships"
+            ]
+        }
     }
-}
-```
+    ```
+    There are several ways to do this, the following is how you can achieve this with the [deriva-globus-auth-utils](http://docs.derivacloud.org/users-guide/managing-data.html):
 
-When this request succeeds, you'll wind up with two scopes, with names like
+    ```
+    deriva-globus-auth-utils create-scope "deriva-all" "Main scope for deriva" "deriva_all" --dependent-scope-names "openid,email,profile,urn:globus:auth:scope:auth.globus.org:view_identities,urn:globus:auth:scope:groups.api.globus.org:view_my_groups_and_memberships" 
+    ```
 
-`https://auth.globus.org/scopes/webauthn-dev.isrd.isi.edu/test_scope`
+    When this request succeeds, you'll wind up with two scopes, with names like
 
-and
+    `https://auth.globus.org/scopes/webauthn-dev.isrd.isi.edu/deriva_all`
 
-`https://auth.globus.org/scopes/576d9c54-0788-4278-bb31-69432e7088ac/test-scope`
+    and
 
-with `test_scope` replaced with the scope_suffix from the body of the request, the host name replaced with the fully qualified domain name of the host that the request was run from, and the client id replaced with your host's client id.
+    `https://auth.globus.org/scopes/576d9c54-0788-4278-bb31-69432e7088ac/deriva-all`
+
+    with `test_scope` replaced with the scope_suffix from the body of the request, the host name replaced with the fully qualified domain name of the host that the request was run from, and the client id replaced with your host's client id.
 
 3. Make three changes to your `webauthn2_config.json` file:
 
-Change the `sessionids_provider` to `oauth2`.
+    - Change the `sessionids_provider` to `oauth2`.
 
-Add an `oauth2_accepted_scopes` provider with the scope name and issuer you decided to accept, e.g.:
+    - Add an `oauth2_accepted_scopes` provider with the scope name and issuer you decided to accept, e.g.:
 
-```
-    "oauth2_accepted_scopes": [
-        {
-           "scope" : "https://auth.globus.org/scopes/576d9c54-0788-4278-bb31-69432e7088ac/test-scope",
-	   "issuer" : "https://auth.globus.org"
-	}
+        ```
+        "oauth2_accepted_scopes": [
+            {
+                "scope" : "https://auth.globus.org/scopes/576d9c54-0788-4278-bb31-69432e7088ac/deriva-all",
+                "issuer" : "https://auth.globus.org"
+            }
 
-    ],
-```
-Add the scope to the list of scopes your server advertises (this will cause your server to advertise this information on https://yourhost/authn/discovery, to give clients a hint as to what scopes to request):
-```
-    "oauth2_discovery_scopes" : {
-        "deriva-test" : "https://auth.globus.org/scopes/webauthn-dev.isrd.isi.edu/deriva_test_deps_3"
-    },
-```
+        ],
+        ```
+    - Add the scope to the list of scopes your server advertises (this will cause your server to advertise this information on https://yourhost/authn/discovery, to give clients a hint as to what scopes to request):
+        ```
+        "oauth2_discovery_scopes" : {
+            "deriva-all" : "https://auth.globus.org/scopes/webauthn-dev.isrd.isi.edu/deriva_test_deps_3"
+        },
+        ```
 
 4. Restart httpd.
 
