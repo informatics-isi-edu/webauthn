@@ -23,10 +23,14 @@ DAEMONUSER=webauthn
 
 INSTALL_SCRIPT=./install-script
 
-# make this the default target
-install: samples/wsgi_webauthn2.conf force
+install-core: samples/wsgi_webauthn2.conf force
 	pip3 install --upgrade .
+
+install-module:
 	$(MAKE) -C apache_module install
+
+# make this the default target
+install: install-core install-module
 
 testvars: force
 	@echo DAEMONUSER=$(DAEMONUSER)
@@ -37,9 +41,13 @@ testvars: force
 	@echo WSGISOCKETPREFIX=$(WSGISOCKETPREFIX)
 	@echo PYLIBDIR=$(PYLIBDIR)
 
-deploy: install
+deploy-core: install-core
 	env SHAREDIR=$(SHAREDIR) HTTPDCONFDIR=$(HTTPDCONFDIR) webauthn2-deploy
+
+deploy-module:
 	$(MAKE) -C apache_module deploy
+
+deploy: deploy-core deploy-module
 
 samples/wsgi_webauthn2.conf: samples/wsgi_webauthn2.conf.in force
 	./install-script -M sed -R @PYLIBDIR@=$(PYLIBDIR) @WSGISOCKETPREFIX@=$(WSGISOCKETPREFIX) @DAEMONUSER@=$(DAEMONUSER) -o root -g root -m a+r -p -D $< $@
