@@ -78,6 +78,8 @@ syslogformatter = logging.Formatter('%(name)s[%(process)d.%(thread)d]: %(message
 sysloghandler.setFormatter(syslogformatter)
 logger.addHandler(sysloghandler)
 logger.setLevel(logging.INFO)
+logging.captureWarnings(True)
+warnings_logger = logging.getLogger("py.warnings").addHandler(sysloghandler)
 
 app = flask.Flask(__name__)
 
@@ -158,7 +160,7 @@ def format_final_json(*, environ, start_time, req, client, webauthn2_context, st
         dcctx = urllib.parse.unquote(dcctx)
         dcctx = prune_excessive_dcctx(json.loads(dcctx))
     except Exception as e:
-        deriva_debug('Error during dcctx decoding: %s' % e)
+        #deriva_debug('Error during dcctx decoding: %s' % e)
         dcctx = None
 
     od = OrderedDict([
@@ -412,7 +414,7 @@ class RestHandlerFactory (object):
                 # Debug for referrer tracing
                 referrer_arg = str(web_input().get('referrer'))
                 referer_header = str(flask.request.environ.get('HTTP_REFERER'))
-                deriva_debug("in GET /session, referrer arg is '{referrer_arg}', Referrer header is '{referer_header}'".format(referrer_arg=referrer_arg, referer_header=referer_header))
+                #deriva_debug("in GET /session, referrer arg is '{referrer_arg}', Referrer header is '{referer_header}'".format(referrer_arg=referrer_arg, referer_header=referer_header))
                 
                 def db_body(conn, cur):
                     self.context = Context(self.manager, False, conn, cur)
@@ -432,7 +434,7 @@ class RestHandlerFactory (object):
 
                 def has_login_params():
                     for p in web_input():
-                        if p != 'referrer' and p != 'cid':
+                        if p != 'referrer' and p != 'cid' and p != 'resource':
                             return True
                     return False
 
@@ -1163,7 +1165,7 @@ class RestHandlerFactory (object):
                 if not self.manager.attributes.assign:
                     raise NoMethod()
 
-                def db_body(db):
+                def db_body(conn, cur):
                     try:
                         self.context = self.manager.get_request_context(conn=conn, cur=cur)
                     except (ValueError, IndexError):
