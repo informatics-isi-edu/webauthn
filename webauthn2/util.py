@@ -37,6 +37,7 @@ import requests
 import cachetools
 import threading
 from http import cookiejar
+from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 
 psycopg2.extensions.register_type(psycopg2.extensions.JSON)
 psycopg2.extensions.register_type(psycopg2.extensions.JSONARRAY)
@@ -441,6 +442,7 @@ class ClientSessionCachedProxy (object):
         "session_cache_max_age_s": 60,
         "session_cache_max_entries": 100,
         "session_https_verify": True,
+        "session_resource_ids": ["urn:deriva:rest:service:all"]
     }
 
     def __init__(self, config=None):
@@ -451,6 +453,7 @@ class ClientSessionCachedProxy (object):
         self.session_host = config.session_host
         self.session_path = config.session_path
         self.session_cookie_name = config.web_cookie_name
+        self.session_resource_ids = config.session_resource_ids
         self.cache = cachetools.TTLCache(config.session_cache_max_entries, config.session_cache_max_age_s)
         self.lock = threading.Lock()
 
@@ -480,18 +483,40 @@ class ClientSessionCachedProxy (object):
         lock=lambda self: self.lock,
     )
     def get_session(self, scheme, headers, cookies):
-        """Return session dict (decoded JSON doc or empty dict) for given request request parameters
+        """Return session dict (decoded JSON doc or empty dict) for given request parameters
 
         :param scheme: the URL scheme to use for the session resource
         :param headers: the headers to forward when requesting the resource
         :param cookies: the cookies to forward when requesting the resource
         """
         # we use PUT to extend the session lifetime in the server
-        resp = self.requests_session.put(self.session_urls[scheme], headers=headers, cookies=cookies)
+        url = self.add_resources(self.session_urls[scheme])
+        resp = self.requests_session.put(url, headers=headers, cookies=cookies)
         if resp.status_code == 200:
             return resp.json()
         else:
             return {}
+
+    def add_resources(self, url):
+        if not self.session_resource_ids:
+            return url
+
+        # Normalize to a list while avoiding iterating over a plain string
+        if isinstance(self.session_resource_ids, (list, tuple, set)):
+            resources = [s for r in self.session_resource_ids if isinstance(r, str) and (s := r.strip())]
+        elif isinstance(self.session_resource_ids, str):
+            s = self.session_resource_ids.strip()
+            resources = [s] if s else []
+        else:
+            resources = []
+
+        if not resources:
+            return url
+
+        p = urlparse(url)
+        q = parse_qsl(p.query, keep_blank_values=True)
+        q.extend([("resource", r) for r in resources])
+        return urlunparse(p._replace(query=urlencode(q, doseq=True)))
 
     def get_context(self, environ, cookies, fallback=True):
         """

@@ -24,7 +24,7 @@ datadir = 'share/webauthn2'
 setup(
     name="webauthn2",
     description="web app security context management system",
-    version="0.3",
+    version="0.4",
     packages=["webauthn2", "webauthn2.providers"],
     scripts=["bin/webauthn2-db-init", "bin/webauthn2-manage", "bin/webauthn2-deploy"],
     package_data={
