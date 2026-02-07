@@ -1059,7 +1059,8 @@ class OAuth2SessionIdProvider (webcookie.WebcookieSessionIdProvider, database.Da
         return webcookie.WebcookieSessionIdProvider.get_request_sessionids(self, manager, context, conn, cur)
 
     def create_unique_sessionids(self, manager, context, conn=None, cur=None):
-        context.session.keys = self._get_request_bearer_token(manager, context, conn, cur)
+        if flask.has_request_context():
+            context.session.keys = self._get_request_bearer_token(manager, context, conn, cur)
         if context.session.keys == None or len(context.session.keys) == 0:
             webcookie.WebcookieSessionIdProvider.create_unique_sessionids(self, manager, context, conn, cur)
 
