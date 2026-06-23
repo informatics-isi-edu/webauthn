@@ -54,11 +54,9 @@ import uuid
 import json
 import psycopg2
 import flask
-import oauth2client.client
 import jwkest
 from jwkest import jwk
 from jwkest import jws
-from oauth2client.crypt import AppIdentityError, CLOCK_SKEW_SECS, AUTH_TOKEN_LIFETIME_SECS, MAX_TOKEN_LIFETIME_SECS, PyCryptoVerifier
 import time
 import base64
 from Cryptodome import Random
@@ -74,6 +72,16 @@ import math
 from ..util import *
 from . import database, webcookie
 from .providers import *
+
+# Formerly imported from oauth2client.crypt; inlined here to drop the
+# unmaintained oauth2client dependency (and its transitive pyOpenSSL load,
+# which breaks against cryptography>=42). These are the only two symbols
+# this module ever used from oauth2client; JWT signatures are verified via
+# PyCryptodome (see verify_signature).
+CLOCK_SKEW_SECS = 300
+
+class AppIdentityError(Exception):
+    pass
 
 if sys.version_info[:2] >= (3, 8):
     from collections.abc import MutableMapping
@@ -374,7 +382,7 @@ class OAuth2Login (ClientLogin):
             self.payload=json.load(u)
 #            deriva_debug("openid connect flow: payload is {p}".format(p=json.dumps(self.payload)))
         except Exception as ex:
-            raise OAUth2Exception('Exception decoding token payload: http code {code}'.format(code=str(u.getcode())))
+            raise OAuth2Exception('Exception decoding token payload: http code {code}'.format(code=str(u.getcode())))
         u.close()
             
         raw_id_token=self.payload.get('id_token')
@@ -397,11 +405,11 @@ class OAuth2Login (ClientLogin):
         self.id_token=id_result.get('body')
         id_header=id_result.get('header')
         if self.id_token.get('iss') == None or self.id_token.get('iss').strip() == '':
-            raise OAuth2IDTokenError('No issuer in ID token')
+            raise OAuth2IdTokenError('No issuer in ID token')
         if self.id_token.get('sub') == None or self.id_token.get('sub').strip() == '':
-            raise OAuth2IDTokenError('No subject in ID token')
+            raise OAuth2IdTokenError('No subject in ID token')
         if self.provider.provider_sets_token_nonce and self.id_token.get('nonce') != nonce_vals.get('auth_url_nonce'):
-            raise OAuth2IDTokenError('Bad nonce in ID token')
+            raise OAuth2IdTokenError('Bad nonce in ID token')
 
         # Validate access token
         self.validate_access_token(id_header.get('alg'), self.id_token.get('at_hash'), self.payload.get('access_token'))
