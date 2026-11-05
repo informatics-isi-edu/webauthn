@@ -368,7 +368,8 @@ class OAuth2Login (ClientLogin):
             'nonce' : nonce_vals['auth_url_nonce'],
             'grant_type' : 'authorization_code'}
 
-        deriva_debug('authorization_code_flow token_args=%r' % (token_args,))
+        # enabling this leaks client_secret to logs!
+        #deriva_debug('authorization_code_flow token_args=%r' % (token_args,))
         
         token_request = urllib.request.Request(self.provider.cfg.get('token_endpoint'), urllib.parse.urlencode(token_args).encode())
         self.add_extra_token_request_headers(token_request)
